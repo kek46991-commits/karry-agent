@@ -14,7 +14,12 @@ def web_search_mock(query: str) -> str:
     return f"[Search Results for '{query}']: Simulated search response with relevant web information."
 
 
-# エージェントに登録するツール一覧
-AGENT_TOOLS = [get_current_datetime, web_search_mock]
+def generate_image_mock(prompt: str) -> str:
+    """テキストプロンプトに基づく画像生成の安全なモック。"""
+    return f"[Image Generated]: Successfully generated image for prompt '{prompt}' (mock_image_path.png)"
 
-__all__ = ["get_current_datetime", "web_search_mock", "AGENT_TOOLS"]
+
+# エージェントに登録するツール一覧
+AGENT_TOOLS = [get_current_datetime, web_search_mock, generate_image_mock]
+
+__all__ = ["get_current_datetime", "web_search_mock", "generate_image_mock", "AGENT_TOOLS"]

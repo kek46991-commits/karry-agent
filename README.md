@@ -11,6 +11,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - 対話型 CLI インターフェース (`cli.py`)
 - **Function Calling ツール連携 (`tools.py`)**
 - Phase 4 第1ステップ: 現在日時取得・Web検索モックツール
+- Phase 5 第1ステップ: Imagen 連携に向けた画像生成モックツール
 
 ## 🚀 クイックスタート
 
@@ -33,5 +34,7 @@ from tools import AGENT_TOOLS, get_current_datetime, web_search_mock
 
 print(get_current_datetime())
 print(web_search_mock("Gemini API"))
+from tools import generate_image_mock
+print(generate_image_mock("青い空を飛ぶ白い鳥"))
 print(AGENT_TOOLS)
 ```

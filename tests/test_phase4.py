@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import re
 
-from tools import AGENT_TOOLS, get_current_datetime, web_search_mock
+from tools import AGENT_TOOLS, generate_image_mock, get_current_datetime, web_search_mock
 from karry_agent.core import AgentCore
 
 
@@ -17,7 +17,7 @@ def test_web_search_mock_contains_query():
 
 
 def test_agent_tools_registry_order():
-    assert AGENT_TOOLS == [get_current_datetime, web_search_mock]
+    assert AGENT_TOOLS == [get_current_datetime, web_search_mock, generate_image_mock]
     assert all(callable(tool) for tool in AGENT_TOOLS)
 
 
