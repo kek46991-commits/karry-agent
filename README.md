@@ -12,6 +12,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - **Function Calling ツール連携 (`tools.py`)**
 - Phase 4 第1ステップ: 現在日時取得・Web検索モックツール
 - Phase 5 第1ステップ: Imagen 連携に向けた画像生成モックツール
+- Phase 6 第1ステップ: 会話履歴を管理する `ConversationMemory`
 
 ## 🚀 クイックスタート
 
