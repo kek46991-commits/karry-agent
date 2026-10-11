@@ -4,12 +4,14 @@ from __future__ import annotations
 import threading
 import uuid
 import json
+from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from karry_agent.core import AgentCore, AgentResult
@@ -20,6 +22,8 @@ app = FastAPI(
     version="0.2.0",
     description="Gemini Function Calling agent API with chat and execution tracking",
 )
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class RunRequest(BaseModel):
@@ -150,6 +154,13 @@ def _stream_chat(request: RunRequest, agent: AgentCore):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "karry-agent"}
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    from fastapi.responses import FileResponse
+
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.post("/run", response_model=RunResponse)
