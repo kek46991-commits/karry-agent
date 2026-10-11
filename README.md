@@ -103,3 +103,7 @@ Render でジミーモードを有効にする場合は、`SECRET_PASSPHRASE` �
 ### `/agent/run` 互換エンドポイント
 
 旧 Jimmy-Core 形式の `{ "task": "...", "session_id": "optional" }` を受け付ける互換 API を追加しています。内部では既存の `AgentCore`、Function Calling、メトリクス、プライベートモード認証を利用し、旧 `google.generativeai` SDK は使用しません。
+
+### API キー未設定時のエラー
+
+Gemini API キーが未設定の Web Service は、`Internal Server Error` ではなく HTTP 503 と `GEMINI_API_KEY is not set...` の JSON を返します。Render の Environment で `GEMINI_API_KEY` を Secret として設定し、再デプロイしてください。

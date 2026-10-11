@@ -83,7 +83,12 @@ _MAX_SESSIONS = 100
 
 def get_agent() -> AgentCore:
     """依存性注入ポイント。テストや別デプロイ構成で差し替え可能。"""
-    return AgentCore()
+    try:
+        return AgentCore()
+    except ValueError as exc:
+        # Dependency injection の外側で発生する設定エラーは、FastAPI の
+        # 無情報な 500 ではなく、運用者が修正できる 503 として返す。
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _metrics(result: AgentResult) -> dict[str, Any]:

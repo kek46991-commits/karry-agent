@@ -215,3 +215,7 @@ GitHub Actions は `main` への push / pull request で依存関係を導入し
 ```
 
 レスポンスには `status`、`task`、`thought_process`（AgentCore の最終出力）、`next_action`、`run_id`、`trace`、`metrics`、`private_mode` が含まれます。`thought_process` は内部の非公開 Chain-of-Thought を返すものではなく、ユーザー向けの実行結果です。
+
+## 12. API キー未設定時のエラー対応
+
+`get_agent()` の依存性注入中に `GEMINI_API_KEY` が未設定でも、無情報の 500 を返さず HTTP 503 と設定原因を示す JSON を返すようにしました。Render では Environment の `GEMINI_API_KEY` に実値を Secret として登録してから再デプロイします。
