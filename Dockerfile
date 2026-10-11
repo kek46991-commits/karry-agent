@@ -1,18 +1,12 @@
-# Python 3.11 の軽量イメージをベースにする
 FROM python:3.11-slim
-
-# 作業ディレクトリの設定
 WORKDIR /app
-
-# 依存関係ファイルをコピーしてインストール
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# プロジェクトのソースコードをすべてコピー
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src
+COPY requirements.txt pyproject.toml README.md ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 COPY . .
-
-# src レイアウトのパッケージを解決できるようにする
-ENV PYTHONPATH=/app/src
-
-# コンテナ起動時のデフォルトコマンド
-CMD ["python3", "main.py"]
+RUN pip install --no-cache-dir .
+EXPOSE 8000
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

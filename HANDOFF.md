@@ -133,7 +133,7 @@ docker compose run --rm karry-agent
 
 `render.yaml` は Python Web Service として次を設定します。
 
-- `pip install --upgrade pip && pip install -r requirements.txt`
+- `pip install --upgrade pip && pip install -r requirements.txt && pip install .`
 - `uvicorn app:app --host 0.0.0.0 --port $PORT`
 - `main` ブランチの自動デプロイ
 - `/health` のヘルスチェック

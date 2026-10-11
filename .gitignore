@@ -3,6 +3,8 @@
 !.env.example
 *.secret
 *.key
+build/
+dist/
 .venv/
 __pycache__/
 *.py[cod]

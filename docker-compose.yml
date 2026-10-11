@@ -7,7 +7,9 @@ services:
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      SECRET_PASSPHRASE: ${SECRET_PASSPHRASE:-}
     volumes:
       - .:/app
     stdin_open: true
     tty: true
+    command: ["python3", "main.py"]
