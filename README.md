@@ -10,6 +10,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - `progress.md` へのタスク進捗ログ記録
 - 対話型 CLI インターフェース (`cli.py`)
 - **Function Calling ツール連携 (`tools.py`)**
+- Phase 4 第1ステップ: 現在日時取得・Web検索モックツール
 
 ## 🚀 クイックスタート
 
@@ -22,5 +23,15 @@ pip install -r requirements.txt
 cp .env.example .env
 # .env 内の GEMINI_API_KEY に自身のAPIキーを入力
 python3 cli.py
-python3 -m unittest discover tests
+python3 -m pytest -q
+```
+
+### 2. 外部ツールの確認
+
+```python
+from tools import AGENT_TOOLS, get_current_datetime, web_search_mock
+
+print(get_current_datetime())
+print(web_search_mock("Gemini API"))
+print(AGENT_TOOLS)
 ```
