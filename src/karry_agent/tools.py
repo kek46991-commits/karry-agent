@@ -1,6 +1,7 @@
 """Built-in tools exposed to Gemini function calling."""
 from __future__ import annotations
 
+import datetime
 import json
 import os
 from dataclasses import dataclass
@@ -32,8 +33,18 @@ class ToolRegistry:
             return {"error": f"unknown tool: {name}"}
         try:
             return tool.handler(**args)
-        except Exception as exc:  # ツールエラーをモデルへ返し、ループを継続可能にする
+        except Exception as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def get_current_datetime() -> str:
+    """現在の日時を ``YYYY-MM-DD HH:MM:SS`` 形式で返す。"""
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def web_search_mock(query: str) -> str:
+    """最新情報検索の接続先を差し替えるための安全なモック。"""
+    return f"[Search Results for '{query}']: Simulated search response with relevant web information."
 
 
 def _safe_path(path: str) -> Path:
@@ -81,6 +92,8 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
     string_param = {"type": "string"}
+    registry.register("get_current_datetime", "現在の日時を取得する", {"type": "object", "properties": {}}, get_current_datetime)
+    registry.register("web_search_mock", "Web 検索のモックを実行する", {"type": "object", "properties": {"query": string_param}, "required": ["query"]}, web_search_mock)
     registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
     registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
