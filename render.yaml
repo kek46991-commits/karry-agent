@@ -11,6 +11,8 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      - key: SECRET_PASSPHRASE
+        sync: false
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
       - key: KARRY_WORKSPACE

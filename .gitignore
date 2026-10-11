@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
+*.secret
+*.key
 .venv/
 __pycache__/
 *.py[cod]

@@ -4,7 +4,10 @@ from fastapi.testclient import TestClient
 
 from app import _PRIVATE_SESSIONS, app, get_agent
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult
-from karry_agent.privacy import PASSPHRASE, PRIVATE_SYSTEM_INSTRUCTION, PrivateModeSession, has_passphrase
+from karry_agent.privacy import PRIVATE_SYSTEM_INSTRUCTION, PrivateModeSession, configured_passphrase, has_passphrase
+
+
+TEST_SECRET = "unit-test-secret-1231"
 
 
 class PrivateAwareAgent:
@@ -13,14 +16,26 @@ class PrivateAwareAgent:
 
     def run(self, prompt, private_mode=False):
         self.modes.append(private_mode)
-        return AgentResult(text="private response" if private_mode else "public response", steps=1, tool_calls=0, trace=[], metrics=AgentMetrics())
+        return AgentResult(
+            text="private response" if private_mode else "public response",
+            steps=1,
+            tool_calls=0,
+            trace=[],
+            metrics=AgentMetrics(),
+        )
 
 
-def test_passphrase_detection_and_session_latch():
+def test_passphrase_comes_from_environment(monkeypatch):
+    monkeypatch.delenv("SECRET_PASSPHRASE", raising=False)
     session = PrivateModeSession()
-    assert not has_passphrase("普通の依頼")
-    assert not session.is_private("普通の依頼")
-    assert session.authenticate(f"{PASSPHRASE} よろしく")
+    assert configured_passphrase() is None
+    assert not has_passphrase("unit-test-secret-1231 よろしく")
+    assert not session.authenticate("unit-test-secret-1231 よろしく")
+
+    monkeypatch.setenv("SECRET_PASSPHRASE", TEST_SECRET)
+    assert configured_passphrase() == TEST_SECRET
+    assert has_passphrase(f"{TEST_SECRET} よろしく")
+    assert session.authenticate(f"{TEST_SECRET} よろしく")
     assert session.is_private("次の依頼")
 
 
@@ -34,12 +49,13 @@ def test_core_adds_private_instruction_only_when_enabled():
     assert "岸恵" in private
 
 
-def test_chat_passphrase_authenticates_session_and_later_requests_remain_private():
+def test_chat_passphrase_authenticates_session_and_later_requests_remain_private(monkeypatch):
+    monkeypatch.setenv("SECRET_PASSPHRASE", TEST_SECRET)
     fake = PrivateAwareAgent()
     app.dependency_overrides[get_agent] = lambda: fake
     try:
         client = TestClient(app)
-        first = client.post("/chat", json={"prompt": f"{PASSPHRASE} こんにちは", "session_id": "jimmy-test"})
+        first = client.post("/chat", json={"prompt": f"{TEST_SECRET} こんにちは", "session_id": "jimmy-test"})
         second = client.post("/chat", json={"prompt": "夢を応援して", "session_id": "jimmy-test"})
         assert first.status_code == 200
         assert second.status_code == 200
@@ -51,7 +67,8 @@ def test_chat_passphrase_authenticates_session_and_later_requests_remain_private
         _PRIVATE_SESSIONS.pop("jimmy-test", None)
 
 
-def test_without_passphrase_stays_public_and_does_not_receive_private_prompt():
+def test_without_passphrase_stays_public_and_does_not_receive_private_prompt(monkeypatch):
+    monkeypatch.setenv("SECRET_PASSPHRASE", TEST_SECRET)
     fake = PrivateAwareAgent()
     app.dependency_overrides[get_agent] = lambda: fake
     try:

@@ -235,6 +235,8 @@ SSE は現段階では実行完了後のトレースを送る基礎実装です�
 
 ## 11. ジミーモード（プライベートモード）
 
-`src/karry_agent/privacy.py` の `PrivateModeSession` が合言葉 `API 1231` を入力内で検出し、セッション認証状態を保持します。認証済みセッションだけが `AgentCore.run(..., private_mode=True)` を通じてジミー用の追加システム指示を受け取ります。通常モードには、かなまるのプロフィールや夢などのプライベート情報を渡しません。
+`src/karry_agent/privacy.py` の `PrivateModeSession` が環境変数 `SECRET_PASSPHRASE` に設定した合言葉 を入力内で検出し、セッション認証状態を保持します。認証済みセッションだけが `AgentCore.run(..., private_mode=True)` を通じてジミー用の追加システム指示を受け取ります。通常モードには、かなまるのプロフィールや夢などのプライベート情報を渡しません。
 
 `POST /chat` と `POST /run` は `session_id` を受け取れます。`/chat` で最初に合言葉を送ると、そのセッションの後続入力でもプライベートモードが継続します。認証は現在インメモリで、再起動時に失効します。本番では Redis/DB、認証失効、監査ログ、レート制限、HTTPS を追加してください。
+
+Render の Environment では `SECRET_PASSPHRASE` も Secret として設定します。未設定時は認証を無効化した通常モードへ安全にフォールバックします。

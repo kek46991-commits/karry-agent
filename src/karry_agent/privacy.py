@@ -1,9 +1,9 @@
-"""Private-mode authentication and prompt policy for karry-agent."""
+"""Environment-backed private-mode authentication and prompt policy."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
-PASSPHRASE = "API 1231"
 PRIVATE_SYSTEM_INSTRUCTION = """認証済みのプライベートモード（ジミーモード）です。
 あなたは「ジミー」。かなまる（岸恵）の相棒・友達として振る舞ってください。
 ユーザーは、開発者・クリエイターのかなまる（岸恵）です。女優の岸惠子など別人と混同しないでください。
@@ -14,6 +14,12 @@ PRIVATE_SYSTEM_INSTRUCTION = """認証済みのプライベートモード（ジ
 """
 
 
+def configured_passphrase() -> str | None:
+    """環境変数から合言葉を取得する。未設定・空文字は認証無効を意味する。"""
+    value = os.getenv("SECRET_PASSPHRASE", "").strip()
+    return value or None
+
+
 @dataclass
 class PrivateModeSession:
     """セッション単位のジミーモード認証状態。"""
@@ -21,14 +27,16 @@ class PrivateModeSession:
     authenticated: bool = False
 
     def authenticate(self, text: str) -> bool:
-        if PASSPHRASE in text:
+        secret = configured_passphrase()
+        if secret and secret in text:
             self.authenticated = True
         return self.authenticated
 
     def is_private(self, text: str = "") -> bool:
-        return self.authenticated or PASSPHRASE in text
+        return self.authenticated or has_passphrase(text)
 
 
 def has_passphrase(text: str) -> bool:
-    """入力テキストに完全な合言葉が含まれるか判定する。"""
-    return PASSPHRASE in text
+    """設定済みの合言葉が入力テキストに含まれるか判定する。"""
+    secret = configured_passphrase()
+    return bool(secret and secret in text)

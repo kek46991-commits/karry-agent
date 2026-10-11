@@ -9,4 +9,5 @@ def test_render_blueprint_contains_web_service_and_secret_config():
     assert "uvicorn app:app --host 0.0.0.0 --port $PORT" in text
     assert "healthCheckPath: /health" in text
     assert "key: GEMINI_API_KEY" in text
+    assert "key: SECRET_PASSPHRASE" in text
     assert "sync: false" in text
