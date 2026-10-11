@@ -203,3 +203,15 @@ GitHub Actions は `main` への push / pull request で依存関係を導入し
 - `git status --short --branch` が clean で、`main` と `origin/main` が一致していることを確認する。
 - `python -m pytest -q` と `git diff --check` を実行する。
 - 本番公開前に認証、監査、レート制限、永続化、秘密情報のマスキングを再確認する。
+
+## 11. `/agent/run` 互換 API
+
+旧サンプルの `task` 形式を受け付ける `POST /agent/run` を `app.py` に追加しました。内部では既存の `AgentCore` と `google-genai` SDK、ツール実行、メトリクス、`SECRET_PASSPHRASE` によるセッション認証を利用します。旧 `google.generativeai` の直接呼び出しや別の API キー管理は導入していません。
+
+リクエスト例:
+
+```json
+{"task":"現在時刻を確認してください","session_id":"optional-session"}
+```
+
+レスポンスには `status`、`task`、`thought_process`（AgentCore の最終出力）、`next_action`、`run_id`、`trace`、`metrics`、`private_mode` が含まれます。`thought_process` は内部の非公開 Chain-of-Thought を返すものではなく、ユーザー向けの実行結果です。

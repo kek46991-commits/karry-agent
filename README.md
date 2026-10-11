@@ -99,3 +99,7 @@ Render の Environment 画面で `GEMINI_API_KEY` を Secret として設定し�
 
 この機能はセッション単位のインメモリ認証です。Render などで複数インスタンスを運用する場合は、セッション認証ストアを Redis などへ移行し、認証・監査・失効・レート制限を追加してください。
 Render でジミーモードを有効にする場合は、`SECRET_PASSPHRASE` も Environment の Secret として設定してください。未設定ならプライベートモードは無効化され、通常モードで安全に動作します。
+
+### `/agent/run` 互換エンドポイント
+
+旧 Jimmy-Core 形式の `{ "task": "...", "session_id": "optional" }` を受け付ける互換 API を追加しています。内部では既存の `AgentCore`、Function Calling、メトリクス、プライベートモード認証を利用し、旧 `google.generativeai` SDK は使用しません。

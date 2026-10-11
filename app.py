@@ -33,6 +33,13 @@ class RunRequest(BaseModel):
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
 
 
+class AgentTaskRequest(BaseModel):
+    """旧サンプル形式との互換リクエスト。内部では prompt に変換する。"""
+
+    task: str = Field(..., min_length=1, max_length=20_000, description="エージェントへのタスク")
+    session_id: str | None = Field(default=None, max_length=100)
+
+
 class RunResponse(BaseModel):
     run_id: str
     session_id: str | None = None
@@ -41,6 +48,22 @@ class RunResponse(BaseModel):
     steps: int
     tool_calls: int
     private_mode: bool = False
+    trace: list[dict[str, Any]] = Field(default_factory=list)
+    metrics: dict[str, Any]
+
+
+class AgentRunResponse(BaseModel):
+    """`/agent/run` の互換レスポンス。実行の詳細も保持する。"""
+
+    status: str
+    task: str
+    thought_process: str
+    next_action: str
+    run_id: str
+    session_id: str | None = None
+    private_mode: bool = False
+    steps: int
+    tool_calls: int
     trace: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any]
 
@@ -187,6 +210,31 @@ def index():
 @app.post("/run", response_model=RunResponse)
 def run_agent(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -> RunResponse:
     return _execute(request, agent)
+
+
+@app.post("/agent/run", response_model=AgentRunResponse)
+def run_agent_compat(
+    request: AgentTaskRequest,
+    agent: Annotated[AgentCore, Depends(get_agent)],
+) -> AgentRunResponse:
+    """旧 Jimmy-Core サンプルの task 形式を既存の安全な AgentCore へ接続する。"""
+    response = _execute(
+        RunRequest(prompt=request.task, session_id=request.session_id),
+        agent,
+    )
+    return AgentRunResponse(
+        status=response.status,
+        task=request.task,
+        thought_process=response.text,
+        next_action="実行完了または次のステップへ移行",
+        run_id=response.run_id,
+        session_id=response.session_id,
+        private_mode=response.private_mode,
+        steps=response.steps,
+        tool_calls=response.tool_calls,
+        trace=response.trace,
+        metrics=response.metrics,
+    )
 
 
 @app.post("/chat", response_model=None)
