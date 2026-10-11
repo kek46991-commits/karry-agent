@@ -13,6 +13,9 @@ dependencies = [
   "python-dotenv>=1.0.0,<2",
   "fastapi>=0.115.0,<1",
   "uvicorn[standard]>=0.30.0,<1",
+  "google-api-python-client>=2.140.0,<3",
+  "google-auth-httplib2>=0.2.0,<1",
+  "google-auth-oauthlib>=1.2.0,<2",
 ]
 
 [project.optional-dependencies]

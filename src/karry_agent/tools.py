@@ -213,6 +213,73 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     return {"query": query, "results": results[:max_results]}
 
 
+def _calendar_service() -> Any:
+    """既存 token を優先して Google Calendar API client を作成する。"""
+    try:
+        from google.auth.transport.requests import Request as GoogleRequest
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+    except ImportError as exc:
+        raise RuntimeError("Google Calendar dependencies are not installed") from exc
+
+    scopes = ["https://www.googleapis.com/auth/calendar"]
+    token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
+    credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
+    creds = None
+    if token_path.is_file():
+        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(GoogleRequest())
+    elif not creds or not creds.valid:
+        if not credentials_path.is_file():
+            raise FileNotFoundError(
+                "Google Calendar の認証が未設定です。GOOGLE_CALENDAR_TOKEN_FILE または credentials.json を設定してください。"
+            )
+        if os.getenv("GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH") != "1":
+            raise RuntimeError(
+                "Google Calendar の既存 token がありません。ローカルで GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1 を設定して OAuth を完了してください。"
+            )
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        creds = InstalledAppFlow.from_client_secrets_file(str(credentials_path), scopes).run_local_server(port=0)
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json(), encoding="utf-8")
+    try:
+        token_path.chmod(0o600)
+    except OSError:
+        pass
+    return build("calendar", "v3", credentials=creds)
+
+
+def add_calendar_event(
+    summary: str,
+    start_time: str,
+    duration_minutes: int = 60,
+    confirmed: bool = False,
+) -> dict[str, Any]:
+    """予定をプレビューし、confirmed=True のときだけ Google Calendar に登録する。"""
+    if not summary.strip():
+        return {"error": "summary is required"}
+    if not 1 <= duration_minutes <= 1_440:
+        return {"error": "duration_minutes must be between 1 and 1440"}
+    try:
+        start = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    except ValueError:
+        return {"error": "start_time must be ISO 8601, for example 2026-10-12T10:00:00+09:00"}
+    if start.tzinfo is None:
+        return {"error": "start_time must include a timezone offset"}
+    end = start + datetime.timedelta(minutes=duration_minutes)
+    event = {
+        "summary": summary,
+        "start": {"dateTime": start.isoformat(), "timeZone": "Asia/Tokyo"},
+        "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Tokyo"},
+    }
+    if not confirmed:
+        return {"confirmation_required": True, "event_preview": event}
+    service = _calendar_service()
+    result = service.events().insert(calendarId="primary", body=event).execute()
+    return {"created": True, "event_id": result.get("id"), "html_link": result.get("htmlLink"), "event": event}
+
+
 def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
     string_param = {"type": "string"}
@@ -227,4 +294,19 @@ def build_default_registry() -> ToolRegistry:
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
+    registry.register(
+        "add_calendar_event",
+        "Google Calendar の予定をプレビューする。実際の登録には confirmed=true が必要",
+        {
+            "type": "object",
+            "properties": {
+                "summary": string_param,
+                "start_time": {"type": "string", "description": "ISO 8601 with timezone offset"},
+                "duration_minutes": {"type": "integer", "minimum": 1, "maximum": 1440},
+                "confirmed": {"type": "boolean", "description": "ユーザーが登録内容を明示確認した場合のみ true"},
+            },
+            "required": ["summary", "start_time"],
+        },
+        add_calendar_event,
+    )
     return registry

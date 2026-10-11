@@ -107,3 +107,19 @@ Render でジミーモードを有効にする場合は、`SECRET_PASSPHRASE` �
 ### API キー未設定時のエラー
 
 Gemini API キーが未設定の Web Service は、`Internal Server Error` ではなく HTTP 503 と `GEMINI_API_KEY is not set...` の JSON を返します。Render の Environment で `GEMINI_API_KEY` を Secret として設定し、再デプロイしてください。
+
+### Google Calendar 連携
+
+`add_calendar_event` を Function Calling ツールとして登録しています。予定登録は外部データを書き換えるため、最初の呼び出しではプレビューのみ返し、ユーザーが内容を明示確認して `confirmed=true` を指定した場合だけ Google Calendar API を実行します。
+
+ローカル設定:
+
+```bash
+pip install -r requirements.txt
+# Google Cloud Console で OAuth Desktop credentials を取得
+export GOOGLE_CALENDAR_CREDENTIALS_FILE=/secure/path/credentials.json
+export GOOGLE_CALENDAR_TOKEN_FILE=/secure/path/token.json
+export GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1
+```
+
+初回 OAuth はローカル端末でのみ実行してください。`credentials.json` と `token.json` は `.gitignore` 対象で、Git、Docker image、ログへ含めないでください。Render のようなヘッドレス環境では既存の OAuth token を Secret / 安全な永続ストレージから提供し、対話型ログインを起動しないでください。

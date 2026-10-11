@@ -3,6 +3,9 @@
 !.env.example
 *.secret
 *.key
+credentials.json
+token.json
+client_secret*.json
 build/
 dist/
 .venv/

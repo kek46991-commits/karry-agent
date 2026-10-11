@@ -219,3 +219,9 @@ GitHub Actions は `main` への push / pull request で依存関係を導入し
 ## 12. API キー未設定時のエラー対応
 
 `get_agent()` の依存性注入中に `GEMINI_API_KEY` が未設定でも、無情報の 500 を返さず HTTP 503 と設定原因を示す JSON を返すようにしました。Render では Environment の `GEMINI_API_KEY` に実値を Secret として登録してから再デプロイします。
+
+## 13. Google Calendar 連携
+
+`src/karry_agent/tools.py` に `add_calendar_event(summary, start_time, duration_minutes=60, confirmed=False)` を追加しました。Function Calling から利用できますが、`confirmed` のデフォルトは `False` で、外部カレンダーを変更せずイベントプレビューを返します。ユーザーが日時・件名・所要時間を確認した後だけ `confirmed=true` を許可してください。
+
+依存関係は `google-api-python-client`、`google-auth-httplib2`、`google-auth-oauthlib` です。認証ファイルは `GOOGLE_CALENDAR_CREDENTIALS_FILE`、既存 token は `GOOGLE_CALENDAR_TOKEN_FILE` で指定できます。初回の `InstalledAppFlow` は `GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1` のローカル環境だけで許可し、Render 等のヘッドレス Web Service では既存 token を Secret / 永続ストレージから注入します。`credentials.json`、`token.json`、`client_secret*.json` は `.gitignore` 済みです。
