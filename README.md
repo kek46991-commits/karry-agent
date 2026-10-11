@@ -16,6 +16,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - Phase 10: 実 Gemini API を使う ReAct / Function Calling と安全なコマンド実行
 - Phase 11: Thought–Action–Observation 実行トレースとローカルスクリプト実行
 - Phase 12: API 使用量・実行時間メトリクスと堅牢なエラー処理
+- Phase 13: 複数サブエージェントの委譲・並列実行・結果集約
 
 ## 🚀 クイックスタート
 
@@ -66,3 +67,5 @@ GEMINI_API_KEY="..." python3 -m karry_agent.cli "README.md の概要を説明し
 Phase 11 では各ツール呼び出しを `AgentResult.trace` に記録します。トレースには Action 名、引数、Observation、実行時間が含まれます。`run_local_script` はワークスペース内の既存 `.py` ファイルだけを `shell=False` で実行し、引数・タイムアウト・出力サイズを制限します。
 
 Phase 12 では `AgentResult.metrics` に API 呼び出し回数、再試行回数、入力・出力・合計トークン数、ツール呼び出し数、エラー数、総実行時間（ms）を記録します。API エラーとタイムアウトは指数バックオフで自動再試行し、上限到達時は例外を外へ投げずエラー結果へフォールバックします。SDK の usage metadata が返らない場合も処理を継続します。
+
+Phase 13 の `MultiAgentOrchestrator` は、専門分野付きの `DelegatedTask` を複数のサブエージェントへ並列委譲し、結果を入力順に集約します。サブエージェントの失敗は他タスクへ波及せず、タイムアウトやエラーも結果として確認できます。
