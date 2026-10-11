@@ -29,3 +29,12 @@ def test_static_asset_is_available():
     response = TestClient(app).get("/static/index.html")
     assert response.status_code == 200
     assert "Thought" in response.text
+
+
+def test_web_ui_contains_browser_speech_controls():
+    html = TestClient(app).get("/").text
+    assert "SpeechRecognition" in html
+    assert "webkitSpeechRecognition" in html
+    assert "speechSynthesis" in html
+    assert "autoSpeak" in html
+    assert "音声入力" in html
