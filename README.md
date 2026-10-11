@@ -13,6 +13,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - Phase 4 第1ステップ: 現在日時取得・Web検索モックツール
 - Phase 5 第1ステップ: Imagen 連携に向けた画像生成モックツール
 - Phase 6 第1ステップ: 会話履歴を管理する `ConversationMemory`
+- Phase 10: 実 Gemini API を使う ReAct / Function Calling と安全なコマンド実行
 
 ## 🚀 クイックスタート
 
@@ -49,3 +50,13 @@ from tools import generate_image_mock
 print(generate_image_mock("青い空を飛ぶ白い鳥"))
 print(AGENT_TOOLS)
 ```
+
+### 4. 実 Gemini API の動作確認
+
+`GEMINI_API_KEY` を設定すると、`AgentCore` は `google-genai` SDK の実 API に接続します。既定モデルは `gemini-2.5-flash` で、`GEMINI_MODEL` で変更できます。API 障害・タイムアウト時は指数バックオフで再試行します。
+
+```bash
+GEMINI_API_KEY="..." python3 -m karry_agent.cli "README.md の概要を説明してください"
+```
+
+エージェントはモデルの Function Call に応じて、ファイル読み書き、Web 検索、画像生成モック、現在日時取得、安全な読み取り系コマンドを実行します。コマンドは shell を経由せず、allowlist とワークスペース制限を適用します。実 API を使うテストは、課金・レート制限を避けるため既定ではスキップされます。

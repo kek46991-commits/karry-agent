@@ -4,6 +4,8 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -77,6 +79,39 @@ def write_file(path: str, content: str) -> dict[str, Any]:
     return {"path": str(target), "bytes": target.stat().st_size}
 
 
+_ALLOWED_COMMANDS = {"pwd", "ls", "find", "grep", "cat", "git", "python", "python3"}
+_BLOCKED_TOKENS = {"-c", "--command", "sh", "bash", "zsh", "rm", "sudo", "curl", "wget"}
+
+
+def run_command(command: str, timeout: int = 10) -> dict[str, Any]:
+    """ワークスペース内の読み取り系コマンドだけを shell 無しで実行する。"""
+    if not command.strip():
+        return {"error": "command is empty"}
+    if any(char in command for char in (";", "|", "&", ">", "<", "`", "\n")):
+        return {"error": "shell operators are not allowed"}
+    argv = shlex.split(command)
+    if not argv or argv[0] not in _ALLOWED_COMMANDS or any(token in _BLOCKED_TOKENS for token in argv):
+        return {"error": "command is not in the read-only allowlist"}
+    if not 1 <= timeout <= 30:
+        return {"error": "timeout must be between 1 and 30 seconds"}
+    completed = subprocess.run(
+        argv,
+        cwd=_safe_path("."),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        shell=False,
+        env={"PATH": os.getenv("PATH", ""), "LANG": "C.UTF-8"},
+    )
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout[-20_000:],
+        "stderr": completed.stderr[-20_000:],
+    }
+
+
 def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """DuckDuckGo Instant Answer API。外部サービスへの送信は検索語だけ。"""
     if not query.strip():
@@ -102,5 +137,6 @@ def build_default_registry() -> ToolRegistry:
     registry.register("generate_image_mock", "画像生成のモックを実行する", {"type": "object", "properties": {"prompt": string_param}, "required": ["prompt"]}, generate_image_mock)
     registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
     registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
+    registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
     return registry
