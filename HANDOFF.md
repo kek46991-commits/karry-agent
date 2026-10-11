@@ -1,78 +1,75 @@
-# karry-agent Handoff
+# karry-agent 引き継ぎ資料
 
-**対象:** Devin / 次担当開発者  
-**現行フェーズ:** Phase 16 — Web UI enhancement、tool expansion、handoff preparation
+**対象:** 次担当の開発者・AI エージェント
 **リポジトリ:** `kek46991-commits/karry-agent`  
 **ブランチ:** `main`
+**現行状態:** Gemini エージェント、FastAPI、日本語 Web UI、SSE、音声入出力、Render Blueprint、環境変数ベースのプライベートモードを実装済み
 
-## 1. エグゼクティブサマリー
+## 1. プロジェクト概要
 
-karry-agent は `google-genai` SDK と Gemini を利用する Python エージェントです。Gemini の Function Calling でツールを選択し、Thought–Action–Observation の ReAct ループでツール結果を次の判断へ渡します。Phase 12 で実行メトリクスと再試行、Phase 13 で複数サブエージェントの委譲・集約、Phase 14 でモックによる E2E 統合検証を追加しました。Phase 15 では FastAPI の薄い REST シェルと、この引き渡し文書を追加し、Phase 16 ではチャットセッション・実行追跡 API とワークスペース一覧ツールを追加しました。
+`karry-agent` は `google-genai` SDK を利用する自律型 AI エージェントです。Gemini の Function Calling でツールを選択し、Thought–Action–Observation の ReAct ループでツール結果を次の判断へ渡します。API 回数、retry、token、tool call、エラー、実行時間のメトリクスを記録し、FastAPI と日本語 Web UI から利用できます。
 
-現在の API シェルは **MVP 用の同期 REST エンドポイント**です。認証、レート制限、ジョブキュー、ストリーミング、永続的な会話メモリは未実装です。本番公開前にロードマップの項目を実施してください。
+現在の API と UI は MVP / プロトタイプです。認証、レート制限、永続的なジョブキュー、Redis/DB によるセッション永続化、厳格な監査を追加してから不特定多数へ公開してください。
 
-## 2. Phase 1–16 の成果
+## 2. 実装済み機能
 
-| Phase | 成果 |
+| 領域 | 実装内容 |
 |---|---|
-| 1 | Gemini API 接続、Function Calling の基礎、ツールレジストリ、ReAct の土台 |
-| 2 | 進行ログ、CLI、環境変数テンプレート、互換エントリーポイント |
-| 3 | API / timeout の指数バックオフ再試行、明示的なエラー応答 |
-| 4 | 日時、Web 検索、ファイル操作の Function Calling 統合 |
-| 5 | 画像生成モックを Function Calling に統合 |
-| 6 | `ConversationMemory` と履歴上限制御 |
-| 7 | Dockerfile、Compose、Docker 起動エントリーポイント |
-| 8 | GitHub Actions CI（Python 3.11、pytest） |
-| 9 | GKE / EKS 向け Helm Chart、Secret、NetworkPolicy、PDB、任意 HPA |
-| 10 | 実 Gemini API、実ツール実行、安全な read-only コマンド |
-| 11 | Thought–Action–Observation トレース、Python スクリプト実行 |
-| 12 | API 回数、retry、token、error、elapsed メトリクスと堅牢なフォールバック |
-| 13 | 並列サブエージェント委譲、集約、失敗隔離、タイムアウト |
-| 14 | Gemini モックからツール・メトリクス・オーケストレーターまでの E2E |
-| 15 | FastAPI `/health` / `/run`、API テスト、詳細ハンドオフ文書 |
-| 16 | `/chat` セッション、`/runs/{run_id}` トレース取得、`/sessions/{id}` 履歴取得、`list_workspace` ツール |
+| Gemini | `google-genai`、`GEMINI_API_KEY`、`GEMINI_MODEL`、指数バックオフ再試行 |
+| AgentCore | 最大ステップ付き ReAct、Function Calling、エラー・タイムアウト処理 |
+| ツール | 日時、Web 検索、画像生成モック、ファイル読み書き、閲覧・追記、安全なコマンド、Python スクリプト |
+| メモリ | `ConversationMemory` による会話履歴上限制御 |
+| マルチエージェント | 委譲、並列実行、結果集約、失敗隔離、タイムアウト |
+| 監視 | API 回数、retry、token、tool call、error、elapsed の `AgentMetrics` |
+| FastAPI | `/health`、`/run`、`/chat`、SSE、実行取得、セッション履歴、OpenAPI UI |
+| Web UI | 日本語チャット、SSE トレース、実行メトリクス、モバイル対応 |
+| 音声 | ブラウザ標準 `SpeechRecognition` / `webkitSpeechRecognition` による音声入力、`SpeechSynthesis` による読み上げ、自動読み上げ切り替え |
+| 配布 | Docker、Compose、GitHub Actions、Kubernetes/Helm、Render Blueprint |
+| プライベートモード | `SECRET_PASSPHRASE` によるセッション単位のジミーモード認証 |
 
-## 3. 現在のディレクトリと主要ファイル
+### フェーズ履歴
+
+- Phase 1–6: Gemini 接続、Function Calling、ログ、CLI、画像生成モック、会話メモリ
+- Phase 7–9: Docker、GitHub Actions、Kubernetes/Helm のデプロイ構成
+- Phase 10–14: 実 Gemini、ローカルツール、ReAct トレース、メトリクス、マルチエージェント、E2E
+- Phase 15–17: FastAPI、Web UI、チャットセッション、実行追跡、SSE、ワークスペースツール
+- 追加仕上げ: 日本語音声入出力、環境変数ベースのプライベートモード認証
+
+## 3. ディレクトリ構成
 
 ```text
 .
-├── app.py                         # FastAPI REST shell
-├── main.py                        # CLI / Docker entry point
+├── app.py                         # FastAPI アプリ、SSE、静的 UI、セッション/実行管理
+├── static/index.html              # 日本語チャット UI、音声入出力、SSE クライアント
+├── main.py                        # CLI / Docker 起動エントリーポイント
+├── cli.py / core.py / tools.py    # ルート互換エントリーポイント
 ├── Dockerfile
 ├── docker-compose.yml
+├── render.yaml                    # Render Blueprint
+├── .renderignore
 ├── requirements.txt
 ├── pyproject.toml
-├── .env.example
+├── .env.example                   # 値を含まない環境変数テンプレート
+├── .gitignore                     # .env / Secret ファイルを除外
 ├── README.md
 ├── HANDOFF.md
-├── docs/architecture.md           # 詳細アーキテクチャ
-├── deploy/                        # Kubernetes / Helm
-│   ├── README.md
-│   └── helm/karry-agent/
+├── docs/architecture.md
+├── deploy/helm/karry-agent/       # Kubernetes / Helm
 ├── src/karry_agent/
-│   ├── core.py                    # AgentCore, AgentResult, AgentMetrics
+│   ├── core.py                    # AgentCore、AgentResult、AgentMetrics
+│   ├── privacy.py                 # 環境変数ベースのジミーモード認証
 │   ├── tools.py                   # ToolRegistry と built-in tools
 │   ├── memory.py                  # ConversationMemory
-│   ├── orchestrator.py            # MultiAgentOrchestrator
+│   ├── orchestrator.py             # MultiAgentOrchestrator
 │   ├── cli.py
 │   ├── logger.py
 │   └── __init__.py
 └── tests/                         # Phase 別 unit / integration tests
 ```
 
-### 主要 API
+`.env`、`.venv`、キャッシュ、`progress.md`、Secret / key ファイルはローカル専用で、Git 管理対象外です。
 
-- `AgentCore(client=None, model_id=None, registry=None, max_steps=8, max_retries=3)`
-- `AgentCore.run(prompt) -> AgentResult`
-- `AgentResult.text`, `.trace`, `.metrics`
-- `AgentMetrics.api_calls`, `.retries`, `.input_tokens`, `.output_tokens`, `.total_tokens`, `.tool_calls`, `.errors`, `.elapsed_ms`
-- `ToolRegistry.register(...)` / `.execute(...)`
-- `MultiAgentOrchestrator(agent_factory, max_workers=4, timeout_seconds=60)`
-- `MultiAgentOrchestrator.run(tasks) -> OrchestrationResult`
-- `ConversationMemory(max_history=10)`
-- FastAPI: `POST /chat`, `GET /runs/{run_id}`, `GET /sessions/{session_id}`
-
-## 4. セットアップ
+## 4. 環境構築
 
 ```bash
 git clone https://github.com/kek46991-commits/karry-agent.git
@@ -83,22 +80,24 @@ pip install -e '.[test]'
 cp .env.example .env
 ```
 
-`.env` はローカル専用です。API キーを Git、Docker image、values.yaml、ログへ含めないでください。
+`.env` の例（秘密値は入力環境だけに保存し、Git にコミットしない）:
 
 ```env
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-3.5-flash
+SECRET_PASSPHRASE=
 KARRY_WORKSPACE=.
 ```
 
 主な環境変数:
 
-| 変数 | 必須 | 用途 |
-|---|---:|---|
-| `GEMINI_API_KEY` | 実 API 時のみ | Gemini API 認証 |
-| `GEMINI_MODEL` | 任意 | 既定 `gemini-3.5-flash` |
-| `KARRY_WORKSPACE` | 任意 | ファイル・スクリプト操作のルート |
-| `RUN_LIVE_GEMINI_TESTS` | 任意 | `1` の場合だけ実 API テストを有効化 |
+| 変数 | 用途 |
+|---|---|
+| `GEMINI_API_KEY` | Gemini API 認証。実 API 利用時に必要 |
+| `GEMINI_MODEL` | 利用モデル。既定は `gemini-3.5-flash` |
+| `SECRET_PASSPHRASE` | ジミーモードの秘密合言葉。未設定なら認証を無効化 |
+| `KARRY_WORKSPACE` | ファイル・スクリプト操作のルート |
+| `RUN_LIVE_GEMINI_TESTS` | `1` のときだけ実 API テストを有効化 |
 
 ## 5. 起動方法
 
@@ -110,28 +109,19 @@ python -m karry_agent.cli "プロジェクトの概要を説明してくださ�
 python main.py
 ```
 
-### FastAPI REST shell
+### FastAPI / Web UI
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/run \
-  -H 'content-type: application/json' \
-  -d '{"prompt":"現在時刻を確認してください"}'
 ```
 
-エンドポイント:
+ブラウザで以下を開きます。
 
-- `GET /health` — プロセスの簡易ヘルスチェック。API キー検証は行わない
-- `POST /run` — `{ "prompt": "..." }` を受け取り、`text`、`steps`、`tool_calls`、`trace`、`metrics`、`run_id` を返す
-- `POST /chat` — `session_id` を使った会話履歴付き実行
-- `GET /runs/{run_id}` — 実行状態、トレース、メトリクスを取得
-- `GET /sessions/{session_id}` — 会話履歴を取得
-- `/docs` — FastAPI が生成する OpenAPI UI
+- `http://localhost:8000/` — 日本語 Web UI
+- `http://localhost:8000/docs` — OpenAPI UI
+- `http://localhost:8000/health` — ヘルスチェック
 
-`/run` は同期処理で Gemini 呼び出しを待つため、公開前に認証・入力上限・レート制限・タイムアウト・ジョブキューを追加してください。
-
-### Docker / Kubernetes
+### Docker
 
 ```bash
 export GEMINI_API_KEY="..."
@@ -139,104 +129,77 @@ docker compose build
 docker compose run --rm karry-agent
 ```
 
-Kubernetes は `deploy/README.md` と `deploy/helm/karry-agent` を参照してください。Secret Manager / External Secrets を推奨します。
+### Render
 
-## 6. テストと CI
+`render.yaml` は Python Web Service として次を設定します。
 
-API キー不要の通常テスト:
+- `pip install --upgrade pip && pip install -r requirements.txt`
+- `uvicorn app:app --host 0.0.0.0 --port $PORT`
+- `main` ブランチの自動デプロイ
+- `/health` のヘルスチェック
+- `GEMINI_API_KEY` と `SECRET_PASSPHRASE` を `sync: false` の Secret として定義
+
+Render Dashboard で **New → Blueprint** を選択して GitHub リポジトリを接続し、Environment 画面で Secret 値を設定してください。未設定の `SECRET_PASSPHRASE` はプライベートモードを無効化します。Render の `/tmp/karry-agent` は一時領域であり、永続ファイル保存には外部ストレージが必要です。
+
+## 6. FastAPI API
+
+| Method | Path | 内容 |
+|---|---|---|
+| GET | `/health` | サービス状態 |
+| GET | `/` | `static/index.html` |
+| POST | `/run` | 単発 Agent 実行。`run_id`、trace、metrics を返す |
+| POST | `/chat` | セッション履歴付き実行。`stream: true` で SSE |
+| GET | `/runs/{run_id}` | 実行結果・トレース・メトリクス |
+| GET | `/sessions/{session_id}` | 会話履歴 |
+| GET | `/docs` | OpenAPI UI |
+
+`/chat` の例:
+
+```json
+{
+  "prompt": "現在時刻を確認してください",
+  "session_id": "optional-session-id",
+  "stream": true
+}
+```
+
+SSE は `started`、`step`、`completed`、`error` イベントを返します。現状は Agent 実行完了後に取得済みのトレースを送る基礎実装であり、モデル生成中の逐次中継には Gemini streaming API と非同期ジョブキューが必要です。
+
+## 7. ジミーモードとセキュリティ
+
+`SECRET_PASSPHRASE` が設定されている場合、入力内にその値が含まれるとセッションが認証済みになります。認証済みセッションだけに `AgentCore.run(..., private_mode=True)` の追加システム指示が渡され、ジミー人格が有効になります。通常モードにはプライベートなプロフィールや思い出の指示を渡しません。
+
+環境変数が未設定または空の場合は、合言葉認証を無効化した通常モードで動作します。合言葉そのものをコード・README・`.env.example`・ログへ書かないでください。Render では必ず Secret として登録してください。
+
+現在の認証状態はインメモリです。サーバー再起動で失効し、複数インスタンス間でも共有されません。本番では Redis/DB、認証失効、監査ログ、レート制限、HTTPS、tenant isolation を追加してください。API は現状認証なしのため、公開前に保護が必要です。
+
+## 8. テストと CI
 
 ```bash
 python -m pytest -q
+python -m compileall -q src app.py
 ```
 
-実 API スモークテストはクレジットとレート制限を考慮し、明示的に有効化した場合のみ実行します:
+現行のローカル結果は `68 passed, 2 skipped` です。実 API テストは明示的に有効化した場合だけ実行します。
 
 ```bash
 RUN_LIVE_GEMINI_TESTS=1 python -m pytest -q
 ```
 
-GitHub Actions は `main` への push / pull request で Python 3.11 と pytest を実行します。Phase 14 の E2E は Gemini モックで、Function Calling、ツール、メトリクス、マルチエージェント集約を接続検証します。Phase 15 の `tests/test_phase15.py` は FastAPI の `/health`、`/run`、入力バリデーションを検証します。
+GitHub Actions は `main` への push / pull request で依存関係を導入してテストします。主なテスト対象は AgentCore、Function Calling、ツール安全性、メトリクス、マルチエージェント、FastAPI、SSE、Web UI、音声 API の静的存在、Render 設定、プライベートモード認証です。
 
-## 7. Phase 15+ ロードマップ / backlog
+## 9. 次の推奨作業
 
-### P0 — Web UI / API 本番化
+1. FastAPI に API key/OAuth2、CORS 制限、レート制限、request quota を追加する。
+2. SessionStore / RunStore を Redis または DB へ移行する。
+3. SSE を本当の非同期ジョブ API と Gemini streaming API に接続する。
+4. 音声機能にブラウザ権限説明、音声選択、停止ボタン、Safari/Firefox 差異対応を加える。
+5. Render の無料プラン制約を確認し、本番は有料プラン・外部ストレージ・監視を設計する。
+6. 実 Web 検索、Imagen/Nano Banana などの外部 adapter は認証・コスト・出典管理を含めて導入する。
 
-- [ ] OAuth2 / API key 認証、tenant isolation、監査ログ
-- [ ] prompt 長・request body・同時実行数・実行時間の制限
-- [ ] 非同期ジョブ API（submit / status / cancel）と Redis / Pub/Sub キュー
-- [ ] SSE / WebSocket による Thought–Action–Observation のストリーミング
-- [ ] 会話 ID と `ConversationMemory` の DB / Redis 永続化
-- [ ] OpenTelemetry trace、メトリクス exporter、PII / secret redaction
+## 10. 引き継ぎ時の確認事項
 
-### P1 — エージェント機能
-
-- [ ] 実プロバイダ Web 検索の選択、キャッシュ、引用・出典管理
-- [ ] 画像生成（Imagen / Nano Banana 等）の実 API adapter と asset storage
-- [ ] tool permission policy、承認フロー、dry-run、破壊的操作の二段階確認
-- [ ] tool schema versioning、idempotency key、circuit breaker
-- [ ] サブエージェントの specialist registry、予算・token quota、優先度制御
-- [ ] RunStore / SessionStore を Redis または DB へ移行し、複数 API レプリカ間で共有
-
-### P2 — 開発・運用
-
-- [ ] OpenAPI client / TypeScript SDK と Web UI（React 等）
-- [ ] staging / production Helm values、image digest 固定、署名・SBOM
-- [ ] canary rollout、HPA の実測 tuning、SLO / alerting / runbook
-- [ ] 負荷試験、長時間 soak test、障害注入、API quota 監視
-- [ ] Devin 用の issue template、変更時の architecture decision record
-
-## 8. 引き渡し時の注意
-
-1. `.env`、API キー、Secret の値をコミットしない。
-2. 外部 API / コマンド / ファイル書き込みツールは最小権限で運用する。
-3. `AgentResult.metrics` を監視へ送る際、プロンプト全文やツール引数の秘密情報をそのまま送らない。
-4. `/run` は現時点で認証なしのプロトタイプであり、インターネットへ直接公開しない。
-5. 本番モデル・利用可能リージョン・料金・レート制限はデプロイ先で再確認する。
-6. 変更後は `python -m pytest -q` と `git diff --check` を実行し、CI の green を確認する。
-
-## 9. Phase 17 完了内容
-
-- `POST /chat` に `stream=true` を追加し、SSE の `started` / `step` / `completed` / `error` イベントを提供
-- `step` イベントに Thought–Action–Observation の実行トレースを JSON で格納
-- `browse_path` でワークスペース内のファイル内容・ディレクトリ一覧を閲覧
-- `append_text_file` で UTF-8 テキストを安全に追記
-- ワークスペース外パス、隠しファイル、巨大ファイル、過大な一覧を制限
-- `tests/test_phase17.py` で SSE、セッション、ツール登録、ファイル操作、パス逸脱を統合検証
-
-SSE は現段階では実行完了後のトレースを送る基礎実装です。Gemini の streaming API と非同期ジョブキューを導入する際に、個々のモデル生成・ツール実行をリアルタイムに中継してください。
-
-## 10. Render 永続デプロイ手順
-
-### 前提
-
-- GitHub の `main` ブランチに `render.yaml` が存在すること
-- Render アカウントと GitHub 接続
-- Gemini API キー（Render の Environment 画面へ直接入力し、Git に保存しない）
-
-### Blueprint デプロイ
-
-1. Render Dashboard で **New → Blueprint** を選択します。
-2. `kek46991-commits/karry-agent` リポジトリを接続し、`main` ブランチを選択します。
-3. `render.yaml` の内容を確認して Apply します。
-4. Render の Environment で `GEMINI_API_KEY` を Secret として設定します。
-5. Deploy 完了後、`https://<service-name>.onrender.com/health` が `{"status":"ok","service":"karry-agent"}` を返すことを確認します。
-6. `https://<service-name>.onrender.com/` で日本語 Web UI、`/docs` で OpenAPI UI を確認します。
-
-`render.yaml` は Python Web Service、`pip install -r requirements.txt`、`uvicorn app:app --host 0.0.0.0 --port $PORT`、`main` push 時の自動デプロイ、`/health` のヘルスチェック、`GEMINI_MODEL=gemini-3.5-flash`、`KARRY_WORKSPACE=/tmp/karry-agent` を設定します。
-
-### Render 本番チェックリスト
-
-- [ ] `GEMINI_API_KEY` を Render Secret として設定し、Blueprint や Git に値を書いていない
-- [ ] 無料プランのスリープ・リソース・使用量制限を確認した
-- [ ] 認証、レート制限、CORS、プロンプト上限を追加してから不特定多数へ公開する
-- [ ] インメモリの Session / Run Store は再起動で消えるため、本番では Redis / DB へ移行する
-- [ ] `KARRY_WORKSPACE` は一時ディスクであり、永続ファイル保存には外部ストレージを利用する
-- [ ] Render の Deploy Logs と `/health` を確認した
-
-## 11. ジミーモード（プライベートモード）
-
-`src/karry_agent/privacy.py` の `PrivateModeSession` が環境変数 `SECRET_PASSPHRASE` に設定した合言葉 を入力内で検出し、セッション認証状態を保持します。認証済みセッションだけが `AgentCore.run(..., private_mode=True)` を通じてジミー用の追加システム指示を受け取ります。通常モードには、かなまるのプロフィールや夢などのプライベート情報を渡しません。
-
-`POST /chat` と `POST /run` は `session_id` を受け取れます。`/chat` で最初に合言葉を送ると、そのセッションの後続入力でもプライベートモードが継続します。認証は現在インメモリで、再起動時に失効します。本番では Redis/DB、認証失効、監査ログ、レート制限、HTTPS を追加してください。
-
-Render の Environment では `SECRET_PASSPHRASE` も Secret として設定します。未設定時は認証を無効化した通常モードへ安全にフォールバックします。
+- `.env`、API キー、`SECRET_PASSPHRASE` の実値をコミットしない。
+- `git status --short --branch` が clean で、`main` と `origin/main` が一致していることを確認する。
+- `python -m pytest -q` と `git diff --check` を実行する。
+- 本番公開前に認証、監査、レート制限、永続化、秘密情報のマスキングを再確認する。
