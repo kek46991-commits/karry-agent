@@ -1,0 +1,7 @@
+karry-agent has been deployed as a worker Deployment.
+
+Secret: {{ .Values.existingSecret | default "(required)" }}
+Image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+
+Check status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}

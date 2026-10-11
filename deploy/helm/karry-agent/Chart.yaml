@@ -1,0 +1,6 @@
+apiVersion: v2
+name: karry-agent
+description: Gemini-powered autonomous agent worker
+version: 0.1.0
+appVersion: "0.1.0"
+type: application
