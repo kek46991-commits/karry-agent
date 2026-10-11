@@ -28,6 +28,16 @@ python3 cli.py
 python3 -m pytest -q
 ```
 
+### 3. Docker で実行
+
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+docker compose build
+docker compose run --rm karry-agent
+```
+
+対話モードを終了するには `exit` または `quit` を入力します。API キーはイメージへ埋め込まず、Compose の環境変数から渡してください。
+
 ### 2. 外部ツールの確認
 
 ```python

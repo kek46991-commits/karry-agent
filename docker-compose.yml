@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  karry-agent:
+    build: .
+    container_name: karry-agent-app
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
