@@ -86,3 +86,9 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 - `append_text_file`: UTF-8 テキストファイルへ追記
 
 いずれもワークスペース外を拒否し、ファイルサイズ・一覧件数を制限します。
+
+## Render への永続デプロイ
+
+リポジトリには Render Blueprint 用の [render.yaml](render.yaml) を含めています。Render Dashboard で **New → Blueprint** を選択し、GitHub の `main` リポジトリを接続して適用してください。
+
+Render の Environment 画面で `GEMINI_API_KEY` を Secret として設定します。`GEMINI_MODEL`、`KARRY_WORKSPACE`、`uvicorn app:app --host 0.0.0.0 --port $PORT`、`/health` のヘルスチェックは `render.yaml` から設定されます。詳細は [HANDOFF.md](HANDOFF.md) の Render 手順を参照してください。

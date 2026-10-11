@@ -204,3 +204,31 @@ GitHub Actions は `main` への push / pull request で Python 3.11 と pytest 
 - `tests/test_phase17.py` で SSE、セッション、ツール登録、ファイル操作、パス逸脱を統合検証
 
 SSE は現段階では実行完了後のトレースを送る基礎実装です。Gemini の streaming API と非同期ジョブキューを導入する際に、個々のモデル生成・ツール実行をリアルタイムに中継してください。
+
+## 10. Render 永続デプロイ手順
+
+### 前提
+
+- GitHub の `main` ブランチに `render.yaml` が存在すること
+- Render アカウントと GitHub 接続
+- Gemini API キー（Render の Environment 画面へ直接入力し、Git に保存しない）
+
+### Blueprint デプロイ
+
+1. Render Dashboard で **New → Blueprint** を選択します。
+2. `kek46991-commits/karry-agent` リポジトリを接続し、`main` ブランチを選択します。
+3. `render.yaml` の内容を確認して Apply します。
+4. Render の Environment で `GEMINI_API_KEY` を Secret として設定します。
+5. Deploy 完了後、`https://<service-name>.onrender.com/health` が `{"status":"ok","service":"karry-agent"}` を返すことを確認します。
+6. `https://<service-name>.onrender.com/` で日本語 Web UI、`/docs` で OpenAPI UI を確認します。
+
+`render.yaml` は Python Web Service、`pip install -r requirements.txt`、`uvicorn app:app --host 0.0.0.0 --port $PORT`、`main` push 時の自動デプロイ、`/health` のヘルスチェック、`GEMINI_MODEL=gemini-3.5-flash`、`KARRY_WORKSPACE=/tmp/karry-agent` を設定します。
+
+### Render 本番チェックリスト
+
+- [ ] `GEMINI_API_KEY` を Render Secret として設定し、Blueprint や Git に値を書いていない
+- [ ] 無料プランのスリープ・リソース・使用量制限を確認した
+- [ ] 認証、レート制限、CORS、プロンプト上限を追加してから不特定多数へ公開する
+- [ ] インメモリの Session / Run Store は再起動で消えるため、本番では Redis / DB へ移行する
+- [ ] `KARRY_WORKSPACE` は一時ディスクであり、永続ファイル保存には外部ストレージを利用する
+- [ ] Render の Deploy Logs と `/health` を確認した
