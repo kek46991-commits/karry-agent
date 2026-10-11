@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karry-agent"
+version = "0.1.0"
+description = "Gemini-powered autonomous agent core with function calling"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "google-genai>=1.30.0,<2",
+  "python-dotenv>=1.0.0,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0,<9"]
+
+[project.scripts]
+karry-agent = "karry_agent.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
