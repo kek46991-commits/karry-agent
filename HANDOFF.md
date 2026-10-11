@@ -193,3 +193,14 @@ GitHub Actions は `main` への push / pull request で Python 3.11 と pytest 
 4. `/run` は現時点で認証なしのプロトタイプであり、インターネットへ直接公開しない。
 5. 本番モデル・利用可能リージョン・料金・レート制限はデプロイ先で再確認する。
 6. 変更後は `python -m pytest -q` と `git diff --check` を実行し、CI の green を確認する。
+
+## 9. Phase 17 完了内容
+
+- `POST /chat` に `stream=true` を追加し、SSE の `started` / `step` / `completed` / `error` イベントを提供
+- `step` イベントに Thought–Action–Observation の実行トレースを JSON で格納
+- `browse_path` でワークスペース内のファイル内容・ディレクトリ一覧を閲覧
+- `append_text_file` で UTF-8 テキストを安全に追記
+- ワークスペース外パス、隠しファイル、巨大ファイル、過大な一覧を制限
+- `tests/test_phase17.py` で SSE、セッション、ツール登録、ファイル操作、パス逸脱を統合検証
+
+SSE は現段階では実行完了後のトレースを送る基礎実装です。Gemini の streaming API と非同期ジョブキューを導入する際に、個々のモデル生成・ツール実行をリアルタイムに中継してください。

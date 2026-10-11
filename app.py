@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import threading
 import uuid
+import json
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from karry_agent.core import AgentCore, AgentResult
@@ -23,6 +25,7 @@ app = FastAPI(
 class RunRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=20_000, description="エージェントへの指示")
     session_id: str | None = Field(default=None, max_length=100)
+    stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
 
 
 class RunResponse(BaseModel):
@@ -127,6 +130,23 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
     return response
 
 
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+def _stream_chat(request: RunRequest, agent: AgentCore):
+    """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
+    yield _sse("started", {"prompt": request.prompt})
+    try:
+        response = _execute(request, agent)
+    except HTTPException as exc:
+        yield _sse("error", {"status_code": exc.status_code, "detail": exc.detail})
+        return
+    for index, event in enumerate(response.trace, start=1):
+        yield _sse("step", {"index": index, **event})
+    yield _sse("completed", response.model_dump())
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "karry-agent"}
@@ -137,11 +157,13 @@ def run_agent(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent
     return _execute(request, agent)
 
 
-@app.post("/chat", response_model=RunResponse)
-def chat(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -> RunResponse:
+@app.post("/chat", response_model=None)
+def chat(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -> RunResponse | StreamingResponse:
     """会話履歴を保持しながらエージェントを呼び出す。"""
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
+    if request.stream:
+        return StreamingResponse(_stream_chat(request, agent), media_type="text/event-stream")
     return _execute(request, agent)
 
 

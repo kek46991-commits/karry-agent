@@ -70,6 +70,20 @@ def read_file(path: str) -> dict[str, Any]:
     return {"path": str(target), "content": content[:100_000], "truncated": len(content) > 100_000}
 
 
+def browse_path(path: str = ".", max_entries: int = 100) -> dict[str, Any]:
+    """ファイルまたはディレクトリを閲覧する。内容は UTF-8 の先頭だけ返す。"""
+    try:
+        target = _safe_path(path)
+    except PermissionError as exc:
+        return {"error": str(exc)}
+    if target.is_file():
+        content = target.read_text(encoding="utf-8")
+        return {"path": str(target), "type": "file", "content": content[:100_000], "truncated": len(content) > 100_000}
+    if target.is_dir():
+        return list_workspace(path, max_entries)
+    return {"error": "path not found", "path": str(target)}
+
+
 def write_file(path: str, content: str) -> dict[str, Any]:
     target = _safe_path(path)
     if target.exists():
@@ -77,6 +91,22 @@ def write_file(path: str, content: str) -> dict[str, Any]:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return {"path": str(target), "bytes": target.stat().st_size}
+
+
+def append_text_file(path: str, content: str) -> dict[str, Any]:
+    """ワークスペース内の UTF-8 テキストファイルへ追記する。"""
+    try:
+        target = _safe_path(path)
+    except PermissionError as exc:
+        return {"error": str(exc)}
+    if target.exists() and not target.is_file():
+        return {"error": "path is not a file", "path": str(target)}
+    if target.exists() and target.stat().st_size > 1_000_000:
+        return {"error": "file is too large to append safely", "path": str(target)}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write(content)
+    return {"path": str(target), "bytes_appended": len(content.encode("utf-8")), "size": target.stat().st_size}
 
 
 def list_workspace(path: str = ".", max_entries: int = 100) -> dict[str, Any]:
@@ -190,7 +220,9 @@ def build_default_registry() -> ToolRegistry:
     registry.register("web_search_mock", "Web 検索のモックを実行する", {"type": "object", "properties": {"query": string_param}, "required": ["query"]}, web_search_mock)
     registry.register("generate_image_mock", "画像生成のモックを実行する", {"type": "object", "properties": {"prompt": string_param}, "required": ["prompt"]}, generate_image_mock)
     registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
+    registry.register("browse_path", "ワークスペース内のファイルまたはディレクトリを閲覧する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, browse_path)
     registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
+    registry.register("append_text_file", "ワークスペース内の UTF-8 テキストファイルへ追記する", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, append_text_file)
     registry.register("list_workspace", "ワークスペース内のファイル一覧を取得する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, list_workspace)
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)

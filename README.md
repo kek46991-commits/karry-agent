@@ -75,3 +75,14 @@ Phase 13 の `MultiAgentOrchestrator` は、専門分野付きの `DelegatedTask
 Phase 14 のシステム構成、公開 API、セットアップ、テスト戦略、Devin 引き渡しチェックリストは [docs/architecture.md](docs/architecture.md) にまとめています。`tests/test_phase14.py` は Gemini 応答モックから Function Calling、ツール Observation、`AgentResult.metrics`、マルチエージェント集約までを一つの E2E フローとして検証します。
 
 Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/runs/{run_id}` で完了した実行のトレースとメトリクスを取得できます。`list_workspace` ツールは隠しファイルを除外し、ワークスペース外のパスを拒否します。
+
+### Phase 17: ストリーミングとファイル操作
+
+`POST /chat` に `{"stream": true}` を指定すると、SSE 形式で `started`、`step`（Thought/Action/Observation の実行トレース）、`completed` または `error` イベントを返します。現段階では実行本体を安全に完了させた後にトレースを送る基盤実装であり、真の逐次 Thought 生成は今後のストリーミング SDK 対応で拡張します。
+
+追加ツール:
+
+- `browse_path`: ワークスペース内のファイル内容またはディレクトリ一覧を閲覧
+- `append_text_file`: UTF-8 テキストファイルへ追記
+
+いずれもワークスペース外を拒否し、ファイルサイズ・一覧件数を制限します。
