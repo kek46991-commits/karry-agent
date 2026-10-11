@@ -55,7 +55,7 @@ class AgentCore:
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.client = client if client is not None else get_client()
-        self.model_id = model_id or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model_id = model_id or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
         self.registry = registry or build_default_registry()
         self.max_steps = max_steps
         self.max_retries = max(1, max_retries)

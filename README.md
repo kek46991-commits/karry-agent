@@ -53,7 +53,7 @@ print(AGENT_TOOLS)
 
 ### 4. 実 Gemini API の動作確認
 
-`GEMINI_API_KEY` を設定すると、`AgentCore` は `google-genai` SDK の実 API に接続します。既定モデルは `gemini-2.5-flash` で、`GEMINI_MODEL` で変更できます。API 障害・タイムアウト時は指数バックオフで再試行します。
+`GEMINI_API_KEY` を設定すると、`AgentCore` は `google-genai` SDK の実 API に接続します。既定モデルは `gemini-3.5-flash` で、`GEMINI_MODEL` で変更できます。API 障害・タイムアウト時は指数バックオフで再試行します。
 
 ```bash
 GEMINI_API_KEY="..." python3 -m karry_agent.cli "README.md の概要を説明してください"
