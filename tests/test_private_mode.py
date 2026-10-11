@@ -1,0 +1,64 @@
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+from app import _PRIVATE_SESSIONS, app, get_agent
+from karry_agent.core import AgentCore, AgentMetrics, AgentResult
+from karry_agent.privacy import PASSPHRASE, PRIVATE_SYSTEM_INSTRUCTION, PrivateModeSession, has_passphrase
+
+
+class PrivateAwareAgent:
+    def __init__(self):
+        self.modes = []
+
+    def run(self, prompt, private_mode=False):
+        self.modes.append(private_mode)
+        return AgentResult(text="private response" if private_mode else "public response", steps=1, tool_calls=0, trace=[], metrics=AgentMetrics())
+
+
+def test_passphrase_detection_and_session_latch():
+    session = PrivateModeSession()
+    assert not has_passphrase("普通の依頼")
+    assert not session.is_private("普通の依頼")
+    assert session.authenticate(f"{PASSPHRASE} よろしく")
+    assert session.is_private("次の依頼")
+
+
+def test_core_adds_private_instruction_only_when_enabled():
+    agent = AgentCore.__new__(AgentCore)
+    agent.registry = SimpleNamespace(tools={})
+    public = agent._config(False).system_instruction
+    private = agent._config(True).system_instruction
+    assert PRIVATE_SYSTEM_INSTRUCTION not in public
+    assert "ジミー" in private
+    assert "岸恵" in private
+
+
+def test_chat_passphrase_authenticates_session_and_later_requests_remain_private():
+    fake = PrivateAwareAgent()
+    app.dependency_overrides[get_agent] = lambda: fake
+    try:
+        client = TestClient(app)
+        first = client.post("/chat", json={"prompt": f"{PASSPHRASE} こんにちは", "session_id": "jimmy-test"})
+        second = client.post("/chat", json={"prompt": "夢を応援して", "session_id": "jimmy-test"})
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["private_mode"] is True
+        assert second.json()["private_mode"] is True
+        assert fake.modes == [True, True]
+    finally:
+        app.dependency_overrides.clear()
+        _PRIVATE_SESSIONS.pop("jimmy-test", None)
+
+
+def test_without_passphrase_stays_public_and_does_not_receive_private_prompt():
+    fake = PrivateAwareAgent()
+    app.dependency_overrides[get_agent] = lambda: fake
+    try:
+        response = TestClient(app).post("/chat", json={"prompt": "かなまるの思い出を教えて", "session_id": "public-test"})
+        assert response.status_code == 200
+        assert response.json()["private_mode"] is False
+        assert fake.modes == [False]
+    finally:
+        app.dependency_overrides.clear()
+        _PRIVATE_SESSIONS.pop("public-test", None)

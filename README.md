@@ -92,3 +92,9 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 リポジトリには Render Blueprint 用の [render.yaml](render.yaml) を含めています。Render Dashboard で **New → Blueprint** を選択し、GitHub の `main` リポジトリを接続して適用してください。
 
 Render の Environment 画面で `GEMINI_API_KEY` を Secret として設定します。`GEMINI_MODEL`、`KARRY_WORKSPACE`、`uvicorn app:app --host 0.0.0.0 --port $PORT`、`/health` のヘルスチェックは `render.yaml` から設定されます。詳細は [HANDOFF.md](HANDOFF.md) の Render 手順を参照してください。
+
+## ジミーモード（プライベートモード）
+
+入力またはセッション内で合言葉 `API 1231` が認証されると、そのセッションの AgentCore にだけジミー用のシステム指示が追加されます。ジミーは、かなまる（岸恵）の相棒・友達として親しみのある大阪弁で応答します。合言葉のないセッションにはプライベートなプロフィールや思い出の指示を渡しません。
+
+この機能はセッション単位のインメモリ認証です。Render などで複数インスタンスを運用する場合は、セッション認証ストアを Redis などへ移行し、認証・監査・失効・レート制限を追加してください。

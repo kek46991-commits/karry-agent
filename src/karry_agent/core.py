@@ -13,6 +13,7 @@ from google import genai
 from google.genai import errors, types
 
 from .tools import ToolRegistry, build_default_registry
+from .privacy import PRIVATE_SYSTEM_INSTRUCTION
 
 load_dotenv()
 
@@ -91,10 +92,10 @@ class AgentCore:
         self.max_retries = max(1, max_retries)
         self.sleep_fn = sleep_fn
 
-    def _config(self) -> types.GenerateContentConfig:
+    def _config(self, private_mode: bool = False) -> types.GenerateContentConfig:
         declarations = [tool.declaration for tool in self.registry.tools.values()]
         return types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
+            system_instruction=SYSTEM_INSTRUCTION + ("\n" + PRIVATE_SYSTEM_INSTRUCTION if private_mode else ""),
             temperature=0.2,
             tools=[types.Tool(function_declarations=declarations)],
         )
@@ -127,7 +128,9 @@ class AgentCore:
         metrics.output_tokens += value("candidates_token_count", "output_tokens")
         metrics.total_tokens += value("total_token_count", "total_tokens")
 
-    def _generate_content_with_retry(self, contents: list[Any], metrics: AgentMetrics) -> Any:
+    def _generate_content_with_retry(
+        self, contents: list[Any], metrics: AgentMetrics, private_mode: bool = False
+    ) -> Any:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
@@ -135,7 +138,7 @@ class AgentCore:
                 response = self.client.models.generate_content(
                     model=self.model_id,
                     contents=contents,
-                    config=self._config(),
+                    config=self._config(private_mode),
                 )
                 self._record_usage(response, metrics)
                 return response
@@ -151,7 +154,7 @@ class AgentCore:
         assert last_error is not None
         raise last_error
 
-    def run(self, prompt: str) -> AgentResult:
+    def run(self, prompt: str, private_mode: bool = False) -> AgentResult:
         started_at = time.perf_counter()
         metrics = AgentMetrics()
         if not prompt.strip():
@@ -162,7 +165,7 @@ class AgentCore:
 
         for step in range(1, self.max_steps + 1):
             try:
-                response = self._generate_content_with_retry(contents, metrics)
+                response = self._generate_content_with_retry(contents, metrics, private_mode)
             except _RETRYABLE_ERRORS as exc:
                 metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
                 logger.warning("Gemini API failed after retries: %s", exc)

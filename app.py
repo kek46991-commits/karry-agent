@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from karry_agent.core import AgentCore, AgentResult
 from karry_agent.memory import ConversationMemory
+from karry_agent.privacy import PrivateModeSession, has_passphrase
 
 app = FastAPI(
     title="karry-agent API",
@@ -39,6 +40,7 @@ class RunResponse(BaseModel):
     text: str
     steps: int
     tool_calls: int
+    private_mode: bool = False
     trace: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any]
 
@@ -50,6 +52,7 @@ class SessionResponse(BaseModel):
 
 _RUNS: dict[str, dict[str, Any]] = {}
 _SESSIONS: dict[str, ConversationMemory] = {}
+_PRIVATE_SESSIONS: dict[str, PrivateModeSession] = {}
 _STATE_LOCK = threading.Lock()
 _MAX_RUNS = 100
 _MAX_SESSIONS = 100
@@ -100,15 +103,32 @@ def _session(session_id: str | None) -> tuple[str | None, ConversationMemory | N
         return session_id, _SESSIONS[session_id]
 
 
+def _private_mode(session_id: str | None, prompt: str) -> bool:
+    """入力またはセッション認証に基づき、現在の実行だけのモードを判定する。"""
+    if not session_id:
+        return has_passphrase(prompt)
+    with _STATE_LOCK:
+        auth = _PRIVATE_SESSIONS.setdefault(session_id, PrivateModeSession())
+        return auth.authenticate(prompt)
+
+
+def _run_agent(agent: AgentCore, prompt: str, private_mode: bool) -> AgentResult:
+    # 既存の差し替え用 FakeAgent（run(prompt) のみ）との互換性を保つ。
+    if private_mode:
+        return agent.run(prompt, private_mode=True)
+    return agent.run(prompt)
+
+
 def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
     run_id = _new_run()
     session_id, memory = _session(request.session_id)
+    private_mode = _private_mode(session_id, request.prompt)
     prompt = request.prompt
     if memory and memory.get_history():
         context = "\n".join(f"{item['role']}: {item['content']}" for item in memory.get_history()[-6:])
         prompt = f"会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
     try:
-        result = agent.run(prompt)
+        result = _run_agent(agent, prompt, private_mode)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
@@ -127,6 +147,7 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
         text=result.text,
         steps=result.steps,
         tool_calls=result.tool_calls,
+        private_mode=private_mode,
         trace=_trace(result),
         metrics=_metrics(result),
     )
