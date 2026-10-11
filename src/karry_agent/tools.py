@@ -112,6 +112,37 @@ def run_command(command: str, timeout: int = 10) -> dict[str, Any]:
     }
 
 
+def run_local_script(path: str, args: list[str] | None = None, timeout: int = 30) -> dict[str, Any]:
+    """ワークスペース内の Python スクリプトを shell 無しで実行する。"""
+    try:
+        script = _safe_path(path)
+    except PermissionError as exc:
+        return {"error": str(exc)}
+    if script.suffix != ".py" or not script.is_file():
+        return {"error": "only an existing .py script inside the workspace can be executed"}
+    if not 1 <= timeout <= 30:
+        return {"error": "timeout must be between 1 and 30 seconds"}
+    script_args = [str(value) for value in (args or [])]
+    if any(any(char in value for char in (";", "|", "&", ">", "<", "`", "\n")) for value in script_args):
+        return {"error": "shell operators are not allowed in script arguments"}
+    completed = subprocess.run(
+        ["python3", str(script), *script_args],
+        cwd=script.parent,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        shell=False,
+        env={"PATH": os.getenv("PATH", ""), "LANG": "C.UTF-8"},
+    )
+    return {
+        "script": str(script),
+        "returncode": completed.returncode,
+        "stdout": completed.stdout[-20_000:],
+        "stderr": completed.stderr[-20_000:],
+    }
+
+
 def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """DuckDuckGo Instant Answer API。外部サービスへの送信は検索語だけ。"""
     if not query.strip():
@@ -138,5 +169,6 @@ def build_default_registry() -> ToolRegistry:
     registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
     registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
+    registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
     return registry

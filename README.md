@@ -14,6 +14,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - Phase 5 第1ステップ: Imagen 連携に向けた画像生成モックツール
 - Phase 6 第1ステップ: 会話履歴を管理する `ConversationMemory`
 - Phase 10: 実 Gemini API を使う ReAct / Function Calling と安全なコマンド実行
+- Phase 11: Thought–Action–Observation 実行トレースとローカルスクリプト実行
 
 ## 🚀 クイックスタート
 
@@ -60,3 +61,5 @@ GEMINI_API_KEY="..." python3 -m karry_agent.cli "README.md の概要を説明し
 ```
 
 エージェントはモデルの Function Call に応じて、ファイル読み書き、Web 検索、画像生成モック、現在日時取得、安全な読み取り系コマンドを実行します。コマンドは shell を経由せず、allowlist とワークスペース制限を適用します。実 API を使うテストは、課金・レート制限を避けるため既定ではスキップされます。
+
+Phase 11 では各ツール呼び出しを `AgentResult.trace` に記録します。トレースには Action 名、引数、Observation、実行時間が含まれます。`run_local_script` はワークスペース内の既存 `.py` ファイルだけを `shell=False` で実行し、引数・タイムアウト・出力サイズを制限します。
