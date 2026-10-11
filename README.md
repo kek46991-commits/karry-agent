@@ -17,6 +17,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - Phase 11: Thought–Action–Observation 実行トレースとローカルスクリプト実行
 - Phase 12: API 使用量・実行時間メトリクスと堅牢なエラー処理
 - Phase 13: 複数サブエージェントの委譲・並列実行・結果集約
+- Phase 14: MVP 統合検証と Devin 引き渡し向けドキュメント
 
 ## 🚀 クイックスタート
 
@@ -69,3 +70,5 @@ Phase 11 では各ツール呼び出しを `AgentResult.trace` に記録しま�
 Phase 12 では `AgentResult.metrics` に API 呼び出し回数、再試行回数、入力・出力・合計トークン数、ツール呼び出し数、エラー数、総実行時間（ms）を記録します。API エラーとタイムアウトは指数バックオフで自動再試行し、上限到達時は例外を外へ投げずエラー結果へフォールバックします。SDK の usage metadata が返らない場合も処理を継続します。
 
 Phase 13 の `MultiAgentOrchestrator` は、専門分野付きの `DelegatedTask` を複数のサブエージェントへ並列委譲し、結果を入力順に集約します。サブエージェントの失敗は他タスクへ波及せず、タイムアウトやエラーも結果として確認できます。
+
+Phase 14 のシステム構成、公開 API、セットアップ、テスト戦略、Devin 引き渡しチェックリストは [docs/architecture.md](docs/architecture.md) にまとめています。`tests/test_phase14.py` は Gemini 応答モックから Function Calling、ツール Observation、`AgentResult.metrics`、マルチエージェント集約までを一つの E2E フローとして検証します。
