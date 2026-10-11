@@ -1,17 +1,17 @@
 # karry-agent Handoff
 
 **対象:** Devin / 次担当開発者  
-**現行フェーズ:** Phase 15 — MVP Polish、REST UI shell、handoff preparation  
+**現行フェーズ:** Phase 16 — Web UI enhancement、tool expansion、handoff preparation
 **リポジトリ:** `kek46991-commits/karry-agent`  
 **ブランチ:** `main`
 
 ## 1. エグゼクティブサマリー
 
-karry-agent は `google-genai` SDK と Gemini を利用する Python エージェントです。Gemini の Function Calling でツールを選択し、Thought–Action–Observation の ReAct ループでツール結果を次の判断へ渡します。Phase 12 で実行メトリクスと再試行、Phase 13 で複数サブエージェントの委譲・集約、Phase 14 でモックによる E2E 統合検証を追加しました。Phase 15 では FastAPI の薄い REST シェルと、この引き渡し文書を追加しています。
+karry-agent は `google-genai` SDK と Gemini を利用する Python エージェントです。Gemini の Function Calling でツールを選択し、Thought–Action–Observation の ReAct ループでツール結果を次の判断へ渡します。Phase 12 で実行メトリクスと再試行、Phase 13 で複数サブエージェントの委譲・集約、Phase 14 でモックによる E2E 統合検証を追加しました。Phase 15 では FastAPI の薄い REST シェルと、この引き渡し文書を追加し、Phase 16 ではチャットセッション・実行追跡 API とワークスペース一覧ツールを追加しました。
 
 現在の API シェルは **MVP 用の同期 REST エンドポイント**です。認証、レート制限、ジョブキュー、ストリーミング、永続的な会話メモリは未実装です。本番公開前にロードマップの項目を実施してください。
 
-## 2. Phase 1–15 の成果
+## 2. Phase 1–16 の成果
 
 | Phase | 成果 |
 |---|---|
@@ -30,6 +30,7 @@ karry-agent は `google-genai` SDK と Gemini を利用する Python エージ�
 | 13 | 並列サブエージェント委譲、集約、失敗隔離、タイムアウト |
 | 14 | Gemini モックからツール・メトリクス・オーケストレーターまでの E2E |
 | 15 | FastAPI `/health` / `/run`、API テスト、詳細ハンドオフ文書 |
+| 16 | `/chat` セッション、`/runs/{run_id}` トレース取得、`/sessions/{id}` 履歴取得、`list_workspace` ツール |
 
 ## 3. 現在のディレクトリと主要ファイル
 
@@ -69,6 +70,7 @@ karry-agent は `google-genai` SDK と Gemini を利用する Python エージ�
 - `MultiAgentOrchestrator(agent_factory, max_workers=4, timeout_seconds=60)`
 - `MultiAgentOrchestrator.run(tasks) -> OrchestrationResult`
 - `ConversationMemory(max_history=10)`
+- FastAPI: `POST /chat`, `GET /runs/{run_id}`, `GET /sessions/{session_id}`
 
 ## 4. セットアップ
 
@@ -121,7 +123,10 @@ curl -X POST http://localhost:8000/run \
 エンドポイント:
 
 - `GET /health` — プロセスの簡易ヘルスチェック。API キー検証は行わない
-- `POST /run` — `{ "prompt": "..." }` を受け取り、`text`、`steps`、`tool_calls`、`metrics` を返す
+- `POST /run` — `{ "prompt": "..." }` を受け取り、`text`、`steps`、`tool_calls`、`trace`、`metrics`、`run_id` を返す
+- `POST /chat` — `session_id` を使った会話履歴付き実行
+- `GET /runs/{run_id}` — 実行状態、トレース、メトリクスを取得
+- `GET /sessions/{session_id}` — 会話履歴を取得
 - `/docs` — FastAPI が生成する OpenAPI UI
 
 `/run` は同期処理で Gemini 呼び出しを待つため、公開前に認証・入力上限・レート制限・タイムアウト・ジョブキューを追加してください。
@@ -170,6 +175,7 @@ GitHub Actions は `main` への push / pull request で Python 3.11 と pytest 
 - [ ] tool permission policy、承認フロー、dry-run、破壊的操作の二段階確認
 - [ ] tool schema versioning、idempotency key、circuit breaker
 - [ ] サブエージェントの specialist registry、予算・token quota、優先度制御
+- [ ] RunStore / SessionStore を Redis または DB へ移行し、複数 API レプリカ間で共有
 
 ### P2 — 開発・運用
 

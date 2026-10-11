@@ -18,6 +18,7 @@ Function Calling (ツール連携) 機能に対応しており、外部ツール
 - Phase 12: API 使用量・実行時間メトリクスと堅牢なエラー処理
 - Phase 13: 複数サブエージェントの委譲・並列実行・結果集約
 - Phase 14: MVP 統合検証と Devin 引き渡し向けドキュメント
+- Phase 16: FastAPI チャット・実行追跡 API とワークスペース一覧ツール
 
 ## 🚀 クイックスタート
 
@@ -72,3 +73,5 @@ Phase 12 では `AgentResult.metrics` に API 呼び出し回数、再試行回�
 Phase 13 の `MultiAgentOrchestrator` は、専門分野付きの `DelegatedTask` を複数のサブエージェントへ並列委譲し、結果を入力順に集約します。サブエージェントの失敗は他タスクへ波及せず、タイムアウトやエラーも結果として確認できます。
 
 Phase 14 のシステム構成、公開 API、セットアップ、テスト戦略、Devin 引き渡しチェックリストは [docs/architecture.md](docs/architecture.md) にまとめています。`tests/test_phase14.py` は Gemini 応答モックから Function Calling、ツール Observation、`AgentResult.metrics`、マルチエージェント集約までを一つの E2E フローとして検証します。
+
+Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/runs/{run_id}` で完了した実行のトレースとメトリクスを取得できます。`list_workspace` ツールは隠しファイルを除外し、ワークスペース外のパスを拒否します。

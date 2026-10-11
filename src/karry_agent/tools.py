@@ -79,6 +79,29 @@ def write_file(path: str, content: str) -> dict[str, Any]:
     return {"path": str(target), "bytes": target.stat().st_size}
 
 
+def list_workspace(path: str = ".", max_entries: int = 100) -> dict[str, Any]:
+    """ワークスペース内のファイル一覧を返す（隠しファイルと秘密ファイルを除外）。"""
+    try:
+        target = _safe_path(path)
+    except PermissionError as exc:
+        return {"error": str(exc)}
+    if not target.is_dir():
+        return {"error": "directory not found", "path": str(target)}
+    if not 1 <= max_entries <= 500:
+        return {"error": "max_entries must be between 1 and 500"}
+    entries = []
+    for item in sorted(target.rglob("*")):
+        if any(part.startswith(".") for part in item.relative_to(target).parts):
+            continue
+        entries.append({
+            "path": str(item.relative_to(target)),
+            "type": "directory" if item.is_dir() else "file",
+        })
+        if len(entries) >= max_entries:
+            break
+    return {"path": str(target), "entries": entries, "truncated": len(entries) >= max_entries}
+
+
 _ALLOWED_COMMANDS = {"pwd", "ls", "find", "grep", "cat", "git", "python", "python3"}
 _BLOCKED_TOKENS = {"-c", "--command", "sh", "bash", "zsh", "rm", "sudo", "curl", "wget"}
 
@@ -168,6 +191,7 @@ def build_default_registry() -> ToolRegistry:
     registry.register("generate_image_mock", "画像生成のモックを実行する", {"type": "object", "properties": {"prompt": string_param}, "required": ["prompt"]}, generate_image_mock)
     registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
     registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
+    registry.register("list_workspace", "ワークスペース内のファイル一覧を取得する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, list_workspace)
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
