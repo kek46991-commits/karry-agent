@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 import uuid
 import json
+import os
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentResult
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
@@ -203,6 +205,13 @@ def _stream_chat(request: RunRequest, agent: AgentCore):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "karry-agent"}
+
+
+@app.get("/health/calendar")
+def calendar_health() -> dict[str, Any]:
+    """Calendar 用 Secret の有無と形式だけを返す。値は返さない。"""
+    status = calendar_secret_status(dict(os.environ))
+    return {"ready": all(entry["valid"] for entry in status.values()), "env": status}
 
 
 @app.get("/", include_in_schema=False)
