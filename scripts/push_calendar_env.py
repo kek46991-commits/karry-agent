@@ -10,26 +10,35 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from karry_agent.calendar_secrets import (
-    CREDENTIALS_ENV,
-    TOKEN_ENV,
-    CalendarSecretError,
-    parse_secret_json,
-    to_env_value,
-    validate_credentials,
-    validate_token,
-)
+def _load_calendar_secrets() -> Any:
+    """パッケージ全体の依存を読まずに calendar_secrets だけを読み込む。"""
+    path = Path(__file__).resolve().parents[1] / "src" / "karry_agent" / "calendar_secrets.py"
+    spec = importlib.util.spec_from_file_location("calendar_secrets", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"{path} が見つかりません")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_secrets = _load_calendar_secrets()
+CREDENTIALS_ENV = _secrets.CREDENTIALS_ENV
+TOKEN_ENV = _secrets.TOKEN_ENV
+CalendarSecretError = _secrets.CalendarSecretError
+parse_secret_json = _secrets.parse_secret_json
+to_env_value = _secrets.to_env_value
+validate_credentials = _secrets.validate_credentials
+validate_token = _secrets.validate_token
 
 RENDER_API = "https://api.render.com/v1"
 CREDENTIAL_PATTERNS = ("credentials.json", "client_secret*.json")
@@ -82,7 +91,8 @@ def render_request(method: str, path: str, api_key: str, body: dict[str, Any] | 
         with urlopen(request, timeout=30) as response:
             text = response.read().decode("utf-8")
     except HTTPError as exc:
-        raise SystemExit(f"Render API {method} {path} failed: HTTP {exc.code}") from None
+        hint = " (RENDER_API_KEY が無効です)" if exc.code in (401, 403) else ""
+        raise SystemExit(f"Render API {method} {path} failed: HTTP {exc.code}{hint}") from None
     return json.loads(text) if text else None
 
 
