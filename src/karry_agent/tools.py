@@ -267,7 +267,7 @@ def _calendar_service() -> Any:
     creds = None
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
-    if creds and creds.expired and creds.refresh_token:
+    if creds and not creds.valid and creds.refresh_token:
         creds.refresh(GoogleRequest())
     elif not creds or not creds.valid:
         if not credentials_path.is_file():
