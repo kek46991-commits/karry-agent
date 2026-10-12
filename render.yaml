@@ -13,6 +13,14 @@ services:
         sync: false
       - key: SECRET_PASSPHRASE
         sync: false
+      - key: GOOGLE_CALENDAR_TOKEN_JSON
+        sync: false
+      - key: GOOGLE_CALENDAR_CREDENTIALS_JSON
+        sync: false
+      - key: GOOGLE_CALENDAR_TOKEN_FILE
+        value: /tmp/karry-agent/token.json
+      - key: GOOGLE_CALENDAR_CREDENTIALS_FILE
+        value: /tmp/karry-agent/credentials.json
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
       - key: KARRY_WORKSPACE

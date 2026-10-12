@@ -213,6 +213,23 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     return {"query": query, "results": results[:max_results]}
 
 
+def _restore_calendar_secret(env_name: str, target: Path) -> None:
+    """ヘッドレス環境の Secret JSON をローカルの一時ファイルへ復元する。"""
+    raw = os.getenv(env_name)
+    if not raw or target.exists():
+        return
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{env_name} must contain valid JSON") from exc
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(raw, encoding="utf-8")
+    try:
+        target.chmod(0o600)
+    except OSError:
+        pass
+
+
 def _calendar_service() -> Any:
     """既存 token を優先して Google Calendar API client を作成する。"""
     try:
@@ -225,6 +242,8 @@ def _calendar_service() -> Any:
     scopes = ["https://www.googleapis.com/auth/calendar.events"]
     token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
     credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
+    _restore_calendar_secret("GOOGLE_CALENDAR_TOKEN_JSON", token_path)
+    _restore_calendar_secret("GOOGLE_CALENDAR_CREDENTIALS_JSON", credentials_path)
     creds = None
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
