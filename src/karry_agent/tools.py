@@ -12,6 +12,16 @@ from typing import Any, Callable
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from karry_agent.calendar_secrets import (
+    CREDENTIALS_ENV,
+    TOKEN_ENV,
+    CalendarSecretError,
+    parse_secret_json,
+    to_env_value,
+    validate_credentials,
+    validate_token,
+)
+
 
 @dataclass
 class RegisteredTool:
@@ -213,21 +223,31 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     return {"query": query, "results": results[:max_results]}
 
 
+_RESTORED_CALENDAR_SECRETS: set[str] = set()
+
+
 def _restore_calendar_secret(env_name: str, target: Path) -> None:
-    """ヘッドレス環境の Secret JSON をローカルの一時ファイルへ復元する。"""
+    """ヘッドレス環境の Secret JSON を正規化し、プロセス起動後最初の 1 回だけファイルへ復元する。"""
     raw = os.getenv(env_name)
-    if not raw or target.exists():
+    if not raw or env_name in _RESTORED_CALENDAR_SECRETS:
         return
     try:
-        json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"{env_name} must contain valid JSON") from exc
+        data = parse_secret_json(raw, env_name)
+        if env_name == CREDENTIALS_ENV:
+            validate_credentials(data)
+        else:
+            credentials_raw = os.getenv(CREDENTIALS_ENV)
+            credentials = parse_secret_json(credentials_raw, CREDENTIALS_ENV) if credentials_raw else None
+            data = validate_token(data, credentials)
+    except CalendarSecretError as exc:
+        raise RuntimeError(str(exc)) from None
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(raw, encoding="utf-8")
+    target.write_text(to_env_value(data), encoding="utf-8")
     try:
         target.chmod(0o600)
     except OSError:
         pass
+    _RESTORED_CALENDAR_SECRETS.add(env_name)
 
 
 def _calendar_service() -> Any:
@@ -242,12 +262,12 @@ def _calendar_service() -> Any:
     scopes = ["https://www.googleapis.com/auth/calendar.events"]
     token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
     credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
-    _restore_calendar_secret("GOOGLE_CALENDAR_TOKEN_JSON", token_path)
-    _restore_calendar_secret("GOOGLE_CALENDAR_CREDENTIALS_JSON", credentials_path)
+    _restore_calendar_secret(CREDENTIALS_ENV, credentials_path)
+    _restore_calendar_secret(TOKEN_ENV, token_path)
     creds = None
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
-    if creds and creds.expired and creds.refresh_token:
+    if creds and not creds.valid and creds.refresh_token:
         creds.refresh(GoogleRequest())
     elif not creds or not creds.valid:
         if not credentials_path.is_file():

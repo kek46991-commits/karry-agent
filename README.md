@@ -133,3 +133,14 @@ export GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1
 初回 OAuth はローカル端末でのみ実行してください。`credentials.json` と `token.json` は `.gitignore` 対象で、Git、Docker image、ログへ含めないでください。Render のようなヘッドレス環境では既存の OAuth token を Secret / 安全な永続ストレージから提供し、対話型ログインを起動しないでください。
 
 Render Blueprint では `GOOGLE_CALENDAR_TOKEN_JSON` と `GOOGLE_CALENDAR_CREDENTIALS_JSON` を Secret として定義しています。ローカルで OAuth を完了した後、Render Dashboard の Environment に JSON の内容を Secret として登録してください。アプリは起動時に `/tmp/karry-agent/` へ mode `600` の一時ファイルとして復元します。Render のファイルシステムは永続ではないため、再起動後も Secret から再復元されます。Render では `GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH` を設定せず、ヘッドレス OAuth を起動しないでください。
+
+Render への設定は `scripts/push_calendar_env.py` で自動化できます（標準ライブラリのみ、Termux でも動作）。`credentials.json` / `client_secret*.json` / `token.json` をカレントディレクトリ・リポジトリ・ホーム・Download から自動検索し、JSON 形式と必須項目（`installed`/`web` の `client_id`・`client_secret`、token の `refresh_token`）を検証して 1 行 JSON として Render API に登録し、デプロイします。値は表示しません。
+
+```bash
+export RENDER_API_KEY=rnd_xxx
+python scripts/push_calendar_env.py --render          # ローカルのファイルを登録してデプロイ
+python scripts/push_calendar_env.py --login --render  # token.json をブラウザ認証で作成してから登録
+python scripts/push_calendar_env.py --from-render     # Render の既存値を正規化して再登録
+```
+
+アプリ側も前後の空白・BOM・外側のクォート・`KEY=` 付き・二重エンコード・base64 の値を自動で正規化します。設定状態は `GET /health/calendar` で確認でき、レスポンスには有無と形式エラーだけが含まれ、値は含まれません。
