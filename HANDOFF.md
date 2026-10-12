@@ -146,6 +146,7 @@ Render Dashboard で **New → Blueprint** を選択して GitHub リポジト�
 | Method | Path | 内容 |
 |---|---|---|
 | GET | `/health` | サービス状態 |
+| GET | `/health/calendar` | Calendar Secret の有無と形式（値は返さない） |
 | GET | `/` | `static/index.html` |
 | POST | `/run` | 単発 Agent 実行。`run_id`、trace、metrics を返す |
 | POST | `/chat` | セッション履歴付き実行。`stream: true` で SSE |
@@ -180,7 +181,7 @@ python -m pytest -q
 python -m compileall -q src app.py
 ```
 
-現行のローカル結果は `68 passed, 2 skipped` です。実 API テストは明示的に有効化した場合だけ実行します。
+現行のローカル結果は `100 passed, 2 skipped` です。実 API テストは明示的に有効化した場合だけ実行します。
 
 ```bash
 RUN_LIVE_GEMINI_TESTS=1 python -m pytest -q
@@ -225,3 +226,9 @@ GitHub Actions は `main` への push / pull request で依存関係を導入し
 `src/karry_agent/tools.py` に `add_calendar_event(summary, start_time, duration_minutes=60, confirmed=False)` を追加しました。Function Calling から利用できますが、`confirmed` のデフォルトは `False` で、外部カレンダーを変更せずイベントプレビューを返します。ユーザーが日時・件名・所要時間を確認した後だけ `confirmed=true` を許可してください。
 
 依存関係は `google-api-python-client`、`google-auth-httplib2`、`google-auth-oauthlib` です。認証ファイルは `GOOGLE_CALENDAR_CREDENTIALS_FILE`、既存 token は `GOOGLE_CALENDAR_TOKEN_FILE` で指定できます。初回の `InstalledAppFlow` は `GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1` のローカル環境だけで許可し、Render 等のヘッドレス Web Service では既存 token を Secret / 永続ストレージから注入します。`credentials.json`、`token.json`、`client_secret*.json` は `.gitignore` 済みです。
+
+### Render 本番への設定（PR #3）
+
+[PR #3](https://github.com/kek46991-commits/karry-agent/pull/3) で、Secret 値の正規化・検証（`calendar_secrets.py`）、起動時の `/tmp` への再復元、`GET /health/calendar`、Termux 用の `scripts/push_calendar_env.py`（ファイル自動検索、`--login` によるブラウザ OAuth、Render への登録とデプロイ）を追加しました。
+
+Render には同じリポジトリから `karry-agent-1`（本番、`GEMINI_API_KEY` あり）と `karry-agent`（`render.yaml` と同名、`GEMINI_API_KEY` なし）の 2 サービスがあります。2026-10-12 時点で両方に `GOOGLE_CALENDAR_CREDENTIALS_JSON` / `GOOGLE_CALENDAR_TOKEN_JSON` を登録済みで、`/health/calendar` は `ready: true` です。登録した token で予定の取得ができることも確認しました。スクリプトで本番へ登録するときは `--service-name karry-agent-1` を指定してください。詳細は [docs/calendar-setup.md](docs/calendar-setup.md) を参照してください。
