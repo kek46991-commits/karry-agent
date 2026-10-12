@@ -109,3 +109,76 @@ def test_push_script_normalizes_local_files(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "OK" in output
     assert "rtoken" not in output
+
+
+def _load_push_script():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("push_calendar_env_login", Path("scripts/push_calendar_env.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_push_script_login_creates_token_via_loopback(tmp_path, monkeypatch, capsys):
+    import io
+    import threading
+    from urllib.parse import parse_qs, urlparse
+    from urllib.request import urlopen as real_urlopen
+
+    module = _load_push_script()
+    seen = {}
+
+    def fake_browser(url):
+        query = {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
+        seen.update(query)
+        callback = f"{query['redirect_uri']}?code=authcode&state={query['state']}"
+        threading.Thread(target=lambda: real_urlopen(callback, timeout=5).read(), daemon=True).start()
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(request, timeout=30):
+        body = parse_qs(request.data.decode())
+        assert body["code"] == ["authcode"]
+        assert body["code_verifier"][0]
+        return FakeResponse(json.dumps({"access_token": "atoken", "refresh_token": "rtoken", "expires_in": 3599}).encode())
+
+    monkeypatch.setattr(module, "_open_browser", fake_browser)
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    credentials = tmp_path / "credentials.json"
+    credentials.write_text(json.dumps(CREDENTIALS), encoding="utf-8")
+
+    assert module.main(["--login", "--credentials", str(credentials)]) == 0
+    token = json.loads((tmp_path / "token.json").read_text(encoding="utf-8"))
+    assert token["refresh_token"] == "rtoken"
+    assert token["client_id"] == "cid"
+    assert seen["access_type"] == "offline"
+    assert seen["scope"] == "https://www.googleapis.com/auth/calendar.events"
+    assert "rtoken" not in capsys.readouterr().out
+
+
+def test_push_script_without_token_suggests_login(tmp_path):
+    module = _load_push_script()
+    credentials = tmp_path / "credentials.json"
+    credentials.write_text(json.dumps(CREDENTIALS), encoding="utf-8")
+    monkeypatch_roots = [tmp_path]
+    module.search_roots = lambda: monkeypatch_roots
+    with pytest.raises(SystemExit, match="--login"):
+        module.main(["--credentials", str(credentials)])
+
+
+def test_token_from_login_loads_in_google_auth(tmp_path):
+    from google.oauth2.credentials import Credentials
+
+    token = dict(TOKEN, token="atoken", scopes=["https://www.googleapis.com/auth/calendar.events"], expiry="2000-01-01T00:00:00Z")
+    path = tmp_path / "token.json"
+    path.write_text(json.dumps(token), encoding="utf-8")
+    creds = Credentials.from_authorized_user_file(str(path), token["scopes"])
+    assert creds.refresh_token == "rtoken"
+    assert creds.expired is True

@@ -4,19 +4,29 @@
 例 (Termux):
     export RENDER_API_KEY=rnd_xxx
     python scripts/push_calendar_env.py --render
+token.json が無い場合はブラウザで OAuth 認証して作成してから登録する:
+    python scripts/push_calendar_env.py --login --render
 既に Render にある値の余計な記号を除去して設定し直す:
     python scripts/push_calendar_env.py --from-render
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import datetime
+import hashlib
 import importlib.util
 import json
 import os
+import secrets
+import shutil
+import subprocess
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -43,6 +53,9 @@ validate_token = _secrets.validate_token
 RENDER_API = "https://api.render.com/v1"
 CREDENTIAL_PATTERNS = ("credentials.json", "client_secret*.json")
 TOKEN_PATTERNS = ("token.json",)
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+DEFAULT_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token"
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "site-packages"}
 
 
@@ -72,6 +85,119 @@ def find_file(patterns: tuple[str, ...], max_depth: int = 3) -> Path | None:
                     if match.is_file() and not SKIP_DIRS.intersection(match.parts):
                         return match
     return None
+
+
+def _open_browser(url: str) -> None:
+    if shutil.which("termux-open-url"):
+        subprocess.run(["termux-open-url", url], check=False)
+        return
+    try:
+        webbrowser.open(url)
+    except webbrowser.Error:
+        pass
+
+
+def _wait_for_code(server: HTTPServer, state: str, timeout: int) -> str:
+    received: dict[str, str] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            query = {key: values[0] for key, values in parse_qs(urlparse(self.path).query).items()}
+            if "code" in query or "error" in query:
+                received.update(query)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            message = "認証が完了しました。Termux に戻ってください。" if "code" in query else "認証できませんでした。"
+            self.wfile.write(f"<p>{message}</p>".encode())
+
+        def log_message(self, *args: Any) -> None:
+            return
+
+    server.RequestHandlerClass = Handler
+    server.timeout = timeout
+    deadline = datetime.datetime.now() + datetime.timedelta(seconds=timeout)
+    while not received and datetime.datetime.now() < deadline:
+        server.handle_request()
+    if not received:
+        raise SystemExit("ブラウザ認証がタイムアウトしました。もう一度実行してください")
+    if received.get("error"):
+        raise SystemExit(f"Google 認証エラー: {received['error']}")
+    if received.get("state") != state:
+        raise SystemExit("認証レスポンスの state が一致しません。もう一度実行してください")
+    return received["code"]
+
+
+def oauth_login(credentials: dict[str, Any], timeout: int = 300) -> dict[str, Any]:
+    """Desktop OAuth クライアントでループバック認証し、authorized_user 形式の token を返す。"""
+    client = credentials.get("installed") or credentials.get("web") or {}
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    server = HTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    redirect_uri = f"http://127.0.0.1:{server.server_port}/"
+    auth_url = (client.get("auth_uri") or DEFAULT_AUTH_URI) + "?" + urlencode(
+        {
+            "client_id": client["client_id"],
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(CALENDAR_SCOPES),
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+    )
+    print("ブラウザで Google にログインして「許可」を押してください。開かない場合は次の URL を開いてください:")
+    print(auth_url, flush=True)
+    _open_browser(auth_url)
+    try:
+        code = _wait_for_code(server, state, timeout)
+    finally:
+        server.server_close()
+
+    token_uri = client.get("token_uri") or DEFAULT_TOKEN_URI
+    body = urlencode(
+        {
+            "code": code,
+            "client_id": client["client_id"],
+            "client_secret": client["client_secret"],
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+            "code_verifier": verifier,
+        }
+    ).encode()
+    request = Request(token_uri, data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            issued = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise SystemExit(f"token の取得に失敗しました: HTTP {exc.code}") from None
+    if not issued.get("refresh_token"):
+        raise SystemExit(
+            "refresh_token が返されませんでした。https://myaccount.google.com/permissions で"
+            "アプリのアクセスを削除してから再実行してください"
+        )
+    expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=int(issued.get("expires_in", 0)))
+    return {
+        "token": issued.get("access_token"),
+        "refresh_token": issued["refresh_token"],
+        "token_uri": token_uri,
+        "client_id": client["client_id"],
+        "client_secret": client["client_secret"],
+        "scopes": CALENDAR_SCOPES,
+        "expiry": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def write_private_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 def render_request(method: str, path: str, api_key: str, body: dict[str, Any] | None = None) -> Any:
@@ -124,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--credentials", type=Path, help="credentials.json のパス (省略時は自動検索)")
     parser.add_argument("--token", type=Path, help="token.json のパス (省略時は自動検索)")
+    parser.add_argument("--login", action="store_true", help="ブラウザで OAuth 認証して token.json を作成する")
     parser.add_argument("--render", action="store_true", help="ローカルのファイルを Render に設定する")
     parser.add_argument("--from-render", action="store_true", help="Render の既存値を正規化して設定し直す")
     parser.add_argument("--service-name", default="karry-agent")
@@ -150,12 +277,19 @@ def main(argv: list[str] | None = None) -> int:
             changed = [key for key, value in values.items() if current[key] != value]
         else:
             credentials_path = args.credentials or find_file(CREDENTIAL_PATTERNS)
-            token_path = args.token or find_file(TOKEN_PATTERNS)
-            if not credentials_path or not token_path:
-                raise SystemExit(
-                    "credentials.json / token.json が見つかりません。--credentials と --token でパスを指定してください"
-                )
+            if not credentials_path:
+                raise SystemExit("credentials.json が見つかりません。--credentials でパスを指定してください")
             print(f"credentials: {credentials_path}")
+            token_path = args.token or find_file(TOKEN_PATTERNS)
+            if args.login:
+                credentials = validate_credentials(
+                    parse_secret_json(credentials_path.read_text(encoding="utf-8-sig"), CREDENTIALS_ENV)
+                )
+                token_path = args.token or credentials_path.with_name("token.json")
+                write_private_json(token_path, oauth_login(credentials))
+                print(f"token.json を作成しました: {token_path}")
+            if not token_path:
+                raise SystemExit("token.json がありません。--login を付けて実行するとブラウザ認証で作成します")
             print(f"token:       {token_path}")
             values = normalize(
                 credentials_path.read_text(encoding="utf-8-sig"),

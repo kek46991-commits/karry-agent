@@ -139,6 +139,7 @@ Render への設定は `scripts/push_calendar_env.py` で自動化できます�
 ```bash
 export RENDER_API_KEY=rnd_xxx
 python scripts/push_calendar_env.py --render          # ローカルのファイルを登録してデプロイ
+python scripts/push_calendar_env.py --login --render  # token.json をブラウザ認証で作成してから登録
 python scripts/push_calendar_env.py --from-render     # Render の既存値を正規化して再登録
 ```
 
