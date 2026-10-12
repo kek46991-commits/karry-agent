@@ -1,6 +1,9 @@
 from pathlib import Path
+from types import SimpleNamespace
 
-from karry_agent.tools import add_calendar_event, build_default_registry
+from karry_agent import tools
+from karry_agent.core import AgentCore
+from karry_agent.tools import ToolRegistry, add_calendar_event, build_default_registry, list_calendar_events, update_calendar_event
 
 
 def test_calendar_tool_requires_confirmation_without_external_write():
@@ -26,3 +29,129 @@ def test_google_secret_files_are_ignored():
     text = Path(".gitignore").read_text(encoding="utf-8")
     assert "credentials.json" in text
     assert "token.json" in text
+
+
+class _FakeRequest:
+    def __init__(self, result):
+        self.result = result
+        self.kwargs = None
+
+    def list(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    def get(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    def patch(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    def execute(self):
+        return self.result
+
+
+class _FakeEvents:
+    def __init__(self, list_result, event_result):
+        self.list_request = _FakeRequest(list_result)
+        self.get_request = _FakeRequest(event_result)
+        self.patch_request = _FakeRequest(event_result)
+
+    def list(self, **kwargs):
+        self.list_request.kwargs = kwargs
+        return self.list_request
+
+    def get(self, **kwargs):
+        self.get_request.kwargs = kwargs
+        return self.get_request
+
+    def patch(self, **kwargs):
+        self.patch_request.kwargs = kwargs
+        return self.patch_request
+
+
+class _FakeService:
+    def __init__(self, list_result, event_result):
+        self.events_api = _FakeEvents(list_result, event_result)
+
+    def events(self):
+        return self.events_api
+
+
+def test_list_calendar_events_returns_safe_event_summaries(monkeypatch):
+    service = _FakeService(
+        {"items": [{"id": "event-1", "summary": "会議", "start": {"dateTime": "2026-10-12T10:00:00+09:00"}, "end": {"dateTime": "2026-10-12T11:00:00+09:00", "timeZone": "Asia/Tokyo"}, "htmlLink": "https://calendar.google.com/event"}]},
+        {},
+    )
+    monkeypatch.setattr(tools, "_calendar_service", lambda: service)
+
+    result = list_calendar_events("2026-10-12T00:00:00+09:00", max_results=5)
+
+    assert result["count"] == 1
+    assert result["events"][0]["event_id"] == "event-1"
+    assert service.events_api.list_request.kwargs["calendarId"] == "primary"
+    assert service.events_api.list_request.kwargs["timeMin"] == "2026-10-12T00:00:00+09:00"
+
+
+def test_update_calendar_event_previews_then_patches_only_when_confirmed(monkeypatch):
+    current = {
+        "id": "event-1",
+        "summary": "会議",
+        "start": {"dateTime": "2026-10-12T10:00:00+09:00"},
+        "end": {"dateTime": "2026-10-12T11:00:00+09:00"},
+    }
+    updated = {**current, "summary": "重要な会議"}
+    service = _FakeService({}, current)
+    service.events_api.patch_request.result = updated
+    monkeypatch.setattr(tools, "_calendar_service", lambda: service)
+
+    preview = update_calendar_event("event-1", summary="重要な会議")
+    assert preview["confirmation_required"] is True
+    assert preview["event_preview"]["changes"]["summary"] == "重要な会議"
+    assert service.events_api.patch_request.kwargs is None
+
+    confirmed = update_calendar_event("event-1", summary="重要な会議", confirmed=True)
+    assert confirmed["updated"] is True
+    assert service.events_api.patch_request.kwargs["eventId"] == "event-1"
+    assert service.events_api.patch_request.kwargs["body"] == {"summary": "重要な会議"}
+
+
+def test_calendar_read_and_update_tools_are_registered():
+    registry = build_default_registry()
+    assert "list_calendar_events" in registry.tools
+    assert "update_calendar_event" in registry.tools
+    assert "confirmed" in registry.tools["update_calendar_event"].declaration["parameters"]["properties"]
+
+
+def test_agent_core_dispatches_function_call_to_calendar_tool():
+    registry = ToolRegistry()
+    observed = []
+    registry.register(
+        "list_calendar_events",
+        "予定を取得する",
+        {"type": "object", "properties": {"max_results": {"type": "integer"}}},
+        lambda max_results=10: observed.append(max_results) or {"events": [], "count": 0},
+    )
+    function_call = SimpleNamespace(name="list_calendar_events", args={"max_results": 3})
+    first = SimpleNamespace(
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(function_call=function_call)]))]
+    )
+    second = SimpleNamespace(
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(text="予定を取得しました")]))]
+    )
+
+    class _FakeModels:
+        def __init__(self):
+            self.responses = [first, second]
+
+        def generate_content(self, **kwargs):
+            return self.responses.pop(0)
+
+    fake_client = SimpleNamespace(models=_FakeModels())
+    result = AgentCore(client=fake_client, model_id="test-model", registry=registry, max_steps=2).run("今日の予定を確認")
+
+    assert result.text == "予定を取得しました"
+    assert observed == [3]
+    assert result.tool_calls == 1
+    assert result.trace[0].action == "list_calendar_events"

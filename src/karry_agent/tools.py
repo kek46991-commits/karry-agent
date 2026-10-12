@@ -222,7 +222,7 @@ def _calendar_service() -> Any:
     except ImportError as exc:
         raise RuntimeError("Google Calendar dependencies are not installed") from exc
 
-    scopes = ["https://www.googleapis.com/auth/calendar"]
+    scopes = ["https://www.googleapis.com/auth/calendar.events"]
     token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
     credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
     creds = None
@@ -280,6 +280,106 @@ def add_calendar_event(
     return {"created": True, "event_id": result.get("id"), "html_link": result.get("htmlLink"), "event": event}
 
 
+def _calendar_event_summary(event: dict[str, Any]) -> dict[str, Any]:
+    """Google Calendar イベントからエージェントに返す安全な要約を作る。"""
+    return {
+        "event_id": event.get("id"),
+        "summary": event.get("summary", ""),
+        "start": event.get("start", {}),
+        "end": event.get("end", {}),
+        "status": event.get("status"),
+        "html_link": event.get("htmlLink"),
+    }
+
+
+def list_calendar_events(
+    time_min: str | None = None,
+    time_max: str | None = None,
+    query: str | None = None,
+    max_results: int = 10,
+) -> dict[str, Any]:
+    """Google Calendar の予定を読み取り、予定の要約一覧を返す。"""
+    if not 1 <= max_results <= 100:
+        return {"error": "max_results must be between 1 and 100"}
+
+    params: dict[str, Any] = {
+        "calendarId": "primary",
+        "maxResults": max_results,
+        "singleEvents": True,
+        "orderBy": "startTime",
+    }
+    for name, value in (("timeMin", time_min), ("timeMax", time_max)):
+        if value is None:
+            continue
+        try:
+            parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return {"error": f"{name} must be ISO 8601 with timezone offset"}
+        if parsed.tzinfo is None:
+            return {"error": f"{name} must include a timezone offset"}
+        params[name] = parsed.isoformat()
+    if query and query.strip():
+        params["q"] = query.strip()
+
+    response = _calendar_service().events().list(**params).execute()
+    events = [_calendar_event_summary(event) for event in response.get("items", [])]
+    return {"events": events, "count": len(events), "next_page_token": response.get("nextPageToken")}
+
+
+def update_calendar_event(
+    event_id: str,
+    summary: str | None = None,
+    start_time: str | None = None,
+    duration_minutes: int | None = None,
+    confirmed: bool = False,
+) -> dict[str, Any]:
+    """予定変更をプレビューし、confirmed=True のときだけ Google Calendar に反映する。"""
+    if not event_id.strip():
+        return {"error": "event_id is required"}
+    if summary is None and start_time is None and duration_minutes is None:
+        return {"error": "at least one field to update is required"}
+    if summary is not None and not summary.strip():
+        return {"error": "summary must not be empty"}
+    if duration_minutes is not None and not 1 <= duration_minutes <= 1_440:
+        return {"error": "duration_minutes must be between 1 and 1440"}
+
+    service = _calendar_service()
+    current = service.events().get(calendarId="primary", eventId=event_id).execute()
+    current_start = current.get("start", {}).get("dateTime")
+    current_end = current.get("end", {}).get("dateTime")
+    patch: dict[str, Any] = {}
+    if summary is not None:
+        patch["summary"] = summary.strip()
+
+    if start_time is not None or duration_minutes is not None:
+        if start_time is None:
+            start_value = current_start
+        else:
+            start_value = start_time
+        try:
+            start = datetime.datetime.fromisoformat(start_value.replace("Z", "+00:00"))
+        except (AttributeError, ValueError):
+            return {"error": "start_time must be ISO 8601 with timezone offset"}
+        if start.tzinfo is None:
+            return {"error": "start_time must include a timezone offset"}
+        if duration_minutes is None:
+            try:
+                end = datetime.datetime.fromisoformat(current_end.replace("Z", "+00:00"))
+                duration_minutes = max(1, int((end - datetime.datetime.fromisoformat(current_start.replace("Z", "+00:00"))).total_seconds() / 60))
+            except (AttributeError, ValueError, TypeError):
+                return {"error": "existing event has no usable dateTime range"}
+        end = start + datetime.timedelta(minutes=duration_minutes)
+        patch["start"] = {"dateTime": start.isoformat(), "timeZone": "Asia/Tokyo"}
+        patch["end"] = {"dateTime": end.isoformat(), "timeZone": "Asia/Tokyo"}
+
+    preview = {**_calendar_event_summary(current), "changes": patch}
+    if not confirmed:
+        return {"confirmation_required": True, "event_preview": preview}
+
+    result = service.events().patch(calendarId="primary", eventId=event_id, body=patch).execute()
+    return {"updated": True, **_calendar_event_summary(result)}
+
+
 def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
     string_param = {"type": "string"}
@@ -308,5 +408,35 @@ def build_default_registry() -> ToolRegistry:
             "required": ["summary", "start_time"],
         },
         add_calendar_event,
+    )
+    registry.register(
+        "list_calendar_events",
+        "Google Calendar の予定を検索・取得する（読み取り専用）",
+        {
+            "type": "object",
+            "properties": {
+                "time_min": {"type": "string", "description": "ISO 8601 with timezone offset"},
+                "time_max": {"type": "string", "description": "ISO 8601 with timezone offset"},
+                "query": string_param,
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+        },
+        list_calendar_events,
+    )
+    registry.register(
+        "update_calendar_event",
+        "Google Calendar の予定変更をプレビューする。実際の変更には confirmed=true が必要",
+        {
+            "type": "object",
+            "properties": {
+                "event_id": string_param,
+                "summary": string_param,
+                "start_time": {"type": "string", "description": "ISO 8601 with timezone offset"},
+                "duration_minutes": {"type": "integer", "minimum": 1, "maximum": 1440},
+                "confirmed": {"type": "boolean", "description": "ユーザーが変更内容を明示確認した場合のみ true"},
+            },
+            "required": ["event_id"],
+        },
+        update_calendar_event,
     )
     return registry

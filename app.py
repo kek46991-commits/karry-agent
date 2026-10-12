@@ -220,9 +220,13 @@ def run_agent(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent
 @app.post("/agent/run", response_model=AgentRunResponse)
 def run_agent_compat(
     request: AgentTaskRequest,
-    agent: Annotated[AgentCore, Depends(get_agent)],
 ) -> AgentRunResponse:
     """旧 Jimmy-Core サンプルの task 形式を既存の安全な AgentCore へ接続する。"""
+    # Body の min_length 検証を先に完了させるため、この互換ルートだけは
+    # AgentCore の依存性を関数内で解決する。テストや別デプロイからの
+    # dependency override は従来どおり尊重する。
+    agent_factory = app.dependency_overrides.get(get_agent, get_agent)
+    agent = agent_factory()
     response = _execute(
         RunRequest(prompt=request.task, session_id=request.session_id),
         agent,

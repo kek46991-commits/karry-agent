@@ -112,6 +112,14 @@ Gemini API キーが未設定の Web Service は、`Internal Server Error` で�
 
 `add_calendar_event` を Function Calling ツールとして登録しています。予定登録は外部データを書き換えるため、最初の呼び出しではプレビューのみ返し、ユーザーが内容を明示確認して `confirmed=true` を指定した場合だけ Google Calendar API を実行します。
 
+Calendar 連携では、メインの Function Calling ループから次の 3 ツールを利用できます。
+
+- `list_calendar_events`: `time_min`、`time_max`、`query` で予定を検索する読み取り専用ツール
+- `add_calendar_event`: 新規予定をプレビューし、`confirmed=true` のときだけ登録するツール
+- `update_calendar_event`: `event_id` と変更項目を指定してプレビューし、`confirmed=true` のときだけ変更するツール
+
+取得はそのまま実行できます。追加・変更は、エージェントが件名・日時・対象イベントを明示した確認メッセージを返し、ユーザーが承認した後の呼び出しだけが外部 API を変更します。
+
 ローカル設定:
 
 ```bash
