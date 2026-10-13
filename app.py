@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,7 @@ from karry_agent.tools import add_calendar_event, build_default_registry
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
+from karry_agent import instant_website
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,33 @@ app = FastAPI(
     description="Gemini Function Calling agent API with chat and execution tracking",
 )
 STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+instant_website.configure_static_root(STATIC_DIR)
+
+
+@app.get("/static/instant/{filename}", include_in_schema=False)
+def instant_artifact(filename: str):
+    path = instant_website.public_artifact_path(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return FileResponse(path, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+
+
+class ArtifactStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        parts = Path(os.path.normpath(path)).parts
+        if parts and parts[0] == "instant":
+            target = instant_website.public_artifact_path(parts[1]) if len(parts) == 2 else None
+            if target is None:
+                raise HTTPException(status_code=404, detail="artifact not found")
+            return FileResponse(target, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+        response = await super().get_response(path, scope)
+        target = getattr(response, "path", None)
+        if target is not None and Path(target).resolve().is_relative_to(instant_website.INSTANT_DIR.resolve()):
+            response.headers.update(instant_website.PUBLIC_HEADERS)
+        return response
+
+
+app.mount("/static", ArtifactStaticFiles(directory=STATIC_DIR), name="static")
 
 try:
     _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
@@ -88,6 +115,17 @@ class AgentTaskRequest(BaseModel):
 
     task: str = Field(..., min_length=1, max_length=20_000, description="エージェントへのタスク")
     session_id: str | None = Field(default=None, max_length=100)
+
+
+class InstantWebsitePayload(BaseModel):
+    html_content: str = Field(..., min_length=1, max_length=instant_website.MAX_HTML_BYTES)
+    filename: str | None = Field(default=None, max_length=200)
+
+
+class InstantWebsiteConfirmation(BaseModel):
+    approval_id: str = Field(..., min_length=32, max_length=32)
+    sha256: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: bool
 
 
 class RunResponse(BaseModel):
@@ -456,7 +494,23 @@ def agent_tools() -> dict[str, Any]:
 
 @app.post("/api/agent/tools/execute", dependencies=[Depends(require_tool_auth)])
 def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
+    # Direct authenticated owner calls supply the exact final HTML themselves.
+    # Model dispatch instead calls the staged registry wrapper and cannot approve.
+    if request.tool_name == "deploy_instant_website":
+        if set(request.arguments) - {"html_content", "filename"}:
+            raise HTTPException(status_code=400, detail="invalid publication arguments")
+        try:
+            payload = InstantWebsitePayload(**request.arguments)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid HTML publication payload") from None
+        return {"tool_name": request.tool_name,
+                "result": instant_website.deploy_instant_website(payload.html_content, payload.filename)}
     return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
+
+
+@app.post("/api/agent/websites/confirm", dependencies=[Depends(require_tool_auth)])
+def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
+    return instant_website.confirm_instant_website(request.approval_id, request.sha256, request.confirmed)
 
 
 @app.get("/api/agent/healing", dependencies=[Depends(require_tool_auth)])
