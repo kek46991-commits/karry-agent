@@ -4,7 +4,17 @@
 - [x] Calendar / Photos のOAuth認証を共通化し、既存のJSON Secret・tokenファイル・環境変数3点を維持する。MapsはRoutes APIに接続し、PhotosはPicker選択フローを実装する。エラーを成功として返さない。
 - [x] Gemini Tool Callingの手動実行を登録し、関数ID・モデルContent・例外とユーザー操作待ちを正しく処理する。Calendarのプレビュー確認フローに end_time と description を保持する。
 - [x] 既存APIにバインドし、認証付きツールAPIを追加する。既存テストと新規統合テストを実行し、GitHubへ変更ブランチとPRを保存する。
-- [ ] 本番Renderへ配置し、配置されたバージョンを確認する。mainの自動デプロイ設定を考慮し、マージ前に実装内容と設定事項をユーザーに提示する。
+- [x] 本番Renderへ配置し、配置されたバージョンを確認する。mainの自動デプロイ設定を考慮し、マージ前に実装内容と設定事項をユーザーに提示する。
 
 ローカル検証: 149 passed, 2 skipped。構文、依存整合性、wheelビルド、差分チェック成功。ライブGoogle/Gemini検証は秘密情報未設定のため未実施。
-GitHub PR: https://github.com/kek46991-commits/karry-agent/pull/4 。本番配置は未実施。
+GitHub PR: https://github.com/kek46991-commits/karry-agent/pull/4 。2026-10-13、承認後にmainへマージ（aaaffc1）。両Renderサービスの新APIと画面一致を確認済み。
+
+## Self-Healing Core（最優先）
+
+- [x] スタックトレース、例外、構造化エラーを共通エンジンへ集約し、秘密情報を除去した上限付き診断ログを保持する。API例外・コアの再試行・ツール実行と戻り値エラーを接続する。
+- [x] 修復戦略を登録し、実際の修正と再検証に成功したときだけrepairedを返す。送信側Bearerヘッダーの補正、読み取り専用呼び出しの最大1回再試行、受信401の維持、再帰・重複修復の抑止を実装する。
+- [x] 未知の不具合に対するAI修復パッチ生成と検証、GitHub修復PRのフックを実装する。生成・外部反映は明示設定、既定は診断だけ。本番ファイルやmainの無検証書き換えは行わない。
+- [x] 個別機能の改修を行わず、モックによる修復成功・修復失敗・認証境界・API接続と既存回帰を検証してPRへ保存する。本番マージは別途確認する。
+
+Self-Healing検証: 209 passed, 2 skipped。既存回帰を含む全テスト、構文、依存整合性、差分チェック成功。追加の本番ツール呼び出し、Geminiライブ呼び出し、自動修復PRのライブ作成は未実施。
+Self-Healing実装PR: https://github.com/kek46991-commits/karry-agent/pull/5 。main未マージ・本番未反映。

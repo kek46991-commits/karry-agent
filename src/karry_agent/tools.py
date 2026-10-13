@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from karry_agent.self_healing import healing_engine
 from karry_agent.calendar_secrets import (
     CREDENTIALS_ENV,
     TOKEN_ENV,
@@ -47,6 +48,14 @@ class ToolRegistry:
         )
 
     def execute(self, name: str, args: dict[str, Any]) -> Any:
+        result = self._execute(name, args)
+        if isinstance(result, dict) and "healing_status" not in result:
+            healing = healing_engine.observe_result(result, {"source": "tool_registry", "tool_name": name})
+            if healing and name in self.tools:
+                result = {**result, "healing_status": healing}
+        return result
+
+    def _execute(self, name: str, args: dict[str, Any]) -> Any:
         tool = self.tools.get(name)
         if not tool:
             return {"error": f"unknown tool: {name}"}
@@ -67,7 +76,9 @@ class ToolRegistry:
                     return {"status": "error", "error": f"invalid argument type: {key}"}
             return tool.handler(**args)
         except Exception as exc:
-            return {"status": "error", "error": f"{type(exc).__name__}: tool execution failed"}
+            healing = healing_engine.analyze_and_heal(exc, {"source": "tool_registry", "tool_name": name})
+            return {"status": "error", "error": f"{type(exc).__name__}: tool execution failed",
+                    "healing_status": healing}
 
 
 def get_current_datetime() -> str:

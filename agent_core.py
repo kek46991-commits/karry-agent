@@ -11,7 +11,10 @@ from karry_agent.agent_core import (
     search_photos,
     write_file,
 )
+from karry_agent.self_healing import SelfHealingEngine, RepairStrategy, healing_engine
+from karry_agent.healing_client import HealingAPIClient
 
 __all__ = ["AGENT_TOOLS", "add_calendar_event", "dispatch_tool", "execute_command",
            "get_google_credentials", "get_map_directions", "list_dir", "read_file",
-           "search_photos", "write_file"]
+           "search_photos", "write_file", "SelfHealingEngine", "RepairStrategy",
+           "healing_engine", "HealingAPIClient"]
