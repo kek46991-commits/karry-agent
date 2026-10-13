@@ -17,6 +17,7 @@ HTML = '<!doctype html><html lang="ja"><head><title>Demo</title></head><body><h1
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
+    monkeypatch.setenv("KARRY_WEBSITE_STORAGE", "local")
     monkeypatch.setattr(sites, "INSTANT_DIR", tmp_path / "instant")
     monkeypatch.setattr(sites, "_PENDING", {})
     monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://example.onrender.com")

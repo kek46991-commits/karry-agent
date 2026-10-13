@@ -1,4 +1,4 @@
-"""Instant static HTML previews; ephemeral filesystem, no external publishing API."""
+"""Instant HTML publication backed by private durable storage or explicit local mode."""
 from __future__ import annotations
 
 import hashlib
@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .self_healing import _SECRET_KEY, healing_engine
+from . import website_storage
 
 STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 INSTANT_DIR = STATIC_ROOT / "instant"
@@ -86,7 +87,9 @@ def _plan(html_content: str, filename: str | None) -> dict[str, Any]:
     body = _html_bytes(html_content)
     name = _filename(filename)
     return {"html_content": html_content, "filename": name, "sha256": hashlib.sha256(body).hexdigest(),
-            "public_url": public_base_url() + "/static/instant/" + name, "size_bytes": len(body)}
+            "public_url": public_base_url() + "/static/instant/" + name, "size_bytes": len(body),
+            "persistence": "durable" if website_storage.storage_mode() == "s3" else "ephemeral",
+            "_storage_identity": website_storage.storage_identity()}
 
 
 def _publish(plan: dict[str, Any]) -> dict[str, Any]:
@@ -96,6 +99,12 @@ def _publish(plan: dict[str, Any]) -> dict[str, Any]:
     # Public destination is also part of the confirmed payload.
     if public_base_url() + "/static/instant/" + plan["filename"] != plan["public_url"]:
         raise ValueError("公開先の設定が変わりました。内容を再確認してください。")
+    if plan["_storage_identity"] != website_storage.storage_identity():
+        raise ValueError("保存先の設定が変わりました。内容を再確認してください。")
+    if website_storage.storage_mode() == "s3":
+        with _LOCK:
+            website_storage.configured_store().put(plan["filename"], body, max_files=MAX_FILES, max_total_bytes=MAX_TOTAL_BYTES)
+        return _published_result(plan, len(body), durable=True)
     with _LOCK:
         if INSTANT_DIR.is_symlink():
             raise ValueError("公開ディレクトリの形式が不正です。")
@@ -118,10 +127,15 @@ def _publish(plan: dict[str, Any]) -> dict[str, Any]:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+    return _published_result(plan, len(body), durable=False)
+
+
+def _published_result(plan: dict[str, Any], size: int, *, durable: bool) -> dict[str, Any]:
     return {"success": True, "status": "published", "message": "HTMLの即時公開が完了しました。",
             "filename": plan["filename"], "public_url": plan["public_url"], "sha256": plan["sha256"],
-            "size_bytes": len(body), "persistence": "ephemeral",
-            "warning": "Renderの再起動・再デプロイ・インスタンス切替で失われる一時公開です。永続保存ではありません。"}
+            "size_bytes": size, "persistence": "durable" if durable else "ephemeral",
+            "warning": "HTMLは外部オブジェクトストレージに保存済みです。Render再起動では消えません。削除・保持設定・サービス停止は別です。" if durable else
+                "Renderの再起動・再デプロイ・インスタンス切替で失われる一時公開です。永続保存ではありません。"}
 
 
 def _error(exc: Exception) -> dict[str, Any]:
@@ -130,7 +144,10 @@ def _error(exc: Exception) -> dict[str, Any]:
     else:
         healing_engine.analyze_and_heal(exc, {"source": "instant_website", "operation": "publish"})
         message = "HTMLの即時公開に失敗しました。"
-    return {"success": False, "status": "error", "error": message}
+    result = {"success": False, "status": "error", "error": message}
+    if isinstance(exc, website_storage.StorageError):
+        result["error_code"] = exc.code
+    return result
 
 
 def deploy_instant_website(html_content: str, filename: str | None = None) -> dict[str, Any]:
@@ -155,7 +172,7 @@ def prepare_instant_website(html_content: str, filename: str | None = None) -> d
             approval_id = uuid.uuid4().hex
             _PENDING[approval_id] = {**plan, "expires": now + APPROVAL_TTL}
         return {"success": False, "status": "needs_user_action", "confirmation_required": True,
-                "approval_id": approval_id, "preview": plan, "expires_in_seconds": APPROVAL_TTL,
+                "approval_id": approval_id, "preview": {key: value for key, value in plan.items() if not key.startswith("_")}, "expires_in_seconds": APPROVAL_TTL,
                 "message": "このHTML全文・公開URLを確認してください。公開前に所有者の確認が必要です。",
                 "confirmation_endpoint": "/api/agent/websites/confirm"}
     except Exception as exc:
@@ -183,7 +200,20 @@ def confirm_instant_website(approval_id: str, sha256: str, confirmed: bool) -> d
 
 
 def public_artifact_path(filename: str) -> Path | None:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}_[a-f0-9]{32}\.html", filename) or INSTANT_DIR.is_symlink():
+    if not website_storage.FILENAME_RE.fullmatch(filename) or website_storage.storage_mode() != "local" or INSTANT_DIR.is_symlink():
         return None
     target = INSTANT_DIR / filename
     return target if target.is_file() and not target.is_symlink() else None
+
+
+def public_artifact_content(filename: str) -> bytes | Path | None:
+    if not website_storage.FILENAME_RE.fullmatch(filename):
+        return None
+    if website_storage.storage_mode() == "local":
+        return public_artifact_path(filename)
+    try:
+        return website_storage.configured_store().get(filename)
+    except website_storage.StorageError as exc:
+        if exc.code == "not_found":
+            return None
+        raise
