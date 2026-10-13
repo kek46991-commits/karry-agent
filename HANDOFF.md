@@ -246,3 +246,11 @@ Render には同じリポジトリから `karry-agent-1`（本番、`GEMINI_API_
 - 確認後のCalendar insertでGoogle API例外が発生すると、`_pending_calendar_result()` から例外が外へ伝播し、`agent execution failed` のHTTP 500になっていた。例外を捕捉して、登録失敗の `AgentResult` と `errors=1` を返すようにした。
 - 天気質問に対応する `get_weather(location)` を追加した。Open-Meteo Geocoding APIで地域を解決し、Forecast APIのcurrent値（天気、気温、体感温度、湿度、風速）をFunction Callingへ返す。`web_search` の空結果にも明示的なmessageを返す。
 - 検証結果: 全体テスト **106 passed / 2 skipped**。実APIで `get_weather("枚方市")` が成功し、地域名・天気・気温を取得した。公開統合版にも同じtools/app修正を反映する。
+
+### 2026-10-13 緊急Calendar追加エラー対応
+
+- 公開URLで「明日の10:00にあこちゃんの家にいく。カレンダー追加して」を送るとプレビューは成功し、同じセッションの「登録して」でHTTP 500 `agent execution failed`を再現した。
+- 対策: `add_calendar_event` 内の認証・refresh・Google API insert例外を捕捉し、秘密値や詳細なtoken情報を返さず、認証設定確認を促す安全なエラー結果へ変換する。確認後経路の`app.py`にも既存の例外捕捉を維持する。
+- `start_time` はISO8601だけでなく「明日の10:00」「明日の10時30分」「今日の10時」を`Asia/Tokyo`基準でaware datetimeへ変換する。2026-10-13 JST時点の「明日の10:00」は`2026-10-14T10:00:00+09:00`になる。
+- 本番の標準設定は`GOOGLE_CALENDAR_CREDENTIALS_JSON`と`GOOGLE_CALENDAR_TOKEN_JSON`。互換用に`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`の組み合わせもtoken JSONへ変換して利用できる。推奨scopeは`https://www.googleapis.com/auth/calendar.events`。
+- Renderログ確認では`Calendar insert failed`のスタックトレースを検索し、秘密値・refresh tokenをログ出力しない。`GET /health/calendar`は`token.valid=true`を確認する。

@@ -154,3 +154,5 @@ python scripts/push_calendar_env.py --from-render     # Render の既存値を�
 また、チャットで予定プレビューの後にユーザーが「はい」「登録してください」など明示確認した場合は、会話モデルの再判断に任せず、保留中の予定を `add_calendar_event(..., confirmed=True)` で直接実行します。これにより、確認後に再びプレビューだけ返る問題を防ぎます。`/health/calendar` が token を `valid: true` と示すこと、OAuth token のスコープが `https://www.googleapis.com/auth/calendar.events` であることを確認してください。
 
 確認後のCalendar API例外はHTTP 500へ投げ直さず、ユーザー向けの登録失敗結果とエラーメトリクスへ変換します。天気の質問には `get_weather(location)` がFunction Callingから選択され、Open-Meteoのジオコーディングと現在天気APIを順に呼び出します。例: `枚方市`。APIキーは不要で、取得元はレスポンスの `source` に明示されます。汎用 `web_search` が空結果の場合も `message` を返します。
+
+Calendar追加は「明日の10:00」「明日の10時30分」のような日本語の相対日時にも対応し、JSTのISO8601（例: `2026-10-14T10:00:00+09:00`）へ変換します。Google APIの認証・refresh・insert例外は`agent execution failed`へ漏らさず、「カレンダー連携の認証が必要です」などの安全な結果として返します。標準の本番環境変数はJSON Secretですが、互換用に`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`の3つでも構成できます。

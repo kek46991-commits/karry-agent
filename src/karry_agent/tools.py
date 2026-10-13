@@ -4,6 +4,8 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import logging
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -11,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from karry_agent.calendar_secrets import (
     CREDENTIALS_ENV,
@@ -21,6 +24,9 @@ from karry_agent.calendar_secrets import (
     validate_credentials,
     validate_token,
 )
+
+logger = logging.getLogger(__name__)
+JST = ZoneInfo("Asia/Tokyo")
 
 
 @dataclass
@@ -332,6 +338,21 @@ def _calendar_service() -> Any:
     # 先に credentials を復元すると、使える token があるのに無関係な
     # credentials Secret の形式エラーで insert/list 全体が失敗していた。
     _restore_calendar_secret(TOKEN_ENV, token_path)
+    if not token_path.is_file() and os.getenv("GOOGLE_REFRESH_TOKEN"):
+        legacy_token = {
+            "refresh_token": os.environ["GOOGLE_REFRESH_TOKEN"],
+            "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scopes": scopes,
+        }
+        try:
+            validate_token(legacy_token)
+        except CalendarSecretError as exc:
+            raise RuntimeError("Google CalendarのOAuth環境変数が不足しています。GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET、GOOGLE_REFRESH_TOKENを確認してください。") from exc
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(to_env_value(legacy_token), encoding="utf-8")
+        token_path.chmod(0o600)
     creds = None
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
@@ -363,6 +384,40 @@ def _calendar_service() -> Any:
     return build("calendar", "v3", credentials=creds)
 
 
+def _parse_calendar_start_time(value: str) -> datetime.datetime:
+    """ISO日時または日本語の相対日時をAsia/Tokyoのaware datetimeへ変換する。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("start_time is required")
+    raw = value.strip()
+    try:
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=JST)
+        return parsed.astimezone(JST)
+    except ValueError:
+        pass
+
+    normalized = raw.lower().replace("：", ":").replace("　", " ").strip()
+    day_offset = None
+    for word, offset in (("明日", 1), ("あした", 1), ("tomorrow", 1), ("今日", 0), ("きょう", 0), ("today", 0)):
+        if word in normalized:
+            day_offset = offset
+            normalized = normalized.replace(word, "", 1).strip()
+            break
+    if day_offset is None:
+        raise ValueError("start_time must be ISO 8601 or a relative time such as 明日の10:00")
+
+    match = re.search(r"(\d{1,2})(?::|時)(\d{1,2})?分?", normalized)
+    if not match:
+        raise ValueError("relative start_time must include an hour, such as 明日の10:00")
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    if hour > 23 or minute > 59:
+        raise ValueError("start_time hour/minute is out of range")
+    base = datetime.datetime.now(JST) + datetime.timedelta(days=day_offset)
+    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
 def add_calendar_event(
     summary: str,
     start_time: str,
@@ -370,16 +425,18 @@ def add_calendar_event(
     confirmed: bool = False,
 ) -> dict[str, Any]:
     """予定をプレビューし、confirmed=True のときだけ Google Calendar に登録する。"""
-    if not summary.strip():
+    if not isinstance(summary, str) or not summary.strip():
         return {"error": "summary is required"}
+    try:
+        duration_minutes = int(duration_minutes)
+    except (TypeError, ValueError):
+        return {"error": "duration_minutes must be an integer between 1 and 1440"}
     if not 1 <= duration_minutes <= 1_440:
         return {"error": "duration_minutes must be between 1 and 1440"}
     try:
-        start = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-    except ValueError:
-        return {"error": "start_time must be ISO 8601, for example 2026-10-12T10:00:00+09:00"}
-    if start.tzinfo is None:
-        return {"error": "start_time must include a timezone offset"}
+        start = _parse_calendar_start_time(start_time)
+    except (TypeError, ValueError) as exc:
+        return {"error": str(exc)}
     end = start + datetime.timedelta(minutes=duration_minutes)
     event = {
         "summary": summary,
@@ -388,8 +445,15 @@ def add_calendar_event(
     }
     if not confirmed:
         return {"confirmation_required": True, "event_preview": event}
-    service = _calendar_service()
-    result = service.events().insert(calendarId="primary", body=event).execute()
+    try:
+        service = _calendar_service()
+        result = service.events().insert(calendarId="primary", body=event).execute()
+    except Exception as exc:
+        logger.exception("Google Calendar event insert failed")
+        message = "カレンダー連携の認証が必要です。Calendar tokenとcalendar.eventsスコープを確認してください。"
+        if "credential" not in type(exc).__name__.lower() and "auth" not in str(exc).lower() and "401" not in str(exc) and "403" not in str(exc):
+            message = "Google Calendarへの予定登録に失敗しました。日時・認証・API設定を確認してください。"
+        return {"created": False, "error": message, "error_type": type(exc).__name__}
     return {"created": True, "event_id": result.get("id"), "html_link": result.get("htmlLink"), "event": event}
 
 

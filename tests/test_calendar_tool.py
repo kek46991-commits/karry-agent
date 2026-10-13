@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import app
 from karry_agent import tools
 from karry_agent.core import AgentCore, AgentResult, ExecutionEvent
-from karry_agent.tools import ToolRegistry, add_calendar_event, build_default_registry, list_calendar_events, update_calendar_event
+from karry_agent.tools import ToolRegistry, _parse_calendar_start_time, add_calendar_event, build_default_registry, list_calendar_events, update_calendar_event
 
 
 def test_calendar_tool_requires_confirmation_without_external_write():
@@ -15,8 +15,19 @@ def test_calendar_tool_requires_confirmation_without_external_write():
 
 
 def test_calendar_tool_validates_timezone_and_duration():
-    assert "timezone" in add_calendar_event("予定", "2026-10-12T10:00:00")["error"]
+    assert "hour" in add_calendar_event("予定", "明日")["error"]
     assert "duration" in add_calendar_event("予定", "2026-10-12T10:00:00+09:00", 0)["error"]
+
+
+def test_relative_calendar_time_is_converted_to_jst(monkeypatch):
+    class FrozenDateTime(__import__("datetime").datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 13, 9, 30, tzinfo=tz)
+
+    monkeypatch.setattr(tools.datetime, "datetime", FrozenDateTime)
+    parsed = _parse_calendar_start_time("明日の10:00")
+    assert parsed.isoformat() == "2026-10-14T10:00:00+09:00"
 
 
 def test_calendar_tool_confirmed_insert_uses_primary_calendar_and_timezone(monkeypatch):
@@ -32,6 +43,22 @@ def test_calendar_tool_confirmed_insert_uses_primary_calendar_and_timezone(monke
         "dateTime": "2026-10-12T10:00:00+09:00",
         "timeZone": "Asia/Tokyo",
     }
+
+
+def test_calendar_insert_exception_returns_safe_error(monkeypatch):
+    class BrokenEvents:
+        def insert(self, **kwargs):
+            raise RuntimeError("auth failure")
+
+    class BrokenService:
+        def events(self):
+            return BrokenEvents()
+
+    monkeypatch.setattr(tools, "_calendar_service", lambda: BrokenService())
+    result = add_calendar_event("予定", "明日の10:00", confirmed=True)
+    assert result["created"] is False
+    assert "認証が必要" in result["error"]
+    assert "auth failure" not in result["error"]
 
 
 def test_calendar_tool_is_registered_with_confirmation_parameter():
