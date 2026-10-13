@@ -23,6 +23,10 @@ DEFAULT_PATHS = ("src/karry_agent/core.py", "src/karry_agent/tools.py", "app.py"
 def source_contains_secret(source: str) -> bool:
     secrets = [value for key, value in os.environ.items()
                if re.search(r"token|secret|password|api.?key|passphrase", key, re.I) and value]
+    private_values = [value.strip() for key, value in os.environ.items()
+                      if key in {"PARTNER_NAME", "CORE_USER_NAME", "CORE_PRIVATE_CONTEXT"} and value.strip()]
+    if any(value in source for value in private_values):
+        return True
     # Long credential fragments are forbidden anywhere, including comments.
     if any(len(value) >= 8 and value in source for value in secrets):
         return True

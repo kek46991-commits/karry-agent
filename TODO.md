@@ -17,4 +17,19 @@ GitHub PR: https://github.com/kek46991-commits/karry-agent/pull/4 。2026-10-13�
 - [x] 個別機能の改修を行わず、モックによる修復成功・修復失敗・認証境界・API接続と既存回帰を検証してPRへ保存する。本番マージは別途確認する。
 
 Self-Healing検証: 209 passed, 2 skipped。既存回帰を含む全テスト、構文、依存整合性、差分チェック成功。追加の本番ツール呼び出し、Geminiライブ呼び出し、自動修復PRのライブ作成は未実施。
-Self-Healing実装PR: https://github.com/kek46991-commits/karry-agent/pull/5 。main未マージ・本番未反映。
+Self-Healing実装PR: https://github.com/kek46991-commits/karry-agent/pull/5 。2026-10-13の再確認時点でmainへマージ済み（66b747a）。今回のコアメモリ作業では本番ライブ稼働を再検証していない。
+
+## Jimmy Core Context
+
+- [x] ジミーの相棒像・目標・開発原則を汎用公開JSONへ保存し、wheelとRender配布物にも含める。個人名は非公開環境変数で設定する。
+- [x] 設定を検証してシステムプロンプトへ毎回注入する。再起動・新セッションでも同じ設定を保持し、会話履歴による上書きや未提供の記憶の捏造はしない。夢と実装済み能力を区別し、既存の認証・プライベート情報境界とSelf-Healingの有効化設定を維持する。
+- [x] モックでプロンプト到達・通常/プライベートモード・検証エラー・再読み込み・配布物を確認し、既存回帰を通して専用PRへ保存する。本番マージとデプロイはこの実装依頼とは分ける。
+
+Jimmy Core検証: 231 passed, 2 skipped。構文・依存整合性・差分チェック成功。wheel JSON同梱・ソースツリー外の新プロセス読み込みを確認。ライブモデル/本番ツール呼び出しは未実施。
+Jimmy Core実装PR: https://github.com/kek46991-commits/karry-agent/pull/6 。main未マージ・本番未反映。
+
+## 公開用コードのプライベート情報保護
+
+- [x] JSON・Python・テスト・README・関連文書から個人名や固有プロフィールを除き、Partnerを既定値にする。呼称はPARTNER_NAME/CORE_USER_NAME、私的コンテキストはCORE_PRIVATE_CONTEXTに分離し、後者は認証済みモードだけへ渡す。
+- [x] 既存231件の回帰と追加11件、合計242件合格・2件スキップ。wheel・追跡対象の既知個人名0件と.env/.env.localの除外確認。過去の履歴は書き換えない。
+- [x] PR #6へ公開情報保護の新規コミットを保存し、公開本文を汎用表現へ更新する。
