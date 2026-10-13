@@ -49,11 +49,30 @@
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function trace(kind, data) { const el=document.createElement('div'); el.className='event'; el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(JSON.stringify(data,null,2))}</pre>`; $('trace').appendChild(el); $('trace').scrollTop=$('trace').scrollHeight; }
   function metrics(data) { const m=data.metrics||{}; $('steps').textContent=data.steps??'—'; $('toolCalls').textContent=data.tool_calls??'—'; $('apiCalls').textContent=m.api_calls??'—'; $('tokens').textContent=m.total_tokens??'—'; $('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—'; }
+  function websiteApproval(data) {
+    const event=(data.trace||[]).find(item=>item.action==='deploy_instant_website' && item.observation?.confirmation_required);
+    if(!event)return;
+    const pending=event.observation, preview=pending.preview;
+    if(!preview)return;
+    const box=addMessage('agent',`公開確認（10分以内）\n公開先: ${preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧できる一時公開です。再起動・再デプロイで消えます。秘密情報を含まないことを確認してください。`);
+    const source=document.createElement('textarea'); source.readOnly=true; source.value=preview.html_content; source.setAttribute('aria-label','公開するHTML全文'); source.style.cssText='display:block;width:100%;min-height:180px;margin:12px 0'; box.appendChild(source);
+    const label=document.createElement('label'), check=document.createElement('input'); check.type='checkbox'; label.append(check,document.createTextNode('HTML全文と公開先を確認し、公開を承認します')); box.appendChild(label);
+    const publish=document.createElement('button'); publish.type='button'; publish.textContent='確認した内容を即時公開'; publish.disabled=true; publish.style.cssText='display:block;padding:10px;margin-top:10px'; box.appendChild(publish); check.onchange=()=>{publish.disabled=!check.checked;};
+    publish.onclick=async()=>{
+      publish.disabled=true; check.disabled=true;
+      try {
+        const headers={'Content-Type':'application/json'}; if($('apiToken').value)headers.Authorization=`Bearer ${$('apiToken').value}`;
+        const response=await fetch('/api/agent/websites/confirm',{method:'POST',headers,body:JSON.stringify({approval_id:pending.approval_id,sha256:preview.sha256,confirmed:true})});
+        const result=await response.json(); if(!response.ok || !result.success)throw new Error(result.error||result.detail||'公開できませんでした');
+        const message=addMessage('agent',`公開完了\n${result.public_url}\n${result.warning}`), link=document.createElement('a'); link.href=result.public_url; link.textContent='公開ページを開く'; link.target='_blank'; link.rel='noopener noreferrer'; message.appendChild(link); publish.textContent='公開済み';
+      }catch(error){addMessage('agent',`公開エラー: ${error.message}。必要な場合は再度成果物の公開準備を依頼してください。`);publish.textContent='公開できませんでした';}
+    };
+  }
   $('mic').addEventListener('click',()=>{ if(recognition) { if($('mic').classList.contains('active')) recognition.stop(); else recognition.start(); } });
   $('chatForm').addEventListener('submit', async event => { event.preventDefault(); const prompt=$('prompt').value.trim(); if(!prompt)return; $('prompt').value=''; $('send').disabled=true; $('status').textContent='実行中…'; addMessage('user',prompt); trace('started',{prompt});
     try { const headers={'content-type':'application/json'}; const token=$('apiToken').value; if(token) headers.Authorization=`Bearer ${token}`; const response=await fetch('/chat',{method:'POST',headers,body:JSON.stringify({prompt,session_id:sessionId,stream:true})}); if(!response.ok) throw new Error(await response.text()); const reader=response.body.getReader(), decoder=new TextDecoder(); let buffer=''; let completed=null;
       while(true){ const {value,done}=await reader.read(); if(done)break; buffer+=decoder.decode(value,{stream:true}); const chunks=buffer.split('\n\n'); buffer=chunks.pop(); for(const chunk of chunks){ const event=(chunk.match(/^event: (.*)$/m)||[])[1]; const raw=(chunk.match(/^data: (.*)$/m)||[])[1]; if(!raw)continue; const data=JSON.parse(raw); trace(event,data); if(event==='completed')completed=data; if(event==='error')throw new Error(data.detail||'実行に失敗しました'); } }
-      if(completed){ sessionId=completed.session_id; if(sessionId){localStorage.setItem('karry-session',sessionId);$('session').textContent=sessionId;} addMessage('agent',completed.text); metrics(completed); if($('autoSpeak').checked) speak(completed.text); }
+      if(completed){ sessionId=completed.session_id; if(sessionId){localStorage.setItem('karry-session',sessionId);$('session').textContent=sessionId;} addMessage('agent',completed.text); metrics(completed); websiteApproval(completed); if($('autoSpeak').checked) speak(completed.text); }
       $('status').textContent='オンライン';
     } catch(error){ addMessage('agent',`エラー: ${error.message}`); $('status').textContent='エラー'; } finally { $('send').disabled=false; $('prompt').focus(); }
   });

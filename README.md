@@ -80,6 +80,10 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 単独URLまたは単一ページの解析・要約・改善提案依頼は、`fetch_and_summarize_url`を1回実行し、抽出済みタイトル・本文3000文字・見出し・構造からツールなしのモデル生成で回答します。正常時は2ステップ・1ツール実行、通常1モデル呼び出しです。一般ループの既定上限は20、`KARRY_MAX_TOOL_STEPS`で1～50へ設定できます。取得失敗・JavaScriptページの制約や複合依頼の扱いは [docs/fast-url-analysis.md](docs/fast-url-analysis.md) を参照してください。
 
+### HTML成果物の即時URL公開
+
+`deploy_instant_website` はHTMLを `static/instant/` へ直接保存してURLを返します。個別成果物の公開にGit push・GitHub Token・追加の外部サービスは不要です。チャットではHTML全文・公開先を確認して公開ボタンを押し、確定HTMLを直接指定する所有者APIでは即時公開します。生成HTMLは隔離ヘッダー付きで配信します。**Renderの再起動・再デプロイで消える一時プレビューで、永続ホスティングではありません。** 使い方・制限は [docs/instant-website.md](docs/instant-website.md) を参照してください。
+
 ### Phase 17: ストリーミングとファイル操作
 
 `POST /chat` に `{"stream": true}` を指定すると、SSE 形式で `started`、`step`（Thought/Action/Observation の実行トレース）、`completed` または `error` イベントを返します。現段階では実行本体を安全に完了させた後にトレースを送る基盤実装であり、真の逐次 Thought 生成は今後のストリーミング SDK 対応で拡張します。

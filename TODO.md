@@ -26,7 +26,7 @@ Self-Healing実装PR: https://github.com/kek46991-commits/karry-agent/pull/5 。
 - [x] モックでプロンプト到達・通常/プライベートモード・検証エラー・再読み込み・配布物を確認し、既存回帰を通して専用PRへ保存する。本番マージとデプロイはこの実装依頼とは分ける。
 
 Jimmy Core検証: 231 passed, 2 skipped。構文・依存整合性・差分チェック成功。wheel JSON同梱・ソースツリー外の新プロセス読み込みを確認。ライブモデル/本番ツール呼び出しは未実施。
-Jimmy Core実装PR: https://github.com/kek46991-commits/karry-agent/pull/6 。main未マージ・本番未反映。
+Jimmy Core実装PR: https://github.com/kek46991-commits/karry-agent/pull/6 。mainマージ済み（38888c5）。Render稼働コミット・本番読み取りAPIを確認済み。
 
 ## 公開用コードのプライベート情報保護
 
@@ -42,4 +42,12 @@ Jimmy Core実装PR: https://github.com/kek46991-commits/karry-agent/pull/6 。ma
 - [x] モックで呼び出し数・API接続・取得失敗・制限・一般ループ互換・プライバシー境界を検証し、PRへ保存する。本番マージは別途確認する。
 
 URL高速化の検証: 304 passed, 2 skipped。既存242件＋新規62件、構文・依存整合性・差分チェック成功。読み取り専用レビュー指摘のURL末尾保持、空本文、生成1試行、DNSプロセス回収、読取ソケット残時間を修正。本番ツール・ライブモデルは呼び出していない。
-URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。main未マージ・本番未反映。サンドボックスexample.comの1回実取得のみ成功確認。
+URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回の再確認時点でmainマージ済み（b3ddd5e）。この作業では本番URL解析のライブ実行は行っていない。
+
+## インスタントWeb公開
+
+- [x] Git pushや追加の利用者設定なしで、deploy_instant_website(html_content, filename)を共通レジストリへ追加する。既存FastAPIの/static配信へ専用成果物ディレクトリを接続し、上書き・パストラバーサルを防ぐ。
+- [x] 明示公開依頼に従いHTMLを即時保存してURLを返す。生成内容を未確認のままモデルが自己公開しないよう、実行経路を公開承認の内容に結び付ける。保存済みURL・一時保存の性質・Render再起動で消える制約を正確に示す。
+- [ ] モックとローカルHTTPで書込み・URL配信・容量・秘密情報除外・既存画面保護・失敗を検証しPRへ保存する。本番コード反映と個別成果物の公開は別の操作とする。
+
+インスタント公開検証: 348 passed, 2 skipped。既存304件＋追加44件。Python/JavaScript構文、依存、差分、wheel成功。読み取り専用レビューの経路統一と原子的保存を修正。ライブ公開・GitHub成果物アップロード・外部API・本番ツール呼出しなし。
