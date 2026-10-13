@@ -17,6 +17,16 @@ services:
         sync: false
       - key: GOOGLE_CALENDAR_CREDENTIALS_JSON
         sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: GOOGLE_PHOTOS_TOKEN_JSON
+        sync: false
+      - key: GOOGLE_WORKSPACE_TOKEN_JSON
+        sync: false
+      - key: KARRY_API_TOKEN
+        sync: false
+      - key: KARRY_ALLOW_SHELL
+        value: "0"
       - key: GOOGLE_CALENDAR_TOKEN_FILE
         value: /tmp/karry-agent/token.json
       - key: GOOGLE_CALENDAR_CREDENTIALS_FILE

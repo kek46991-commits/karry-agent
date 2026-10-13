@@ -7,12 +7,14 @@ import json
 import os
 import re
 import logging
+import secrets
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -21,7 +23,8 @@ from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
-from karry_agent.tools import add_calendar_event
+from karry_agent.tools import add_calendar_event, build_default_registry
+from karry_agent.agent_core import dispatch_tool
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,30 @@ _PENDING_CALENDAR: dict[str, dict[str, Any]] = {}
 _STATE_LOCK = threading.Lock()
 _MAX_RUNS = 100
 _MAX_SESSIONS = 100
+
+
+_BEARER = HTTPBearer(auto_error=False)
+
+
+def require_api_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
+    """Preserve existing default API behavior, but require auth when a token or shell is enabled."""
+    token = os.getenv("KARRY_API_TOKEN")
+    if not token and os.getenv("KARRY_ALLOW_SHELL") == "1":
+        raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for shell execution")
+    if token and (credentials is None or not secrets.compare_digest(credentials.credentials, token)):
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
+
+
+def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
+    """New direct tool routes always fail closed when no owner token is configured."""
+    if not os.getenv("KARRY_API_TOKEN"):
+        raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
+    require_api_auth(credentials)
+
+
+class ToolRequest(BaseModel):
+    tool_name: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_agent() -> AgentCore:
@@ -214,6 +241,13 @@ def _remember_calendar_preview(session_id: str | None, result: AgentResult) -> N
                     "start_time": args.get("start_time", ""),
                     "duration_minutes": args.get("duration_minutes", 60),
                 }
+                for key in ("end_time", "description"):
+                    if key in args:
+                        _PENDING_CALENDAR[session_id][key] = args[key]
+                preview = observation.get("event_preview", {})
+                if preview.get("start", {}).get("dateTime") and preview.get("end", {}).get("dateTime"):
+                    _PENDING_CALENDAR[session_id]["start_time"] = preview["start"]["dateTime"]
+                    _PENDING_CALENDAR[session_id]["end_time"] = preview["end"]["dateTime"]
             elif observation.get("created"):
                 _PENDING_CALENDAR.pop(session_id, None)
         break
@@ -228,6 +262,8 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool) -> AgentResult
 
 def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
     run_id = _new_run()
+    if not request.session_id:
+        request.session_id = uuid.uuid4().hex
     session_id, memory = _session(request.session_id)
     private_mode = _private_mode(session_id, request.prompt)
     prompt = request.prompt
@@ -253,7 +289,7 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
     response = RunResponse(
         run_id=run_id,
         session_id=session_id,
-        status="completed",
+        status=getattr(result, "status", "completed"),
         text=result.text,
         steps=result.steps,
         tool_calls=result.tool_calls,
@@ -301,12 +337,12 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.post("/run", response_model=RunResponse)
+@app.post("/run", response_model=RunResponse, dependencies=[Depends(require_api_auth)])
 def run_agent(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -> RunResponse:
     return _execute(request, agent)
 
 
-@app.post("/agent/run", response_model=AgentRunResponse)
+@app.post("/agent/run", response_model=AgentRunResponse, dependencies=[Depends(require_api_auth)])
 def run_agent_compat(
     request: AgentTaskRequest,
 ) -> AgentRunResponse:
@@ -335,7 +371,7 @@ def run_agent_compat(
     )
 
 
-@app.post("/chat", response_model=None)
+@app.post("/chat", response_model=None, dependencies=[Depends(require_api_auth)])
 def chat(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -> RunResponse | StreamingResponse:
     """会話履歴を保持しながらエージェントを呼び出す。"""
     if not request.session_id:
@@ -345,7 +381,7 @@ def chat(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -
     return _execute(request, agent)
 
 
-@app.get("/sessions/{session_id}", response_model=SessionResponse)
+@app.get("/sessions/{session_id}", response_model=SessionResponse, dependencies=[Depends(require_api_auth)])
 def get_session(session_id: str) -> SessionResponse:
     with _STATE_LOCK:
         memory = _SESSIONS.get(session_id)
@@ -354,13 +390,24 @@ def get_session(session_id: str) -> SessionResponse:
     return SessionResponse(session_id=session_id, history=memory.get_history())
 
 
-@app.get("/runs/{run_id}")
+@app.get("/runs/{run_id}", dependencies=[Depends(require_api_auth)])
 def get_run(run_id: str) -> dict[str, Any]:
     with _STATE_LOCK:
         run = _RUNS.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+@app.get("/api/agent/tools", dependencies=[Depends(require_tool_auth)])
+def agent_tools() -> dict[str, Any]:
+    registry = build_default_registry()
+    return {"tools": [tool.declaration for tool in registry.tools.values()]}
+
+
+@app.post("/api/agent/tools/execute", dependencies=[Depends(require_tool_auth)])
+def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
+    return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
 
 
 if __name__ == "__main__":

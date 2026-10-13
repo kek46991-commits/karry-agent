@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import inspect
 import json
 import os
 import logging
@@ -50,9 +51,23 @@ class ToolRegistry:
         if not tool:
             return {"error": f"unknown tool: {name}"}
         try:
+            if not isinstance(args, dict):
+                return {"status": "error", "error": "arguments must be an object"}
+            required = tool.declaration.get("parameters", {}).get("required", [])
+            if any(key not in args for key in required):
+                return {"status": "error", "error": "required tool arguments are missing"}
+            inspect.signature(tool.handler).bind(**args)
+            properties = tool.declaration.get("parameters", {}).get("properties", {})
+            for key, value in args.items():
+                expected = properties.get(key, {}).get("type")
+                valid = {"string": isinstance(value, str), "boolean": isinstance(value, bool),
+                         "integer": isinstance(value, int) and not isinstance(value, bool),
+                         "array": isinstance(value, list), "object": isinstance(value, dict)}
+                if expected in valid and not valid[expected]:
+                    return {"status": "error", "error": f"invalid argument type: {key}"}
             return tool.handler(**args)
         except Exception as exc:
-            return {"error": f"{type(exc).__name__}: {exc}"}
+            return {"status": "error", "error": f"{type(exc).__name__}: tool execution failed"}
 
 
 def get_current_datetime() -> str:
@@ -322,66 +337,15 @@ def _restore_calendar_secret(env_name: str, target: Path) -> None:
 
 
 def _calendar_service() -> Any:
-    """既存 token を優先して Google Calendar API client を作成する。"""
-    try:
-        from google.auth.transport.requests import Request as GoogleRequest
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-    except ImportError as exc:
-        raise RuntimeError("Google Calendar dependencies are not installed") from exc
+    """CalendarとPhotosで共通のOAuth取得・refresh処理を利用する。"""
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
+    from googleapiclient.discovery import build
+    from .google_workspace import CALENDAR_SCOPE, get_google_credentials
 
-    scopes = ["https://www.googleapis.com/auth/calendar.events"]
-    token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
-    credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
-    # Production では token JSON に client_id / client_secret が含まれるため、
-    # credentials JSON が未設定・形式不正でも token の refresh を先に試す。
-    # 先に credentials を復元すると、使える token があるのに無関係な
-    # credentials Secret の形式エラーで insert/list 全体が失敗していた。
-    _restore_calendar_secret(TOKEN_ENV, token_path)
-    if not token_path.is_file() and os.getenv("GOOGLE_REFRESH_TOKEN"):
-        legacy_token = {
-            "refresh_token": os.environ["GOOGLE_REFRESH_TOKEN"],
-            "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
-            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "scopes": scopes,
-        }
-        try:
-            validate_token(legacy_token)
-        except CalendarSecretError as exc:
-            raise RuntimeError("Google CalendarのOAuth環境変数が不足しています。GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET、GOOGLE_REFRESH_TOKENを確認してください。") from exc
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(to_env_value(legacy_token), encoding="utf-8")
-        token_path.chmod(0o600)
-    creds = None
-    if token_path.is_file():
-        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
-    if creds and not creds.valid and creds.refresh_token:
-        try:
-            creds.refresh(GoogleRequest())
-        except Exception:
-            # Refresh が必要で token に client 情報がない場合だけ、下の
-            # credentials/OAuth フォールバックへ進む。
-            creds = None
-    if not creds or not creds.valid:
-        _restore_calendar_secret(CREDENTIALS_ENV, credentials_path)
-        if not credentials_path.is_file():
-            raise FileNotFoundError(
-                "Google Calendar の認証が未設定です。GOOGLE_CALENDAR_TOKEN_FILE または credentials.json を設定してください。"
-            )
-        if os.getenv("GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH") != "1":
-            raise RuntimeError(
-                "Google Calendar の既存 token がありません。ローカルで GOOGLE_CALENDAR_ALLOW_LOCAL_OAUTH=1 を設定して OAuth を完了してください。"
-            )
-        from google_auth_oauthlib.flow import InstalledAppFlow
-        creds = InstalledAppFlow.from_client_secrets_file(str(credentials_path), scopes).run_local_server(port=0)
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(creds.to_json(), encoding="utf-8")
-    try:
-        token_path.chmod(0o600)
-    except OSError:
-        pass
-    return build("calendar", "v3", credentials=creds)
+    creds = get_google_credentials([CALENDAR_SCOPE])
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
+    return build("calendar", "v3", http=http, cache_discovery=False)
 
 
 def _parse_calendar_start_time(value: str) -> datetime.datetime:
@@ -423,6 +387,9 @@ def add_calendar_event(
     start_time: str,
     duration_minutes: int = 60,
     confirmed: bool = False,
+    *,
+    end_time: str | None = None,
+    description: str = "",
 ) -> dict[str, Any]:
     """予定をプレビューし、confirmed=True のときだけ Google Calendar に登録する。"""
     if not isinstance(summary, str) or not summary.strip():
@@ -435,16 +402,20 @@ def add_calendar_event(
         return {"error": "duration_minutes must be between 1 and 1440"}
     try:
         start = _parse_calendar_start_time(start_time)
+        end = _parse_calendar_start_time(end_time) if end_time is not None else start + datetime.timedelta(minutes=duration_minutes)
+        if end <= start:
+            return {"error": "end_time must be after start_time"}
     except (TypeError, ValueError) as exc:
         return {"error": str(exc)}
-    end = start + datetime.timedelta(minutes=duration_minutes)
     event = {
         "summary": summary,
         "start": {"dateTime": start.isoformat(), "timeZone": "Asia/Tokyo"},
         "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Tokyo"},
     }
+    if description:
+        event["description"] = description
     if not confirmed:
-        return {"confirmation_required": True, "event_preview": event}
+        return {"status": "needs_confirmation", "confirmation_required": True, "event_preview": event}
     try:
         service = _calendar_service()
         result = service.events().insert(calendarId="primary", body=event).execute()
@@ -453,8 +424,9 @@ def add_calendar_event(
         message = "カレンダー連携の認証が必要です。Calendar tokenとcalendar.eventsスコープを確認してください。"
         if "credential" not in type(exc).__name__.lower() and "auth" not in str(exc).lower() and "401" not in str(exc) and "403" not in str(exc):
             message = "Google Calendarへの予定登録に失敗しました。日時・認証・API設定を確認してください。"
-        return {"created": False, "error": message, "error_type": type(exc).__name__}
-    return {"created": True, "event_id": result.get("id"), "html_link": result.get("htmlLink"), "event": event}
+        from .google_workspace import google_error
+        return {**google_error(exc, "Google_API_Error"), "created": False, "error": message}
+    return {"status": "success", "created": True, "event_id": result.get("id"), "html_link": result.get("htmlLink"), "htmlLink": result.get("htmlLink"), "event": event}
 
 
 def _calendar_event_summary(event: dict[str, Any]) -> dict[str, Any]:
@@ -558,14 +530,14 @@ def update_calendar_event(
 
 
 def build_default_registry() -> ToolRegistry:
+    from . import agent_core as integrated
+
     registry = ToolRegistry()
     string_param = {"type": "string"}
     registry.register("get_current_datetime", "現在の日時を取得する", {"type": "object", "properties": {}}, get_current_datetime)
     registry.register("web_search_mock", "Web 検索のモックを実行する", {"type": "object", "properties": {"query": string_param}, "required": ["query"]}, web_search_mock)
     registry.register("generate_image_mock", "画像生成のモックを実行する", {"type": "object", "properties": {"prompt": string_param}, "required": ["prompt"]}, generate_image_mock)
-    registry.register("read_file", "ワークスペース内の UTF-8 ファイルを読み取る", {"type": "object", "properties": {"path": string_param}, "required": ["path"]}, read_file)
     registry.register("browse_path", "ワークスペース内のファイルまたはディレクトリを閲覧する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, browse_path)
-    registry.register("write_file", "新規ファイルをワークスペース内に作成する。既存ファイルは上書きしない", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, write_file)
     registry.register("append_text_file", "ワークスペース内の UTF-8 テキストファイルへ追記する", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, append_text_file)
     registry.register("list_workspace", "ワークスペース内のファイル一覧を取得する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, list_workspace)
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
@@ -589,6 +561,8 @@ def build_default_registry() -> ToolRegistry:
             "properties": {
                 "summary": string_param,
                 "start_time": {"type": "string", "description": "ISO 8601 with timezone offset"},
+                "end_time": {"type": "string", "description": "終了時刻。未指定ならduration_minutesを使用"},
+                "description": string_param,
                 "duration_minutes": {"type": "integer", "minimum": 1, "maximum": 1440},
                 "confirmed": {"type": "boolean", "description": "ユーザーが登録内容を明示確認した場合のみ true"},
             },
@@ -626,4 +600,20 @@ def build_default_registry() -> ToolRegistry:
         },
         update_calendar_event,
     )
+    # Both filepath (supplied interface) and path (existing model/API clients) work.
+    registry.register("read_file", "ワークスペース内のUTF-8ファイルを読む。filepathまたはpathが必要",
+                      {"type": "object", "properties": {"filepath": string_param, "path": string_param}}, integrated.read_file)
+    registry.register("write_file", "ワークスペース内に新規ファイルを作成。上書きしない。filepathまたはpathが必要",
+                      {"type": "object", "properties": {"filepath": string_param, "path": string_param,
+                       "content": string_param}, "required": ["content"]}, integrated.write_file)
+    registry.register("execute_command", "コマンドを実行。既定は既存allowlist。任意シェルは隔離環境の明示設定が必要",
+                      {"type": "object", "properties": {"command": string_param}, "required": ["command"]}, integrated.execute_command)
+    registry.register("list_dir", "ワークスペース内ディレクトリ直下を一覧する",
+                      {"type": "object", "properties": {"dirpath": string_param}}, integrated.list_dir)
+    registry.register("search_photos", "Photos Pickerの選択写真を取得。session_id未指定なら選択用リンクを返す。query_filterは現在ページ内ファイル名の部分一致",
+                      {"type": "object", "properties": {"query_filter": string_param,
+                       "session_id": string_param, "page_token": string_param}}, integrated.search_photos)
+    registry.register("get_map_directions", "Google Maps Routes APIで自動車経路を計算する",
+                      {"type": "object", "properties": {"origin": string_param,
+                       "destination": string_param}, "required": ["origin", "destination"]}, integrated.get_map_directions)
     return registry
