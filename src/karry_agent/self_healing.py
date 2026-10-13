@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
-_SECRET_KEY = re.compile(r"token|secret|password|authorization|cookie|api.?key|passphrase", re.I)
+_SECRET_KEY = re.compile(r"token|secret|password|authorization|cookie|api.?key|passphrase|partner_name|core_user_name|core_private_context", re.I)
 
 
 def redact(value: Any, depth: int = 0) -> Any:
@@ -34,10 +34,12 @@ def redact(value: Any, depth: int = 0) -> Any:
     for key, secret in os.environ.items():
         if _SECRET_KEY.search(key) and secret:
             text = text.replace(secret, "[redacted]")
+            if key in {"PARTNER_NAME", "CORE_USER_NAME", "CORE_PRIVATE_CONTEXT"} and secret.strip():
+                text = text.replace(secret.strip(), "[redacted]")
     text = re.sub(r"(?im)(\b(?:set-cookie|cookie)\s*:\s*)[^\r\n]*", r"\1[redacted]", text)
     text = re.sub(r"(?i)bearer\s+[^\s\"',;}]+", "Bearer [redacted]", text)
     text = re.sub(
-        r'''(?i)(["']?[\w-]*(?:token|secret|password|passphrase|api[_-]?key|authorization|cookie)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)''',
+        r'''(?i)(["']?[\w-]*(?:token|secret|password|passphrase|api[_-]?key|authorization|cookie|partner_name|core_user_name|core_private_context)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)''',
         r"\1[redacted]", text)
     text = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", text)
     text = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?[redacted]", text)

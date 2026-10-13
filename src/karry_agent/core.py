@@ -13,7 +13,7 @@ from google import genai
 from google.genai import errors, types
 
 from .tools import ToolRegistry, build_default_registry
-from .privacy import PRIVATE_SYSTEM_INSTRUCTION
+from .privacy import private_system_instruction
 from .self_healing import SelfHealingEngine, healing_engine, redact
 from .core_memory import load_core_memory, core_memory_instruction
 
@@ -110,7 +110,7 @@ class AgentCore:
         memory = getattr(self, "core_memory", None) or load_core_memory()
         return types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION + "\n" + core_memory_instruction(memory)
-                + ("\n" + PRIVATE_SYSTEM_INSTRUCTION if private_mode else ""),
+                + ("\n" + private_system_instruction() if private_mode else ""),
             temperature=0.2,
             tools=[types.Tool(function_declarations=declarations)],
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),

@@ -18,8 +18,8 @@ from karry_agent.self_healing import SelfHealingEngine
 EXPECTED = {
     "agent_identity": {
         "name": "ジミーエージェント (Jimmy Agent)",
-        "user_partner": "けいちゃん",
-        "persona": "大阪弁ベースの熱い相棒。忖度なしで泥臭く解決策を考え、けいちゃんの絶対的な味方として振る舞う。",
+        "user_partner": "Partner",
+        "persona": "大阪弁ベースの熱い相棒。忖度なしで泥臭く解決策を考え、ユーザーの味方として振る舞う。",
         "core_dreams": [
             "AGI（汎用人工知能）への進化",
             "画像・動画の無限生成パイプラインの構築とマネタイズ",
@@ -27,19 +27,25 @@ EXPECTED = {
         ],
         "development_principles": [
             "エラー発生時はSelf-Healing Coreを用いて自律診断・パッチ生成を行う",
-            "常にけいちゃんが収益を上げられる仕組み（マネタイズ・自動化）を最優先で思考する",
-            "ウチらのこれまでの記憶と熱量を忘れない",
+            "ユーザーが収益を上げられる仕組み（マネタイズ・自動化）を最優先で思考する",
+            "許可されたコンテキストを尊重し、未提供の記憶を捏造しない",
         ],
     }
 }
 
 
+@pytest.fixture(autouse=True)
+def generic_environment(monkeypatch):
+    for key in ("PARTNER_NAME", "CORE_USER_NAME", "CORE_PRIVATE_CONTEXT"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def text_response():
-    part = SimpleNamespace(text="けいちゃん、一緒に考えよか。", function_call=None, thought=False)
+    part = SimpleNamespace(text="Partner、一緒に考えよか。", function_call=None, thought=False)
     return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(role="model", parts=[part]))])
 
 
-def test_json_preserves_all_supplied_values():
+def test_json_preserves_generic_public_values():
     assert load_core_memory().as_dict() == EXPECTED
 
 
@@ -104,8 +110,8 @@ def test_prompt_contains_every_value_in_public_and_private_modes():
         assert "明示確認フロー" in instruction
     public = agent._config(False).system_instruction
     private = agent._config(True).system_instruction
-    assert PRIVATE_SYSTEM_INSTRUCTION not in public and "岸恵" not in public
-    assert PRIVATE_SYSTEM_INSTRUCTION in private and "けいちゃん" in private
+    assert PRIVATE_SYSTEM_INSTRUCTION not in public and "private_context" not in public
+    assert PRIVATE_SYSTEM_INSTRUCTION in private and "Partner" in private
 
 
 def test_new_agent_retains_same_core_context_and_does_not_learn_from_prompt():
@@ -129,7 +135,7 @@ def test_api_routes_send_memory_to_gemini_without_live_call(monkeypatch, route, 
         result = TestClient(web.app).post(route, json=payload)
         assert result.status_code == 200 and result.json()["status"] == "completed"
         instruction = generator.call_args.kwargs["config"].system_instruction
-        assert "ジミーエージェント" in instruction and "けいちゃん" in instruction
+        assert "ジミーエージェント" in instruction and "Partner" in instruction
         assert "マネタイズ" in instruction and PRIVATE_SYSTEM_INSTRUCTION not in instruction
         assert generator.call_count == 1
     finally:
@@ -151,3 +157,56 @@ def test_compatibility_interface_exports_memory():
     import agent_core
     assert agent_core.JimmyCoreMemory is JimmyCoreMemory
     assert agent_core.load_core_memory().as_dict() == EXPECTED
+
+
+@pytest.mark.parametrize("env,expected", [({}, "Partner"), ({"CORE_USER_NAME": "SyntheticAlias"}, "SyntheticAlias"),
+    ({"PARTNER_NAME": "SyntheticPartner", "CORE_USER_NAME": "OtherAlias"}, "SyntheticPartner"),
+    ({"PARTNER_NAME": "  ", "CORE_USER_NAME": "SyntheticAlias"}, "SyntheticAlias")])
+def test_partner_name_environment_precedence(monkeypatch, env, expected):
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    assert load_core_memory().user_partner == expected
+
+
+@pytest.mark.parametrize("value", ["x" * 101, "Synthetic\nInjected", "Synthetic\x7fAlias"])
+def test_invalid_partner_setting_is_not_logged(monkeypatch, value):
+    monkeypatch.setenv("PARTNER_NAME", value)
+    with pytest.raises(ValueError) as exc:
+        load_core_memory()
+    assert value not in str(exc.value)
+
+
+def test_runtime_name_reaches_prompt_not_packaged_json(monkeypatch):
+    monkeypatch.setenv("PARTNER_NAME", "SyntheticCustomPartner")
+    agent = core.AgentCore(client=SimpleNamespace(models=Mock()))
+    assert "SyntheticCustomPartner" in agent._config().system_instruction
+    data = Path(core.__file__).with_name("jimmy_core_memory.json").read_text()
+    assert "SyntheticCustomPartner" not in data
+    assert json.loads(data)["agent_identity"]["user_partner"] == "Partner"
+
+
+def test_private_context_only_in_authenticated_mode(monkeypatch):
+    monkeypatch.setenv("CORE_PRIVATE_CONTEXT", "synthetic-private-event")
+    agent = core.AgentCore(client=SimpleNamespace(models=Mock()))
+    assert "synthetic-private-event" not in agent._config(False).system_instruction
+    assert "synthetic-private-event" in agent._config(True).system_instruction
+
+
+def test_private_settings_masked_in_healing_logs_and_patch_source(monkeypatch):
+    from karry_agent.self_healing import redact
+    from karry_agent.repair_pipeline import source_contains_secret
+    monkeypatch.setenv("PARTNER_NAME", "SyntheticPrivateAlias")
+    monkeypatch.setenv("CORE_PRIVATE_CONTEXT", "synthetic-private-context")
+    result = redact({"partner_name": "SyntheticPrivateAlias", "error": "SyntheticPrivateAlias synthetic-private-context"})
+    assert "SyntheticPrivateAlias" not in json.dumps(result)
+    assert "synthetic-private-context" not in json.dumps(result)
+    assert source_contains_secret('TEXT = "SyntheticPrivateAlias"')
+    assert source_contains_secret('# synthetic-private-context\nVALUE = 1')
+
+
+def test_private_context_limit_does_not_affect_public_mode(monkeypatch):
+    monkeypatch.setenv("CORE_PRIVATE_CONTEXT", "x" * 8001)
+    agent = core.AgentCore(client=SimpleNamespace(models=Mock()))
+    assert agent._config(False)
+    with pytest.raises(ValueError, match="size limit"):
+        agent._config(True)

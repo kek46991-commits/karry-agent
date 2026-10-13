@@ -39,14 +39,16 @@ def test_passphrase_comes_from_environment(monkeypatch):
     assert session.is_private("次の依頼")
 
 
-def test_core_adds_private_instruction_only_when_enabled():
+def test_core_adds_private_instruction_only_when_enabled(monkeypatch):
+    monkeypatch.setenv("CORE_PRIVATE_CONTEXT", "synthetic-private-profile")
     agent = AgentCore.__new__(AgentCore)
     agent.registry = SimpleNamespace(tools={})
     public = agent._config(False).system_instruction
     private = agent._config(True).system_instruction
     assert PRIVATE_SYSTEM_INSTRUCTION not in public
     assert "ジミー" in private
-    assert "岸恵" in private
+    assert "synthetic-private-profile" not in public
+    assert "synthetic-private-profile" in private
 
 
 def test_chat_passphrase_authenticates_session_and_later_requests_remain_private(monkeypatch):
@@ -72,7 +74,7 @@ def test_without_passphrase_stays_public_and_does_not_receive_private_prompt(mon
     fake = PrivateAwareAgent()
     app.dependency_overrides[get_agent] = lambda: fake
     try:
-        response = TestClient(app).post("/chat", json={"prompt": "かなまるの思い出を教えて", "session_id": "public-test"})
+        response = TestClient(app).post("/chat", json={"prompt": "Partnerの思い出を教えて", "session_id": "public-test"})
         assert response.status_code == 200
         assert response.json()["private_mode"] is False
         assert fake.modes == [False]
