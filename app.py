@@ -13,9 +13,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -25,6 +27,8 @@ from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
 from karry_agent.tools import add_calendar_event, build_default_registry
 from karry_agent.agent_core import dispatch_tool
+from karry_agent.self_healing import healing_engine, redact
+from karry_agent.repair_pipeline import configure_repair_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,42 @@ app = FastAPI(
 )
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+try:
+    _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
+except Exception as exc:
+    _REPAIR_PIPELINE = None
+    healing_engine.analyze_and_heal(exc, {"source": "repair_configuration"})
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    healing = healing_engine.analyze_and_heal(exc, {"source": "api", "method": request.method,
+                                                  "path": request.url.path, "direction": "inbound"})
+    return JSONResponse(status_code=500, content={
+        "detail": "Internal Agent Error Handled by Self-Healing Core", "healing_status": healing})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    content = {"detail": redact(exc.detail)}
+    if exc.status_code == 401 or exc.status_code >= 500:
+        cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
+        content["healing_status"] = healing_engine.analyze_and_heal(cause, {
+            "source": "api_http", "method": request.method, "path": request.url.path,
+            "direction": "inbound", "status_code": exc.status_code})
+        if exc.status_code == 500 and exc.__cause__ is not None:
+            content["detail"] = "agent execution failed"
+    return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    healing_engine.analyze_and_heal(ValueError("request validation failed"),
+        {"source": "api_validation", "method": request.method, "path": request.url.path})
+    errors = [{"loc": list(error["loc"]), "type": error["type"], "msg": error["msg"]}
+              for error in exc.errors()[:20]]
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 class RunRequest(BaseModel):
@@ -123,6 +163,7 @@ def get_agent() -> AgentCore:
     except ValueError as exc:
         # Dependency injection の外側で発生する設定エラーは、FastAPI の
         # 無情報な 500 ではなく、運用者が修正できる 503 として返す。
+        healing_engine.analyze_and_heal(exc, {"source": "agent_configuration"})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -210,7 +251,7 @@ def _pending_calendar_result(session_id: str | None, prompt: str) -> AgentResult
     except Exception as exc:
         # Confirmed insert is deliberately outside the model loop, so an API/
         # auth failure must become a normal result instead of a generic 500.
-        logger.exception("Calendar insert failed after explicit confirmation")
+        healing_engine.analyze_and_heal(exc, {"source": "confirmed_tool", "tool_name": "add_calendar_event"})
         return AgentResult(
             f"Google Calendarへの登録に失敗しました（{type(exc).__name__}）。認証状態を確認して再試行してください。",
             1,
@@ -222,6 +263,7 @@ def _pending_calendar_result(session_id: str | None, prompt: str) -> AgentResult
             _PENDING_CALENDAR.pop(session_id, None)
         event_id = result.get("event_id") or "不明"
         return AgentResult(f"Google Calendarに登録しました。イベントID: {event_id}", 1, 1, metrics=AgentMetrics(tool_calls=1))
+    healing_engine.observe_result(result, {"source": "confirmed_tool", "tool_name": "add_calendar_event"})
     return AgentResult(f"Google Calendarへの登録に失敗しました: {result.get('error', '不明なエラー')}", 1, 1, metrics=AgentMetrics(tool_calls=1, errors=1))
 
 
@@ -307,15 +349,20 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 
 def _stream_chat(request: RunRequest, agent: AgentCore):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
-    yield _sse("started", {"prompt": request.prompt})
     try:
+        yield _sse("started", {"prompt": request.prompt})
         response = _execute(request, agent)
+        for index, event in enumerate(response.trace, start=1):
+            yield _sse("step", {"index": index, **event})
+        yield _sse("completed", response.model_dump())
     except HTTPException as exc:
-        yield _sse("error", {"status_code": exc.status_code, "detail": exc.detail})
-        return
-    for index, event in enumerate(response.trace, start=1):
-        yield _sse("step", {"index": index, **event})
-    yield _sse("completed", response.model_dump())
+        cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
+        healing = healing_engine.analyze_and_heal(cause, {"source": "api_stream", "status_code": exc.status_code})
+        yield _sse("error", {"status_code": exc.status_code, "detail": redact(exc.detail), "healing_status": healing})
+    except Exception as exc:
+        healing = healing_engine.analyze_and_heal(exc, {"source": "api_stream", "operation": "serialize_or_execute"})
+        # Never put the failing/cyclic payload or raw exception into the fallback.
+        yield _sse("error", {"status_code": 500, "detail": "agent stream failed", "healing_status": healing})
 
 
 @app.get("/health")
@@ -408,6 +455,16 @@ def agent_tools() -> dict[str, Any]:
 @app.post("/api/agent/tools/execute", dependencies=[Depends(require_tool_auth)])
 def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
     return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
+
+
+@app.get("/api/agent/healing", dependencies=[Depends(require_tool_auth)])
+def healing_status() -> dict[str, Any]:
+    return healing_engine.status()
+
+
+@app.get("/api/agent/healing/incidents", dependencies=[Depends(require_tool_auth)])
+def healing_incidents() -> dict[str, Any]:
+    return {"incidents": healing_engine.error_logs}
 
 
 if __name__ == "__main__":

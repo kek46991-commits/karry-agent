@@ -14,6 +14,7 @@ from google.genai import errors, types
 
 from .tools import ToolRegistry, build_default_registry
 from .privacy import PRIVATE_SYSTEM_INSTRUCTION
+from .self_healing import SelfHealingEngine, healing_engine, redact
 
 load_dotenv()
 
@@ -88,6 +89,7 @@ class AgentCore:
         max_steps: int = 8,
         max_retries: int = 3,
         sleep_fn: Callable[[float], None] = time.sleep,
+        healer: SelfHealingEngine | None = None,
     ) -> None:
         self.client = client if client is not None else get_client()
         self.model_id = model_id or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
@@ -95,6 +97,7 @@ class AgentCore:
         self.max_steps = max(1, max_steps)
         self.max_retries = max(1, max_retries)
         self.sleep_fn = sleep_fn
+        self.healer = healer or healing_engine
 
     def _config(self, private_mode: bool = False) -> types.GenerateContentConfig:
         declarations = [tool.declaration for tool in self.registry.tools.values()]
@@ -111,6 +114,17 @@ class AgentCore:
             return list(response.candidates[0].content.parts or [])
         except (AttributeError, IndexError, TypeError):
             return []
+
+    @classmethod
+    def _usable_response(cls, response: Any) -> bool:
+        for part in cls._parts(response):
+            call = getattr(part, "function_call", None)
+            if call is not None and getattr(call, "name", None):
+                return True
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text.strip() and not getattr(part, "thought", False):
+                return True
+        return False
 
     @staticmethod
     def _record_usage(response: Any, metrics: AgentMetrics) -> None:
@@ -137,6 +151,7 @@ class AgentCore:
         self, contents: list[Any], metrics: AgentMetrics, private_mode: bool = False
     ) -> Any:
         last_error: Exception | None = None
+        incidents: set[str] = set()
         for attempt in range(self.max_retries):
             try:
                 metrics.api_calls += 1
@@ -146,17 +161,29 @@ class AgentCore:
                     config=self._config(private_mode),
                 )
                 self._record_usage(response, metrics)
+                for incident_id in incidents:
+                    valid_response = self._usable_response(response)
+                    self.healer.update(incident_id, {"status": "repaired" if valid_response else "diagnosed",
+                        "action": "gemini_retry_recovered" if valid_response else "retry_returned_empty_response",
+                        "verified": valid_response})
                 return response
             except _RETRYABLE_ERRORS as exc:
                 last_error = exc
                 metrics.errors += 1
+                healing = self.healer.analyze_and_heal(exc, {"source": "gemini_core", "operation": "generate_content",
+                    "attempt": attempt + 1, "will_retry": attempt < self.max_retries - 1})
+                if healing.get("incident_id"):
+                    incidents.add(healing["incident_id"])
                 if attempt < self.max_retries - 1:
                     metrics.retries += 1
                     self.sleep_fn(2**attempt)
-            except Exception:
+            except Exception as exc:
                 metrics.errors += 1
+                self.healer.analyze_and_heal(exc, {"source": "gemini_core", "operation": "generate_content"})
                 raise
         assert last_error is not None
+        for incident_id in incidents:
+            self.healer.update(incident_id, {"status": "diagnosed", "action": "retry_budget_exhausted", "verified": False})
         raise last_error
 
     def run(self, prompt: str, private_mode: bool = False) -> AgentResult:
@@ -173,16 +200,18 @@ class AgentCore:
                 response = self._generate_content_with_retry(contents, metrics, private_mode)
             except _RETRYABLE_ERRORS as exc:
                 metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
-                logger.warning("Gemini API failed after retries: %s", exc)
-                return AgentResult(f"[Error] Gemini API/Timeout Error: {exc}", step, tool_calls, trace, metrics, status="failed")
+                logger.warning("Gemini API failed after retries: %s", type(exc).__name__)
+                return AgentResult(f"[Error] Gemini API/Timeout Error: {redact(str(exc))}", step, tool_calls, trace, metrics, status="failed")
             except Exception as exc:
                 metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
-                logger.exception("Unexpected agent error")
-                return AgentResult(f"[Error] Unexpected Error: {exc}", step, tool_calls, trace, metrics, status="failed")
+                logger.error("Unexpected agent error: %s", type(exc).__name__)
+                return AgentResult(f"[Error] Unexpected Error: {redact(str(exc))}", step, tool_calls, trace, metrics, status="failed")
 
             parts = self._parts(response)
-            if not parts:
+            if not self._usable_response(response):
                 metrics.errors += 1
+                self.healer.analyze_and_heal(ValueError("empty model response"),
+                    {"source": "gemini_core", "operation": "parse_response"})
                 metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
                 return AgentResult("モデルから有効な応答が返りませんでした。", step, tool_calls, trace, metrics, status="failed")
             contents.append(response.candidates[0].content)
@@ -246,7 +275,8 @@ def run_agent_core(prompt: str, max_retries: int = 3) -> str:
     try:
         return AgentCore(max_retries=max_retries).run(prompt).text
     except Exception as exc:
-        return f"[Error] Unexpected Error: {exc}"
+        healing_engine.analyze_and_heal(exc, {"source": "cli_core", "operation": "run_agent"})
+        return f"[Error] Unexpected Error: {redact(str(exc))}"
 
 
 def run_agent(prompt: str, max_retries: int = 3) -> str:

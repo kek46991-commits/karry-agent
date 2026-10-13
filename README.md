@@ -162,3 +162,9 @@ Calendar追加は「明日の10:00」「明日の10時30分」のような日本
 `agent_core.py` の7関数インターフェースを既存のツールレジストリとAPIへ統合しました。`execute_command`、`list_dir`、Google Photos Picker、Google Maps Routes APIを追加し、ファイルの `filepath` / `path` 引数とCalendarの `end_time` / `description` に対応します。Calendar追加はモデル自身の `confirmed=true` を承認とせず、チャットAPIの保存済みプレビューへの明示確認で実行します。
 
 新しい直接ツールAPIは `GET /api/agent/tools` と `POST /api/agent/tools/execute` で、`KARRY_API_TOKEN` が必要です。tokenを設定すると既存のチャット・実行・履歴APIもBearer認証を要求します。任意シェルは既定で無効にし、既存コマンド方針を維持しています。Photosは全ライブラリの無人検索ではなく、ユーザー選択済み写真の取得です。OAuthの共通化、必要な設定、制約、検証、Render配置の詳細は [docs/unified-agent-core.md](docs/unified-agent-core.md) を参照してください。
+
+### Self-Healing Core
+
+API例外、コア障害、Gemini再試行、ツールの例外・構造化エラーを共通の `SelfHealingEngine` へ集約します。上限付き・秘密情報除去済みの診断ログ、登録式修復と再検証、設定済みワークスペース復元、送信側Bearer補正の軽量クライアントを追加しています。受信401は維持し、検証していない修復やパッチを成功扱いにしません。
+
+未知のコード障害のAI修復候補生成とGitHubドラフトPR提出は明示設定で有効化できます。既定は無効で、本番checkoutやmainを無検証で書き換えません。状態・診断ログは認証付きの `/api/agent/healing` と `/api/agent/healing/incidents` から確認できます。詳しくは [docs/self-healing.md](docs/self-healing.md) を参照してください。
