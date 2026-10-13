@@ -48,6 +48,7 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 
 - [x] Git pushや追加の利用者設定なしで、deploy_instant_website(html_content, filename)を共通レジストリへ追加する。既存FastAPIの/static配信へ専用成果物ディレクトリを接続し、上書き・パストラバーサルを防ぐ。
 - [x] 明示公開依頼に従いHTMLを即時保存してURLを返す。生成内容を未確認のままモデルが自己公開しないよう、実行経路を公開承認の内容に結び付ける。保存済みURL・一時保存の性質・Render再起動で消える制約を正確に示す。
-- [ ] モックとローカルHTTPで書込み・URL配信・容量・秘密情報除外・既存画面保護・失敗を検証しPRへ保存する。本番コード反映と個別成果物の公開は別の操作とする。
+- [x] モックとローカルHTTPで書込み・URL配信・容量・秘密情報除外・既存画面保護・失敗を検証しPRへ保存する。本番コード反映と個別成果物の公開は別の操作とする。
 
 インスタント公開検証: 348 passed, 2 skipped。既存304件＋追加44件。Python/JavaScript構文、依存、差分、wheel成功。読み取り専用レビューの経路統一と原子的保存を修正。ライブ公開・GitHub成果物アップロード・外部API・本番ツール呼出しなし。
+インスタント公開PR: https://github.com/kek46991-commits/karry-agent/pull/8 。main未マージ・本番未反映。
