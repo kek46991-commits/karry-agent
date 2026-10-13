@@ -16,10 +16,11 @@ dependencies = [
   "google-api-python-client>=2.140.0,<3",
   "google-auth-httplib2>=0.2.0,<1",
   "google-auth-oauthlib>=1.2.0,<2",
+  "requests>=2.31,<3",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0,<9"]
+test = ["pytest>=8.0,<9", "httpx>=0.27,<1"]
 
 [project.scripts]
 karry-agent = "karry_agent.cli:main"

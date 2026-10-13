@@ -31,6 +31,8 @@
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">新規</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank">/docs</a> で確認できます。</p></aside>
     </section>
+    <label class="hint" for="apiToken">APIトークン（認証が有効な場合のみ・ブラウザに保存しません）</label>
+    <input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" style="display:block;width:min(100%,420px);padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px">
   </main>
 <script>
   const $ = id => document.getElementById(id);
@@ -49,7 +51,7 @@
   function metrics(data) { const m=data.metrics||{}; $('steps').textContent=data.steps??'—'; $('toolCalls').textContent=data.tool_calls??'—'; $('apiCalls').textContent=m.api_calls??'—'; $('tokens').textContent=m.total_tokens??'—'; $('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—'; }
   $('mic').addEventListener('click',()=>{ if(recognition) { if($('mic').classList.contains('active')) recognition.stop(); else recognition.start(); } });
   $('chatForm').addEventListener('submit', async event => { event.preventDefault(); const prompt=$('prompt').value.trim(); if(!prompt)return; $('prompt').value=''; $('send').disabled=true; $('status').textContent='実行中…'; addMessage('user',prompt); trace('started',{prompt});
-    try { const response=await fetch('/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt,session_id:sessionId,stream:true})}); if(!response.ok) throw new Error(await response.text()); const reader=response.body.getReader(), decoder=new TextDecoder(); let buffer=''; let completed=null;
+    try { const headers={'content-type':'application/json'}; const token=$('apiToken').value; if(token) headers.Authorization=`Bearer ${token}`; const response=await fetch('/chat',{method:'POST',headers,body:JSON.stringify({prompt,session_id:sessionId,stream:true})}); if(!response.ok) throw new Error(await response.text()); const reader=response.body.getReader(), decoder=new TextDecoder(); let buffer=''; let completed=null;
       while(true){ const {value,done}=await reader.read(); if(done)break; buffer+=decoder.decode(value,{stream:true}); const chunks=buffer.split('\n\n'); buffer=chunks.pop(); for(const chunk of chunks){ const event=(chunk.match(/^event: (.*)$/m)||[])[1]; const raw=(chunk.match(/^data: (.*)$/m)||[])[1]; if(!raw)continue; const data=JSON.parse(raw); trace(event,data); if(event==='completed')completed=data; if(event==='error')throw new Error(data.detail||'実行に失敗しました'); } }
       if(completed){ sessionId=completed.session_id; if(sessionId){localStorage.setItem('karry-session',sessionId);$('session').textContent=sessionId;} addMessage('agent',completed.text); metrics(completed); if($('autoSpeak').checked) speak(completed.text); }
       $('status').textContent='オンライン';

@@ -156,3 +156,9 @@ python scripts/push_calendar_env.py --from-render     # Render の既存値を�
 確認後のCalendar API例外はHTTP 500へ投げ直さず、ユーザー向けの登録失敗結果とエラーメトリクスへ変換します。天気の質問には `get_weather(location)` がFunction Callingから選択され、Open-Meteoのジオコーディングと現在天気APIを順に呼び出します。例: `枚方市`。APIキーは不要で、取得元はレスポンスの `source` に明示されます。汎用 `web_search` が空結果の場合も `message` を返します。
 
 Calendar追加は「明日の10:00」「明日の10時30分」のような日本語の相対日時にも対応し、JSTのISO8601（例: `2026-10-14T10:00:00+09:00`）へ変換します。Google APIの認証・refresh・insert例外は`agent execution failed`へ漏らさず、「カレンダー連携の認証が必要です」などの安全な結果として返します。標準の本番環境変数はJSON Secretですが、互換用に`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`の3つでも構成できます。
+
+### 統合エージェント・コア
+
+`agent_core.py` の7関数インターフェースを既存のツールレジストリとAPIへ統合しました。`execute_command`、`list_dir`、Google Photos Picker、Google Maps Routes APIを追加し、ファイルの `filepath` / `path` 引数とCalendarの `end_time` / `description` に対応します。Calendar追加はモデル自身の `confirmed=true` を承認とせず、チャットAPIの保存済みプレビューへの明示確認で実行します。
+
+新しい直接ツールAPIは `GET /api/agent/tools` と `POST /api/agent/tools/execute` で、`KARRY_API_TOKEN` が必要です。tokenを設定すると既存のチャット・実行・履歴APIもBearer認証を要求します。任意シェルは既定で無効にし、既存コマンド方針を維持しています。Photosは全ライブラリの無人検索ではなく、ユーザー選択済み写真の取得です。OAuthの共通化、必要な設定、制約、検証、Render配置の詳細は [docs/unified-agent-core.md](docs/unified-agent-core.md) を参照してください。
