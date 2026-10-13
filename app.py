@@ -295,8 +295,10 @@ def _remember_calendar_preview(session_id: str | None, result: AgentResult) -> N
         break
 
 
-def _run_agent(agent: AgentCore, prompt: str, private_mode: bool) -> AgentResult:
+def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt: str | None = None) -> AgentResult:
     # 既存の差し替え用 FakeAgent（run(prompt) のみ）との互換性を保つ。
+    if isinstance(agent, AgentCore):
+        return agent.run(prompt, private_mode=private_mode, current_prompt=current_prompt)
     if private_mode:
         return agent.run(prompt, private_mode=True)
     return agent.run(prompt)
@@ -315,7 +317,7 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
     try:
         result = _pending_calendar_result(session_id, request.prompt)
         if result is None:
-            result = _run_agent(agent, prompt, private_mode)
+            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
