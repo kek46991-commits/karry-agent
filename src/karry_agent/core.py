@@ -15,6 +15,7 @@ from google.genai import errors, types
 from .tools import ToolRegistry, build_default_registry
 from .privacy import PRIVATE_SYSTEM_INSTRUCTION
 from .self_healing import SelfHealingEngine, healing_engine, redact
+from .core_memory import load_core_memory, core_memory_instruction
 
 load_dotenv()
 
@@ -91,18 +92,25 @@ class AgentCore:
         sleep_fn: Callable[[float], None] = time.sleep,
         healer: SelfHealingEngine | None = None,
     ) -> None:
+        self.healer = healer or healing_engine
+        try:
+            self.core_memory = load_core_memory()
+        except ValueError as exc:
+            self.healer.analyze_and_heal(exc, {"source": "agent_configuration", "operation": "load_core_memory"})
+            raise
         self.client = client if client is not None else get_client()
         self.model_id = model_id or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
         self.registry = registry or build_default_registry()
         self.max_steps = max(1, max_steps)
         self.max_retries = max(1, max_retries)
         self.sleep_fn = sleep_fn
-        self.healer = healer or healing_engine
 
     def _config(self, private_mode: bool = False) -> types.GenerateContentConfig:
         declarations = [tool.declaration for tool in self.registry.tools.values()]
+        memory = getattr(self, "core_memory", None) or load_core_memory()
         return types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION + ("\n" + PRIVATE_SYSTEM_INSTRUCTION if private_mode else ""),
+            system_instruction=SYSTEM_INSTRUCTION + "\n" + core_memory_instruction(memory)
+                + ("\n" + PRIVATE_SYSTEM_INSTRUCTION if private_mode else ""),
             temperature=0.2,
             tools=[types.Tool(function_declarations=declarations)],
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),

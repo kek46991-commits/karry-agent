@@ -168,3 +168,9 @@ Calendar追加は「明日の10:00」「明日の10時30分」のような日本
 API例外、コア障害、Gemini再試行、ツールの例外・構造化エラーを共通の `SelfHealingEngine` へ集約します。上限付き・秘密情報除去済みの診断ログ、登録式修復と再検証、設定済みワークスペース復元、送信側Bearer補正の軽量クライアントを追加しています。受信401は維持し、検証していない修復やパッチを成功扱いにしません。
 
 未知のコード障害のAI修復候補生成とGitHubドラフトPR提出は明示設定で有効化できます。既定は無効で、本番checkoutやmainを無検証で書き換えません。状態・診断ログは認証付きの `/api/agent/healing` と `/api/agent/healing/incidents` から確認できます。詳しくは [docs/self-healing.md](docs/self-healing.md) を参照してください。
+
+### ジミーのCore Context
+
+`src/karry_agent/jimmy_core_memory.json` にジミーエージェントの名前・相棒「けいちゃん」・大阪弁の相棒像・3つの夢・開発原則を永続設定として保存し、通常/プライベート両モードの全Gemini呼び出しに注入します。wheelにも同梱され、新しいセッションや再起動でも同じ設定を読み込みます。過去の全会話を保存する機能とは別です。
+
+既存の個人プロフィールはプライベートモード内に維持し、認証やSelf-Healingの有効化設定は変更しません。保存場所、内容変更、読み込みと検証、記憶と夢の扱いは [docs/jimmy-core-memory.md](docs/jimmy-core-memory.md) を参照してください。
