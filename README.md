@@ -152,3 +152,5 @@ python scripts/push_calendar_env.py --from-render     # Render の既存値を�
 ヘッドレス環境では、OAuth 完了済みの `GOOGLE_CALENDAR_TOKEN_JSON` が有効なら、補助的な `GOOGLE_CALENDAR_CREDENTIALS_JSON` の復元・検証より token の読み込みと refresh を先に行います。これにより、credentials Secret の形式不正があっても、有効な authorized-user token によるイベント登録を妨げません。
 
 また、チャットで予定プレビューの後にユーザーが「はい」「登録してください」など明示確認した場合は、会話モデルの再判断に任せず、保留中の予定を `add_calendar_event(..., confirmed=True)` で直接実行します。これにより、確認後に再びプレビューだけ返る問題を防ぎます。`/health/calendar` が token を `valid: true` と示すこと、OAuth token のスコープが `https://www.googleapis.com/auth/calendar.events` であることを確認してください。
+
+確認後のCalendar API例外はHTTP 500へ投げ直さず、ユーザー向けの登録失敗結果とエラーメトリクスへ変換します。天気の質問には `get_weather(location)` がFunction Callingから選択され、Open-Meteoのジオコーディングと現在天気APIを順に呼び出します。例: `枚方市`。APIキーは不要で、取得元はレスポンスの `source` に明示されます。汎用 `web_search` が空結果の場合も `message` を返します。

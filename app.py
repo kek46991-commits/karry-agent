@@ -6,6 +6,7 @@ import uuid
 import json
 import os
 import re
+import logging
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -21,6 +22,8 @@ from karry_agent.core import AgentCore, AgentMetrics, AgentResult
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
 from karry_agent.tools import add_calendar_event
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="karry-agent API",
@@ -175,7 +178,18 @@ def _pending_calendar_result(session_id: str | None, prompt: str) -> AgentResult
             _PENDING_CALENDAR.pop(session_id, None)
         return AgentResult("Google Calendarへの登録をキャンセルしました。", 1, 0)
 
-    result = add_calendar_event(**pending, confirmed=True)
+    try:
+        result = add_calendar_event(**pending, confirmed=True)
+    except Exception as exc:
+        # Confirmed insert is deliberately outside the model loop, so an API/
+        # auth failure must become a normal result instead of a generic 500.
+        logger.exception("Calendar insert failed after explicit confirmation")
+        return AgentResult(
+            f"Google Calendarへの登録に失敗しました（{type(exc).__name__}）。認証状態を確認して再試行してください。",
+            1,
+            1,
+            metrics=AgentMetrics(tool_calls=1, errors=1),
+        )
     if result.get("created"):
         with _STATE_LOCK:
             _PENDING_CALENDAR.pop(session_id, None)

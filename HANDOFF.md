@@ -240,3 +240,9 @@ Render には同じリポジトリから `karry-agent-1`（本番、`GEMINI_API_
 - 修正: `src/karry_agent/tools.py` は token の復元・読み込み・refresh を先に行い、必要な場合だけ credentials/OAuthへフォールバックする。`app.py` はセッションごとに保留中の予定を保持し、「はい」「登録してください」などの明示確認を受けたら `add_calendar_event(..., confirmed=True)` を直接実行する。キャンセル語では保留を破棄する。
 - 検証: Calendar関連テスト 31件が通過し、ローカルOAuth tokenで `list_calendar_events(max_results=1)` が成功した。秘密値・token内容はログへ出していない。
 - 本番確認: `GET /health/calendar` で token が `valid: true` であること、OAuth token の scope が `https://www.googleapis.com/auth/calendar.events` であることを確認する。公開統合版にも同じ `tools.py` と確認処理を反映する。
+
+### 2026-10-13 追加の不具合修正
+
+- 確認後のCalendar insertでGoogle API例外が発生すると、`_pending_calendar_result()` から例外が外へ伝播し、`agent execution failed` のHTTP 500になっていた。例外を捕捉して、登録失敗の `AgentResult` と `errors=1` を返すようにした。
+- 天気質問に対応する `get_weather(location)` を追加した。Open-Meteo Geocoding APIで地域を解決し、Forecast APIのcurrent値（天気、気温、体感温度、湿度、風速）をFunction Callingへ返す。`web_search` の空結果にも明示的なmessageを返す。
+- 検証結果: 全体テスト **106 passed / 2 skipped**。実APIで `get_weather("枚方市")` が成功し、地域名・天気・気温を取得した。公開統合版にも同じtools/app修正を反映する。

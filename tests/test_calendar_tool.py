@@ -209,3 +209,21 @@ def test_chat_confirmation_executes_pending_calendar_event(monkeypatch):
     assert result.text == "Google Calendarに登録しました。イベントID: event-1"
     assert calls == {"summary": "面談", "start_time": "2026-10-15T10:00:00+09:00", "duration_minutes": 60, "confirmed": True}
     assert session_id not in app._PENDING_CALENDAR
+
+
+def test_chat_confirmation_converts_calendar_exception_to_result(monkeypatch):
+    session_id = "calendar-confirmation-error-test"
+    app._PENDING_CALENDAR.clear()
+    app._PENDING_CALENDAR[session_id] = {
+        "summary": "面談",
+        "start_time": "2026-10-15T10:00:00+09:00",
+        "duration_minutes": 60,
+    }
+    monkeypatch.setattr(app, "add_calendar_event", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("calendar unavailable")))
+
+    result = app._pending_calendar_result(session_id, "登録して")
+
+    assert result is not None
+    assert "登録に失敗しました" in result.text
+    assert "agent execution failed" not in result.text
+    assert result.metrics.errors == 1

@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from karry_agent.calendar_secrets import (
@@ -220,7 +220,64 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     for topic in data.get("RelatedTopics", [])[:max_results]:
         if "Text" in topic:
             results.append({"title": topic.get("Text", "")[:120], "snippet": topic.get("Text", ""), "url": topic.get("FirstURL")})
-    return {"query": query, "results": results[:max_results]}
+    return {"query": query, "results": results[:max_results], "message": "検索結果がありません" if not results else None}
+
+
+_WEATHER_CODES = {
+    0: "快晴", 1: "晴れ", 2: "一部曇り", 3: "曇り",
+    45: "霧", 48: "着氷性の霧", 51: "弱い霧雨", 53: "霧雨",
+    55: "強い霧雨", 56: "弱い着氷性の霧雨", 57: "強い着氷性の霧雨",
+    61: "弱い雨", 63: "雨", 65: "強い雨", 66: "弱い着氷性の雨",
+    67: "強い着氷性の雨", 71: "弱い雪", 73: "雪", 75: "強い雪",
+    77: "雪あられ", 80: "弱いにわか雨", 81: "にわか雨", 82: "強いにわか雨",
+    85: "弱いにわか雪", 86: "強いにわか雪", 95: "雷雨", 96: "雷雨と弱い雹",
+    99: "雷雨と強い雹",
+}
+
+
+def get_weather(location: str) -> dict[str, Any]:
+    """Open-Meteoで指定地域の現在天気を取得する（APIキー不要）。"""
+    if not location or not location.strip():
+        return {"error": "location is required"}
+    try:
+        geocode_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode({
+            "name": location.strip(), "count": 1, "language": "ja", "format": "json",
+        })
+        request = Request(geocode_url, headers={"User-Agent": "karry-agent/0.1"})
+        with urlopen(request, timeout=10) as response:
+            places = json.loads(response.read().decode("utf-8")).get("results", [])
+        if not places:
+            return {"error": f"地域が見つかりません: {location.strip()}"}
+        place = places[0]
+        forecast_url = "https://api.open-meteo.com/v1/forecast?" + urlencode({
+            "latitude": place["latitude"],
+            "longitude": place["longitude"],
+            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+            "timezone": "auto",
+        })
+        request = Request(forecast_url, headers={"User-Agent": "karry-agent/0.1"})
+        with urlopen(request, timeout=10) as response:
+            forecast = json.loads(response.read().decode("utf-8"))
+        current = forecast.get("current", {})
+        code = current.get("weather_code")
+        return {
+            "location": place.get("name", location.strip()),
+            "country": place.get("country"),
+            "latitude": place.get("latitude"),
+            "longitude": place.get("longitude"),
+            "timezone": forecast.get("timezone"),
+            "current": {
+                "time": current.get("time"),
+                "condition": _WEATHER_CODES.get(code, f"天気コード {code}"),
+                "temperature_c": current.get("temperature_2m"),
+                "apparent_temperature_c": current.get("apparent_temperature"),
+                "relative_humidity_percent": current.get("relative_humidity_2m"),
+                "wind_speed_kmh": current.get("wind_speed_10m"),
+            },
+            "source": "Open-Meteo",
+        }
+    except Exception as exc:
+        return {"error": f"天気APIの取得に失敗しました: {type(exc).__name__}: {exc}"}
 
 
 _RESTORED_CALENDAR_SECRETS: set[str] = set()
@@ -450,6 +507,16 @@ def build_default_registry() -> ToolRegistry:
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
+    registry.register(
+        "get_weather",
+        "指定地域の現在の天気をOpen-Meteoから取得する。天気、気温、湿度、風速を尋ねられたら使う",
+        {
+            "type": "object",
+            "properties": {"location": {"type": "string", "description": "市区町村名。例: 枚方市"}},
+            "required": ["location"],
+        },
+        get_weather,
+    )
     registry.register(
         "add_calendar_event",
         "Google Calendar の予定をプレビューする。実際の登録には confirmed=true が必要",
