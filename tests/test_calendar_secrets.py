@@ -77,6 +77,19 @@ def test_restore_writes_normalized_json_once_per_process(tmp_path, monkeypatch):
     assert target.read_text(encoding="utf-8") == "refreshed"
 
 
+def test_restore_token_does_not_require_valid_credentials_secret(tmp_path, monkeypatch):
+    target = tmp_path / "token.json"
+    monkeypatch.setattr(tools, "_RESTORED_CALENDAR_SECRETS", set())
+    monkeypatch.setenv(CREDENTIALS_ENV, '{"client_id":"wrong-shape"}')
+    monkeypatch.setenv(TOKEN_ENV, json.dumps(TOKEN))
+
+    tools._restore_calendar_secret(TOKEN_ENV, target)
+
+    restored = json.loads(target.read_text(encoding="utf-8"))
+    assert restored["refresh_token"] == "rtoken"
+    assert restored["client_id"] == "cid"
+
+
 def test_restore_raises_readable_error_for_invalid_secret(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "_RESTORED_CALENDAR_SECRETS", set())
     monkeypatch.setenv(CREDENTIALS_ENV, '{"installed": {}}')

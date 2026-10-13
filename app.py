@@ -5,6 +5,7 @@ import threading
 import uuid
 import json
 import os
+import re
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -16,9 +17,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from karry_agent.calendar_secrets import calendar_secret_status
-from karry_agent.core import AgentCore, AgentResult
+from karry_agent.core import AgentCore, AgentMetrics, AgentResult
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
+from karry_agent.tools import add_calendar_event
 
 app = FastAPI(
     title="karry-agent API",
@@ -78,6 +80,7 @@ class SessionResponse(BaseModel):
 _RUNS: dict[str, dict[str, Any]] = {}
 _SESSIONS: dict[str, ConversationMemory] = {}
 _PRIVATE_SESSIONS: dict[str, PrivateModeSession] = {}
+_PENDING_CALENDAR: dict[str, dict[str, Any]] = {}
 _STATE_LOCK = threading.Lock()
 _MAX_RUNS = 100
 _MAX_SESSIONS = 100
@@ -142,6 +145,66 @@ def _private_mode(session_id: str | None, prompt: str) -> bool:
         return auth.authenticate(prompt)
 
 
+def _calendar_confirmation(prompt: str) -> str | None:
+    """明示的な予定登録確認だけを yes / no として判定する。"""
+    text = re.sub(r"[\s　。、，！!？?]+", "", prompt.strip().lower())
+    if not text:
+        return None
+    if any(word in text for word in ("キャンセル", "取消", "取り消し", "やめて", "いいえ", "no")):
+        return "cancel"
+    if text in {"はい", "yes", "y", "ok", "okay", "了解", "承認", "登録", "実行"}:
+        return "confirm"
+    if any(phrase in text for phrase in ("登録してください", "登録して", "追加してください", "追加して", "実行してください")):
+        return "confirm"
+    return None
+
+
+def _pending_calendar_result(session_id: str | None, prompt: str) -> AgentResult | None:
+    """保留中の予定に対する明示確認を、モデル任せにせず確実に実行する。"""
+    if not session_id:
+        return None
+    decision = _calendar_confirmation(prompt)
+    if decision is None:
+        return None
+    with _STATE_LOCK:
+        pending = dict(_PENDING_CALENDAR.get(session_id, {}))
+    if not pending:
+        return None
+    if decision == "cancel":
+        with _STATE_LOCK:
+            _PENDING_CALENDAR.pop(session_id, None)
+        return AgentResult("Google Calendarへの登録をキャンセルしました。", 1, 0)
+
+    result = add_calendar_event(**pending, confirmed=True)
+    if result.get("created"):
+        with _STATE_LOCK:
+            _PENDING_CALENDAR.pop(session_id, None)
+        event_id = result.get("event_id") or "不明"
+        return AgentResult(f"Google Calendarに登録しました。イベントID: {event_id}", 1, 1, metrics=AgentMetrics(tool_calls=1))
+    return AgentResult(f"Google Calendarへの登録に失敗しました: {result.get('error', '不明なエラー')}", 1, 1, metrics=AgentMetrics(tool_calls=1, errors=1))
+
+
+def _remember_calendar_preview(session_id: str | None, result: AgentResult) -> None:
+    """モデルが返したCalendarプレビューを次の確認入力に結び付ける。"""
+    if not session_id:
+        return
+    for event in result.trace:
+        if event.action != "add_calendar_event" or not isinstance(event.observation, dict):
+            continue
+        observation = event.observation
+        with _STATE_LOCK:
+            if observation.get("confirmation_required"):
+                args = event.arguments
+                _PENDING_CALENDAR[session_id] = {
+                    "summary": args.get("summary", ""),
+                    "start_time": args.get("start_time", ""),
+                    "duration_minutes": args.get("duration_minutes", 60),
+                }
+            elif observation.get("created"):
+                _PENDING_CALENDAR.pop(session_id, None)
+        break
+
+
 def _run_agent(agent: AgentCore, prompt: str, private_mode: bool) -> AgentResult:
     # 既存の差し替え用 FakeAgent（run(prompt) のみ）との互換性を保つ。
     if private_mode:
@@ -158,7 +221,9 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
         context = "\n".join(f"{item['role']}: {item['content']}" for item in memory.get_history()[-6:])
         prompt = f"会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
     try:
-        result = _run_agent(agent, prompt, private_mode)
+        result = _pending_calendar_result(session_id, request.prompt)
+        if result is None:
+            result = _run_agent(agent, prompt, private_mode)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
@@ -167,6 +232,7 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
         raise HTTPException(status_code=500, detail="agent execution failed") from exc
+    _remember_calendar_preview(session_id, result)
     if memory:
         memory.add_message("user", request.prompt)
         memory.add_message("model", result.text)

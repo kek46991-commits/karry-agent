@@ -232,3 +232,11 @@ GitHub Actions は `main` への push / pull request で依存関係を導入し
 [PR #3](https://github.com/kek46991-commits/karry-agent/pull/3) で、Secret 値の正規化・検証（`calendar_secrets.py`）、起動時の `/tmp` への再復元、`GET /health/calendar`、Termux 用の `scripts/push_calendar_env.py`（ファイル自動検索、`--login` によるブラウザ OAuth、Render への登録とデプロイ）を追加しました。
 
 Render には同じリポジトリから `karry-agent-1`（本番、`GEMINI_API_KEY` あり）と `karry-agent`（`render.yaml` と同名、`GEMINI_API_KEY` なし）の 2 サービスがあります。2026-10-12 時点で両方に `GOOGLE_CALENDAR_CREDENTIALS_JSON` / `GOOGLE_CALENDAR_TOKEN_JSON` を登録済みで、`/health/calendar` は `ready: true` です。登録した token で予定の取得ができることも確認しました。スクリプトで本番へ登録するときは `--service-name karry-agent-1` を指定してください。詳細は [docs/calendar-setup.md](docs/calendar-setup.md) を参照してください。
+
+### 2026-10-13 Calendar追加不具合の修正
+
+- 原因1: ヘッドレス起動時に `GOOGLE_CALENDAR_CREDENTIALS_JSON` を先に検証していたため、credentials Secret が不正形式でも、client 情報を含む有効な `GOOGLE_CALENDAR_TOKEN_JSON` が使われる前に処理が停止していた。
+- 原因2: プレビュー後のユーザー確認を会話モデルの再判断だけに任せていたため、`confirmed=true` の insert が呼ばれず、確認後もプレビューで終わる場合があった。
+- 修正: `src/karry_agent/tools.py` は token の復元・読み込み・refresh を先に行い、必要な場合だけ credentials/OAuthへフォールバックする。`app.py` はセッションごとに保留中の予定を保持し、「はい」「登録してください」などの明示確認を受けたら `add_calendar_event(..., confirmed=True)` を直接実行する。キャンセル語では保留を破棄する。
+- 検証: Calendar関連テスト 31件が通過し、ローカルOAuth tokenで `list_calendar_events(max_results=1)` が成功した。秘密値・token内容はログへ出していない。
+- 本番確認: `GET /health/calendar` で token が `valid: true` であること、OAuth token の scope が `https://www.googleapis.com/auth/calendar.events` であることを確認する。公開統合版にも同じ `tools.py` と確認処理を反映する。

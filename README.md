@@ -146,3 +146,9 @@ python scripts/push_calendar_env.py --from-render     # Render の既存値を�
 アプリ側も前後の空白・BOM・外側のクォート・`KEY=` 付き・二重エンコード・base64 の値を自動で正規化します。設定状態は `GET /health/calendar` で確認でき、レスポンスには有無と形式エラーだけが含まれ、値は含まれません。
 
 本番の Render サービス構成（`karry-agent-1` が本番）、環境変数の一覧、PR #3 の変更内容、Termux での再設定手順、トラブルシューティングは [docs/calendar-setup.md](docs/calendar-setup.md) にまとめています。
+
+### 追加登録が実行されない場合の修正（2026-10-13）
+
+ヘッドレス環境では、OAuth 完了済みの `GOOGLE_CALENDAR_TOKEN_JSON` が有効なら、補助的な `GOOGLE_CALENDAR_CREDENTIALS_JSON` の復元・検証より token の読み込みと refresh を先に行います。これにより、credentials Secret の形式不正があっても、有効な authorized-user token によるイベント登録を妨げません。
+
+また、チャットで予定プレビューの後にユーザーが「はい」「登録してください」など明示確認した場合は、会話モデルの再判断に任せず、保留中の予定を `add_calendar_event(..., confirmed=True)` で直接実行します。これにより、確認後に再びプレビューだけ返る問題を防ぎます。`/health/calendar` が token を `valid: true` と示すこと、OAuth token のスコープが `https://www.googleapis.com/auth/calendar.events` であることを確認してください。

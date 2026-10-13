@@ -1,8 +1,9 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import app
 from karry_agent import tools
-from karry_agent.core import AgentCore
+from karry_agent.core import AgentCore, AgentResult, ExecutionEvent
 from karry_agent.tools import ToolRegistry, add_calendar_event, build_default_registry, list_calendar_events, update_calendar_event
 
 
@@ -16,6 +17,21 @@ def test_calendar_tool_requires_confirmation_without_external_write():
 def test_calendar_tool_validates_timezone_and_duration():
     assert "timezone" in add_calendar_event("予定", "2026-10-12T10:00:00")["error"]
     assert "duration" in add_calendar_event("予定", "2026-10-12T10:00:00+09:00", 0)["error"]
+
+
+def test_calendar_tool_confirmed_insert_uses_primary_calendar_and_timezone(monkeypatch):
+    service = _FakeService({}, {"id": "event-1", "htmlLink": "https://calendar.google.com/event"})
+    monkeypatch.setattr(tools, "_calendar_service", lambda: service)
+
+    result = add_calendar_event("予定", "2026-10-12T10:00:00+09:00", 60, confirmed=True)
+
+    assert result["created"] is True
+    assert result["event_id"] == "event-1"
+    assert service.events_api.insert_request.kwargs["calendarId"] == "primary"
+    assert service.events_api.insert_request.kwargs["body"]["start"] == {
+        "dateTime": "2026-10-12T10:00:00+09:00",
+        "timeZone": "Asia/Tokyo",
+    }
 
 
 def test_calendar_tool_is_registered_with_confirmation_parameter():
@@ -57,6 +73,7 @@ class _FakeEvents:
         self.list_request = _FakeRequest(list_result)
         self.get_request = _FakeRequest(event_result)
         self.patch_request = _FakeRequest(event_result)
+        self.insert_request = _FakeRequest(event_result)
 
     def list(self, **kwargs):
         self.list_request.kwargs = kwargs
@@ -69,6 +86,10 @@ class _FakeEvents:
     def patch(self, **kwargs):
         self.patch_request.kwargs = kwargs
         return self.patch_request
+
+    def insert(self, **kwargs):
+        self.insert_request.kwargs = kwargs
+        return self.insert_request
 
 
 class _FakeService:
@@ -155,3 +176,36 @@ def test_agent_core_dispatches_function_call_to_calendar_tool():
     assert observed == [3]
     assert result.tool_calls == 1
     assert result.trace[0].action == "list_calendar_events"
+
+
+def test_chat_confirmation_executes_pending_calendar_event(monkeypatch):
+    session_id = "calendar-confirmation-test"
+    app._PENDING_CALENDAR.clear()
+    preview = AgentResult(
+        "登録内容を確認してください",
+        1,
+        1,
+        trace=[
+            ExecutionEvent(
+                1,
+                "add_calendar_event",
+                {"summary": "面談", "start_time": "2026-10-15T10:00:00+09:00", "duration_minutes": 60, "confirmed": False},
+                {"confirmation_required": True},
+                1.0,
+            )
+        ],
+    )
+    app._remember_calendar_preview(session_id, preview)
+    calls = {}
+
+    def fake_add(**kwargs):
+        calls.update(kwargs)
+        return {"created": True, "event_id": "event-1"}
+
+    monkeypatch.setattr(app, "add_calendar_event", fake_add)
+    result = app._pending_calendar_result(session_id, "はい、登録してください")
+
+    assert result is not None
+    assert result.text == "Google Calendarに登録しました。イベントID: event-1"
+    assert calls == {"summary": "面談", "start_time": "2026-10-15T10:00:00+09:00", "duration_minutes": 60, "confirmed": True}
+    assert session_id not in app._PENDING_CALENDAR

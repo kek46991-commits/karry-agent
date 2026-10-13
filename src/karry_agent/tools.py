@@ -237,7 +237,15 @@ def _restore_calendar_secret(env_name: str, target: Path) -> None:
             validate_credentials(data)
         else:
             credentials_raw = os.getenv(CREDENTIALS_ENV)
-            credentials = parse_secret_json(credentials_raw, CREDENTIALS_ENV) if credentials_raw else None
+            credentials = None
+            if credentials_raw:
+                try:
+                    candidate = parse_secret_json(credentials_raw, CREDENTIALS_ENV)
+                    credentials = validate_credentials(candidate)
+                except CalendarSecretError:
+                    # authorized_user token に client 情報が含まれる本番構成では、
+                    # 補助的な credentials Secret の不正形式で token 復元を止めない。
+                    credentials = None
             data = validate_token(data, credentials)
     except CalendarSecretError as exc:
         raise RuntimeError(str(exc)) from None
@@ -262,14 +270,23 @@ def _calendar_service() -> Any:
     scopes = ["https://www.googleapis.com/auth/calendar.events"]
     token_path = Path(os.getenv("GOOGLE_CALENDAR_TOKEN_FILE", "token.json"))
     credentials_path = Path(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_FILE", "credentials.json"))
-    _restore_calendar_secret(CREDENTIALS_ENV, credentials_path)
+    # Production では token JSON に client_id / client_secret が含まれるため、
+    # credentials JSON が未設定・形式不正でも token の refresh を先に試す。
+    # 先に credentials を復元すると、使える token があるのに無関係な
+    # credentials Secret の形式エラーで insert/list 全体が失敗していた。
     _restore_calendar_secret(TOKEN_ENV, token_path)
     creds = None
     if token_path.is_file():
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
     if creds and not creds.valid and creds.refresh_token:
-        creds.refresh(GoogleRequest())
-    elif not creds or not creds.valid:
+        try:
+            creds.refresh(GoogleRequest())
+        except Exception:
+            # Refresh が必要で token に client 情報がない場合だけ、下の
+            # credentials/OAuth フォールバックへ進む。
+            creds = None
+    if not creds or not creds.valid:
+        _restore_calendar_secret(CREDENTIALS_ENV, credentials_path)
         if not credentials_path.is_file():
             raise FileNotFoundError(
                 "Google Calendar の認証が未設定です。GOOGLE_CALENDAR_TOKEN_FILE または credentials.json を設定してください。"
