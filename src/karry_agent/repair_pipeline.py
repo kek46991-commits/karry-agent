@@ -104,7 +104,9 @@ class GitHubRepairPublisher:
         response.raise_for_status()
         return response.json()
 
-    def publish(self, incident: dict[str, Any], changes: dict[str, str], originals: dict[str, str]) -> dict[str, Any]:
+    def commit_to_new_branch(self, branch: str, changes: dict[str, str], originals: dict[str, str],
+                             message: str) -> str | None:
+        """Create `branch` from the base and commit changes; returns the last commit SHA."""
         from urllib.parse import quote
         head = self._call("GET", "/git/ref/heads/" + quote(self.base, safe=""))["object"]["sha"]
         sha_by_path = {}
@@ -114,11 +116,17 @@ class GitHubRepairPublisher:
             if base64.b64decode(item["content"]).decode("utf-8") != originals[path]:
                 raise ValueError("remote source changed; refusing stale repair")
             sha_by_path[path] = item["sha"]
-        branch = "self-healing/" + incident["incident_id"]
         self._call("POST", "/git/refs", json={"ref": "refs/heads/" + branch, "sha": head})
+        commit_sha = None
         for path, content in changes.items():
-            self._call("PUT", "/contents/" + quote(path, safe="/"), json={"message": "fix: self-healing repair candidate",
-                       "content": base64.b64encode(content.encode()).decode(), "sha": sha_by_path[path], "branch": branch})
+            written = self._call("PUT", "/contents/" + quote(path, safe="/"), json={"message": message,
+                                 "content": base64.b64encode(content.encode()).decode(), "sha": sha_by_path[path], "branch": branch})
+            commit_sha = (written.get("commit") or {}).get("sha") if isinstance(written, dict) else None
+        return commit_sha
+
+    def publish(self, incident: dict[str, Any], changes: dict[str, str], originals: dict[str, str]) -> dict[str, Any]:
+        branch = "self-healing/" + incident["incident_id"]
+        self.commit_to_new_branch(branch, changes, originals, "fix: self-healing repair candidate")
         result = self._call("POST", "/pulls", json={"title": "Self-Healing: repair candidate " + incident["incident_id"][:8],
                            "head": branch, "base": self.base, "draft": True,
                            "body": "Automated repair candidate. Syntax validated; behavior and CI must be reviewed before merging.\n"
