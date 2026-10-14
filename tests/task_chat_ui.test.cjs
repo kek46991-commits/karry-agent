@@ -129,3 +129,26 @@ test('manual retry keeps the same request ID and never automatically resends',as
   await s.win.sendMessage({preventDefault(){}});const calls=s.calls.filter(c=>c.url==='/api/chat');
   assert.equal(calls.length,2);assert.equal(JSON.parse(calls[0].request.body).request_id,JSON.parse(calls[1].request.body).request_id);s.dom.window.close();
 });
+
+test('connection panel is before task grid and token is never prefilled',()=>{
+  const s=setup();const panel=s.doc.getElementById('connectionPanel'),grid=s.doc.querySelector('.grid');
+  assert.ok(panel.compareDocumentPosition(grid)&s.win.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.equal(s.doc.getElementById('apiToken').value,'');assert.equal(s.doc.querySelectorAll('#apiToken').length,1);
+  assert.notEqual(s.doc.body.dataset.connection,'online');s.dom.window.close();
+});
+test('empty token stays local and never creates tasks or calls APIs',async()=>{
+  const s=setup();await s.win.connectSessions();assert.equal(s.calls.length,0);
+  assert.match(s.doc.getElementById('connectionNotice').textContent,/トークンを入力/);
+  assert.equal(s.doc.getElementById('send').disabled,true);s.dom.window.close();
+});
+test('pasted Bearer prefix is normalized without changing server authentication',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]]});s.doc.getElementById('apiToken').value=' Bearer synthetic-owner ';
+  await s.win.connectSessions();assert.equal(s.calls[0].request.headers.Authorization,'Bearer synthetic-owner');
+  assert.equal(s.doc.body.dataset.connection,'online');assert.equal(s.win.localStorage.getItem('apiToken'),null);s.dom.window.close();
+});
+test('storage 503 explains server permission failure at the visible connection panel',async()=>{
+  const s=setup({fetch:async()=>json({detail:'read failed',error_code:'storage_unavailable',hint:'対象バケットの読み取り権限を確認してください。'},503)});
+  s.authenticate();await s.win.connectSessions();assert.match(s.doc.getElementById('connectionNotice').textContent,/バケットの読み取り権限/);
+  assert.equal(s.doc.body.dataset.connection,'error');assert.equal(s.doc.getElementById('newTask').disabled,true);
+  assert.equal(s.calls.length,1);assert.match(s.doc.getElementById('storageHint').textContent,/トークンを再入力しても/);s.dom.window.close();
+});

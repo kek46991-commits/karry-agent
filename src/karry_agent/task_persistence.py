@@ -81,9 +81,11 @@ class S3TaskRepository:
             code = str(exc.response.get("Error", {}).get("Code", ""))
             if code in {"NoSuchKey", "NotFound", "404"}:
                 return None, None
-            raise TaskStorageError("タスクストレージの読み取りに失敗しました。", "storage_unavailable") from None
+            raise TaskStorageError("タスクストレージの読み取りに失敗しました。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
         except (BotoCoreError, OSError, UnicodeError, ValueError, KeyError) as exc:
-            raise TaskStorageError("タスクJSONの読み取り・検証に失敗しました。", "storage_unavailable") from None
+            raise TaskStorageError("タスクJSONの読み取り・検証に失敗しました。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
         finally:
             if response is not None and response.get("Body") is not None:
                 response["Body"].close()
@@ -103,9 +105,11 @@ class S3TaskRepository:
         except ClientError as exc:
             if str(exc.response.get("Error", {}).get("Code", "")) in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
                 raise TaskStorageError("タスクの保存が競合しました。", "storage_conflict") from None
-            raise TaskStorageError("タスク履歴の永続保存に失敗しました。", "storage_unavailable") from None
-        except (BotoCoreError, OSError):
-            raise TaskStorageError("タスク履歴の永続保存に失敗しました。", "storage_unavailable") from None
+            raise TaskStorageError("タスク履歴の永続保存に失敗しました。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
+        except (BotoCoreError, OSError) as exc:
+            raise TaskStorageError("タスク履歴の永続保存に失敗しました。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
 
     def _cas(self, key: str, default: dict[str, Any] | None, mutate: Callable) -> dict[str, Any]:
         for _ in range(3):

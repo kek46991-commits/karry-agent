@@ -16,10 +16,19 @@
     @media(max-width:1100px){.grid{grid-template-columns:220px minmax(0,1fr)}aside{grid-column:1/-1}.trace-list{max-height:180px}}
     @media(max-width:700px){.grid{grid-template-columns:1fr}.chat{min-height:560px}.task-list{max-height:170px}aside{grid-column:auto}header{align-items:flex-start;flex-direction:column}.shell{padding:18px 12px 32px}form{gap:7px;padding:12px}button{padding:0 12px}}
   </style>
+  <style>
+    .auth{margin:0 0 18px;padding:16px 18px;gap:10px;background:#121a2d;border:1px solid var(--line);border-radius:14px}
+    .auth label{margin-top:0;color:var(--text);font-weight:700}.auth input{flex:1;min-width:0}.auth button{min-height:42px}
+    .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+    .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
+    body[data-connection="online"] .dot{background:var(--good)}body[data-connection="error"] .dot{background:#f28b8b}
+    @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
+  </style>
 </head>
 <body>
   <main class="shell">
     <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
+    <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
         <h2>タスク</h2><label class="hint" for="taskTitle">新しいタスクの名前</label>
@@ -36,7 +45,6 @@
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
     </section>
-    <div class="auth"><label class="hint" for="apiToken">所有者APIトークン（ブラウザに保存しません）</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン"><button id="loadTasks" type="button">接続・タスク読み込み</button></div>
   </main>
 <script>
   const $ = id => document.getElementById(id);
@@ -75,11 +83,14 @@
     if(value&&recognition&&$('mic').classList.contains('active'))recognition.stop();
     for(const button of $('taskList').querySelectorAll('button'))button.disabled=value;
   }
-  function headers(){const h={'Content-Type':'application/json'};const token=$('apiToken').value.trim();if(token)h.Authorization=`Bearer ${token}`;return h;}
+  function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
+  function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
+  function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';}
+  function headers(){const h={'Content-Type':'application/json'};const token=ownerToken();if(token)h.Authorization=`Bearer ${token}`;return h;}
   async function requestJson(url,options={}){
     const response=await fetch(url,{...options,headers:headers(),cache:'no-store'});let data;
     try{data=await response.json();}catch(_){throw new Error('サーバーから正しいJSONが返りませんでした');}
-    if(!response.ok){const message=response.status===401?'APIトークンを確認してください':response.status===404?'タスクが存在しません。再起動後はタスクを読み込み直してください':response.status===409?'タスク数上限または同じタスクの実行中です':typeof data.detail==='string'?data.detail:'入力またはサーバー設定を確認してください';throw new Error(message);}
+    if(!response.ok){const message=response.status===401?'APIトークンを確認してください':response.status===404?'タスクが存在しません。再起動後はタスクを読み込み直してください':response.status===409?'タスク数上限または同じタスクの実行中です':response.status===503?(typeof data.hint==='string'?data.hint:'サーバーの永続保存へ接続できません。管理者がR2/S3のバケット・署名キー・権限・endpointを確認してください。'):typeof data.detail==='string'?data.detail:'入力またはサーバー設定を確認してください';const error=new Error(message);error.status=response.status;error.code=data.error_code;throw error;}
     return data;
   }
   function saveSelection(){try{if(sessionId)localStorage.setItem('karry-session',sessionId);else localStorage.removeItem('karry-session');}catch(_) {}}
@@ -104,24 +115,26 @@
     const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);websiteApproval(run,data.latest_url);}
   }
   async function connectSessions(){
-    if(busy)return;const version=++viewVersion;let cached=sessionId;try{cached=cached||localStorage.getItem('karry-session');}catch(_){}setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';$('status').textContent='接続中…';
+    if(busy)return;
+    if(!ownerToken()){connectionNotice('所有者APIトークンを入力してください。',true);setConnectionStatus('トークン未入力');$('apiToken').focus();return;}
+    const version=++viewVersion;let cached=sessionId;try{cached=cached||localStorage.getItem('karry-session');}catch(_){}setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';setConnectionStatus('接続中…');connectionNotice('認証と永続タスク保存への接続を確認しています…');
     try{
       sessions=await requestJson('/api/sessions');if(!Array.isArray(sessions))throw new Error('タスク一覧の形式が不正です');
       if(!sessions.length)sessions=[await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title:'最初のタスク'})})];
       const selected=sessions.find(s=>s.session_id===cached)||sessions[0];const data=await requestJson('/api/sessions/'+encodeURIComponent(selected.session_id));
-      if(version!==viewVersion)return;sessionId=selected.session_id;connected=true;saveSelection();renderTasks();renderSession(data);$('status').textContent='オンライン';
-    }catch(error){sessionId=null;connected=false;sessions=[];renderTasks();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';addMessage('agent',`接続エラー: ${error.message}`);$('status').textContent='接続できませんでした';}
+      if(version!==viewVersion)return;sessionId=selected.session_id;connected=true;saveSelection();renderTasks();renderSession(data);setConnectionStatus('オンライン');connectionNotice('接続できました。タスクを選択するか、新しいタスクを作成してください。');
+    }catch(error){sessionId=null;connected=false;sessions=[];renderTasks();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';addMessage('agent',`接続エラー: ${error.message}`);setConnectionStatus('接続できませんでした');connectionNotice(error.message,true);if(error.status===503)$('storageHint').textContent='永続保存に接続できていません。トークンを再入力しても保存先の設定エラーは解決しません。';}
     finally{setBusy(false);}
   }
   async function selectSession(id){
-    if(busy||!connected)return;const version=++viewVersion;setBusy(true);clearView();$('currentTask').textContent='履歴を読み込み中…';$('status').textContent='タスク切替中…';
-    try{const data=await requestJson('/api/sessions/'+encodeURIComponent(id));if(version!==viewVersion)return;sessionId=id;saveSelection();renderSession(data);renderTasks();$('status').textContent='オンライン';}
-    catch(error){sessionId=null;saveSelection();renderTasks();$('currentTask').textContent='タスクを選択してください';$('session').textContent='未選択';addMessage('agent',`切替エラー: ${error.message}`);$('status').textContent='タスクを読み込み直してください';}
+    if(busy||!connected)return;const version=++viewVersion;setBusy(true);clearView();$('currentTask').textContent='履歴を読み込み中…';setConnectionStatus('タスク切替中…');
+    try{const data=await requestJson('/api/sessions/'+encodeURIComponent(id));if(version!==viewVersion)return;sessionId=id;saveSelection();renderSession(data);renderTasks();setConnectionStatus('オンライン');}
+    catch(error){sessionId=null;saveSelection();renderTasks();$('currentTask').textContent='タスクを選択してください';$('session').textContent='未選択';addMessage('agent',`切替エラー: ${error.message}`);setConnectionStatus('タスクを読み込み直してください');}
     finally{setBusy(false);}
   }
   async function createNewSession(){
     if(busy||!connected)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
-    try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});$('status').textContent='オンライン';}
+    try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});setConnectionStatus('オンライン');}
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
     finally{setBusy(false);}
   }
@@ -143,7 +156,7 @@
   async function sendMessage(event){
     event.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
     if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt)pendingMessage={sessionId:owner,prompt,requestId:window.crypto.randomUUID()};
-    setBusy(true);$('prompt').value='';$('status').textContent='実行中…';addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
+    setBusy(true);$('prompt').value='';setConnectionStatus('実行中…');addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
     try{
       const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,stream:true})});
       if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
@@ -153,14 +166,14 @@
       try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
       if(!completed||completed.session_id!==owner)throw new Error('タスクの完了応答を確認できませんでした');
       pendingMessage=null;
-      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}$('status').textContent='オンライン';
-    }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}$('status').textContent='エラー';}
+      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}setConnectionStatus('オンライン');
+    }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}setConnectionStatus('エラー');}
     finally{setBusy(false);$('prompt').focus();}
   }
   $('loadTasks').addEventListener('click',connectSessions);
   $('newTask').addEventListener('click',createNewSession);
   $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});
-  $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setBusy(false);}});
+  $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('mic').addEventListener('click',()=>{if(recognition&&!busy){if($('mic').classList.contains('active'))recognition.stop();else recognition.start();}});
   $('chatForm').addEventListener('submit',sendMessage);
   setBusy(false);
