@@ -20,9 +20,41 @@ MAX_HTML_BYTES = 524_288
 
 
 class StorageError(ValueError):
-    def __init__(self, message: str, code: str = "storage_unavailable"):
+    def __init__(self, message: str, code: str = "storage_unavailable", *, diagnostic_code: str | None = None):
         super().__init__(message)
         self.code = code
+        self.diagnostic_code = diagnostic_code
+
+
+DIAGNOSTIC_HINTS = {
+    "storage_bucket_missing": "指定したR2/S3バケットが見つかりません。バケット名とアカウントを確認してください。",
+    "storage_permission": "保存先の読み取り権限が拒否されました。対象バケットのObject Read & Write権限を確認してください。",
+    "storage_credentials": "保存先のS3アクセスキーが無効または期限切れです。R2/S3署名用のキーを秘密設定へ登録してください。",
+    "storage_signature": "S3署名が一致しません。アクセスキーとシークレットの組、endpoint・regionを確認してください。",
+    "storage_endpoint": "保存先のendpoint・regionが一致しません。対象アカウントのS3エンドポイントを確認してください。",
+    "storage_network": "保存先とのネットワーク接続に失敗しました。endpointとサービス状態を確認してください。",
+    "storage_rate_limit": "保存先がリクエストを制限しています。時間を置いて再接続してください。",
+    "storage_unsupported": "保存先が必要なS3操作に対応していません。R2またはAWS S3を使用してください。",
+    "storage_unknown": "永続保存へ接続できません。管理者がバケット・署名キー・権限・endpointを確認してください。",
+}
+
+
+def connection_diagnostic(exc: Exception) -> str:
+    """Only allowlisted categories, never provider messages, keys or request URLs."""
+    if isinstance(exc, ClientError):
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        return {
+            "NoSuchBucket": "storage_bucket_missing",
+            "AccessDenied": "storage_permission", "AllAccessDisabled": "storage_permission", "403": "storage_permission",
+            "InvalidAccessKeyId": "storage_credentials", "InvalidToken": "storage_credentials", "ExpiredToken": "storage_credentials",
+            "SignatureDoesNotMatch": "storage_signature",
+            "PermanentRedirect": "storage_endpoint", "AuthorizationHeaderMalformed": "storage_endpoint",
+            "SlowDown": "storage_rate_limit", "Throttling": "storage_rate_limit",
+            "NotImplemented": "storage_unsupported",
+        }.get(code, "storage_unknown")
+    if isinstance(exc, (BotoCoreError, OSError)):
+        return "storage_network"
+    return "storage_unknown"
 
 
 @dataclass(frozen=True)
@@ -103,7 +135,8 @@ def _translate(exc: Exception) -> StorageError:
         if code in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
             return StorageError("同じ公開キーが既に存在するか更新が競合しました。上書きしません。", "already_exists")
     # Never return provider exception text: it may contain signing/request details.
-    return StorageError("永続ストレージへの接続・保存・読み取りに失敗しました。", "storage_unavailable")
+    return StorageError("永続ストレージへの接続・保存・読み取りに失敗しました。", "storage_unavailable",
+                        diagnostic_code=connection_diagnostic(exc))
 
 
 class S3WebsiteStore:
