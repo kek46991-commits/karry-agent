@@ -14,6 +14,7 @@ from typing import Any, Callable
 from botocore.exceptions import BotoCoreError, ClientError
 from . import website_storage as storage
 from .self_healing import _SECRET_KEY
+from . import website_artifacts
 
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_TASKS = 100
@@ -148,6 +149,10 @@ class S3TaskRepository:
         raise TaskStorageError("タスク更新の競合が解消しませんでした。再取得してください。", "storage_conflict")
 
     def _validate(self, value: dict[str, Any], sid: str) -> dict[str, Any]:
+        try:
+            website_artifacts.validate(value.get('website_artifacts', {}))
+        except (ValueError, UnicodeError) as exc:
+            raise TaskStorageError(str(exc), 'storage_integrity') from None
         messages = value.get("messages")
         if value.get("version") != 1 or value.get("session_id") != sid or not isinstance(value.get("title"), str) or len(value["title"]) > 120 or not isinstance(messages, list) or len(messages) > MAX_MESSAGES:
             raise TaskStorageError("保存済みタスクの構造が不正です。", "storage_integrity")
@@ -246,7 +251,7 @@ class S3TaskRepository:
         clean = [{"role": r["role"], "content": credential_safe(r["content"]),
                   **({"images": list(r["images"])} if r.get("images") else {})} for r in messages]
         # Pending confirmation payloads and authentication state are never persisted.
-        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest", "image_ids", "generated_images") if key in run}
+        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest", "image_ids", "artifacts", "generated_images") if key in run}
         summary["trace"] = []
         summary["text"] = clean[-1]["content"] if clean and clean[-1]["role"] in {"model", "assistant"} else ""
         def commit(value):
@@ -279,6 +284,18 @@ class S3TaskRepository:
             return value
         return self._cas(self._key(sid), None, update)
 
+    def save_artifact(self, sid: str, artifact: dict) -> dict:
+        def save(value):
+            self._validate(value, sid)
+            records = value.setdefault('website_artifacts', {})
+            previous = records.get(artifact['id'])
+            if previous is not None and previous != artifact:
+                raise TaskStorageError('下書きの同一IDで内容を変更できません。', 'storage_conflict')
+            records[artifact['id']] = copy.deepcopy(artifact)
+            self._validate(value, sid)
+            return value
+        return self._cas(self._key(sid), None, save)
+
     def stage_publication(self, sid: str, plan: dict[str, Any]) -> None:
         intent = {key: plan[key] for key in ("filename", "sha256", "public_url")}
         if not storage.FILENAME_RE.fullmatch(intent["filename"]) or not re.fullmatch(r"[a-f0-9]{64}", intent["sha256"]):
@@ -306,6 +323,10 @@ class S3TaskRepository:
                 if intent["filename"] == filename and intent["created_at"] >= value.get("latest_publication_at", 0):
                     value["latest_url"] = intent["public_url"]
                     value["latest_publication_at"] = intent["created_at"]
+                if intent['filename'] == filename:
+                    for artifact in value.get('website_artifacts', {}).values():
+                        if artifact['plan']['filename'] == filename and artifact['plan']['sha256'] == intent['sha256']:
+                            artifact['state'] = 'published'
             value["publication_outbox"] = [row for row in outbox if row["filename"] != filename]
             return value
         return self._cas(self._key(sid), None, acknowledge)

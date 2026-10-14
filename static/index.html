@@ -124,7 +124,9 @@
     if(data.image_uploads_pending)$('imageStatus').textContent=`未完了の画像アップロードが${data.image_uploads_pending}件あります。接続・タスク読み込みで復旧を確認してください。`;
     for(const message of data.messages||[]){const el=addMessage(message.role==='user'?'user':'agent',message.content);if(message.role==='user')renderHistoryImages(el,message.images||[],data.image_assets||{});else renderGeneratedImages(el,message.images||[],data.image_assets||{});}
     showLatest(data.latest_url);
-    const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);websiteApproval(run,data.latest_url);}
+    const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);}
+    const artifacts=data.artifacts||run?.artifacts||[];
+    if(artifacts.length)renderWebsiteArtifacts(artifacts);else if(run)websiteApproval(run,data.latest_url);
   }
   async function connectSessions(){
     if(busy)return;
@@ -199,7 +201,8 @@
     const event=(data.trace||[]).find(item=>item.action==='deploy_instant_website'&&item.observation?.confirmation_required);if(!event)return;
     const pending=event.observation,preview=pending.preview;if(!preview||preview.public_url===latestUrl)return;const owner=sessionId;
     const persistence=preview.persistence==='durable'?'外部ストレージへの永続公開です。':'一時公開です。再起動・再デプロイで消えます。';
-    const box=addMessage('agent',`公開確認（10分以内）\n公開予定URL（「公開」を押すまで無効）: ${preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧可能です。${persistence}秘密情報を含まないことを確認してください。`);
+    const box=addMessage('agent',`HTML作成済み（まだ公開されていません）\n公開予定先: ${preview.planned_public_url||preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧可能になります。${persistence}秘密情報を含まないことを確認してください。`);
+    inlineWebsitePreview(box,preview.html_content);
     const source=document.createElement('textarea');source.readOnly=true;source.value=preview.html_content;source.setAttribute('aria-label','公開するHTML全文');source.style.cssText='display:block;width:100%;min-height:180px;margin:12px 0';box.appendChild(source);
     const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';label.append(check,document.createTextNode('HTML全文と公開先を確認し、公開を承認します'));box.appendChild(label);
     const publish=document.createElement('button');publish.type='button';publish.textContent='確認した内容を即時公開';publish.disabled=true;publish.style.cssText='display:block;padding:10px;margin-top:10px';box.appendChild(publish);check.onchange=()=>{publish.disabled=!check.checked||busy;};
@@ -210,11 +213,54 @@
       finally{setBusy(false);}
     };
   }
+  function inlineWebsitePreview(box,html){
+    const frame=document.createElement('iframe');frame.title='作成したホームページの非公開プレビュー';frame.setAttribute('sandbox','allow-scripts');frame.referrerPolicy='no-referrer';
+    frame.style.cssText='display:block;width:100%;height:420px;border:1px solid #344766;border-radius:10px;background:white;margin:12px 0';
+    frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' https:; style-src \'unsafe-inline\' https:; img-src data: https:; font-src data: https:; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'+html;
+    box.appendChild(frame);return frame;
+  }
+  function renderWebsiteArtifacts(artifacts){
+    const owner=sessionId,version=viewVersion;
+    for(const [index,meta] of artifacts.entries()){
+      const box=addMessage('agent',`保存済みのホームページ: ${meta.filename}\n${meta.state==='published'?'公開済みです。':'非公開の下書きです。まずプレビューで確認してください。'}`);
+      box.dataset.artifactId=meta.artifact_id;
+      const status=document.createElement('p');status.textContent='プレビューを開けます。';box.appendChild(status);
+      const load=document.createElement('button');load.type='button';load.textContent='プレビューを見る';load.style.cssText='padding:10px;margin:8px 0';box.appendChild(load);
+      load.onclick=async()=>{
+        load.disabled=true;status.textContent='保存済みHTMLを読み込み中…';
+        try{
+          const data=await requestJson('/api/website-artifacts/'+encodeURIComponent(meta.artifact_id)+'?session_id='+encodeURIComponent(owner));
+          if(version!==viewVersion||owner!==sessionId||!box.isConnected)return;
+          if(data.status!=='ready'||typeof data.html_content!=='string'||data.sha256!==meta.sha256)throw new Error('保存済みHTMLの内容を確認できませんでした');
+          inlineWebsitePreview(box,data.html_content);load.hidden=true;status.textContent='プレビューを表示しました。下書きは再読み込み後も残ります。';
+          const details=document.createElement('details'),summary=document.createElement('summary'),source=document.createElement('textarea');summary.textContent='HTML全文を確認';source.readOnly=true;source.value=data.html_content;source.setAttribute('aria-label','公開するHTML全文');source.style.cssText='display:block;width:100%;min-height:160px';details.append(summary,source);box.appendChild(details);
+          const download=document.createElement('button');download.type='button';download.textContent='HTMLを保存';download.style.padding='8px';download.onclick=()=>{const url=URL.createObjectURL(new Blob([data.html_content],{type:'text/html;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=data.filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};box.appendChild(download);
+          if(data.state==='published'&&data.public_url){showLatest(data.public_url);return;}
+          if(data.state==='unavailable'){status.textContent='公開リンクの実体を確認できませんが、保存済み下書きのプレビューとHTMLは利用できます。新しい成果物として作成してから公開してください。';return;}
+          const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';label.style.display='block';label.append(check,document.createTextNode('HTML全文と公開先を確認し、誰でも閲覧できる公開を承認します'));box.appendChild(label);
+          const planned=document.createElement('p');planned.textContent='公開予定先（まだリンクではありません）: '+data.planned_public_url;box.appendChild(planned);
+          const publish=document.createElement('button');publish.type='button';publish.textContent='確認した内容を即時公開';publish.disabled=true;publish.style.padding='10px';box.appendChild(publish);check.onchange=()=>publish.disabled=!check.checked||busy;
+          publish.onclick=async()=>{
+            if(busy||!check.checked||sessionId!==owner)return;setBusy(true);publish.disabled=true;check.disabled=true;status.textContent='確認したHTMLを公開中…';
+            try{
+              const fresh=await requestJson('/api/website-artifacts/'+encodeURIComponent(meta.artifact_id)+'/prepare?session_id='+encodeURIComponent(owner),{method:'POST'});
+              let result=fresh;
+              if(!fresh.success){if(!fresh.confirmation_required||fresh.preview?.sha256!==data.sha256)throw new Error(fresh.error||'公開内容を確認できませんでした');result=await requestJson('/api/agent/websites/confirm',{method:'POST',body:JSON.stringify({approval_id:fresh.approval_id,sha256:data.sha256,confirmed:true})});}
+              if(!result.success||result.status!=='published')throw new Error(result.error||'公開結果を確認できませんでした');
+              if(sessionId===owner&&box.isConnected){status.textContent='公開完了。公開URLが有効になりました。';showLatest(result.public_url);publish.textContent='公開済み';}
+            }catch(error){if(sessionId===owner&&box.isConnected)status.textContent='公開状態を確認できません: '+error.message+'。プレビューは残っています。タスクを読み込み直してください。';}
+            finally{setBusy(false);}
+          };
+        }catch(error){if(version===viewVersion&&owner===sessionId&&box.isConnected){status.textContent='プレビューを読み込めません: '+error.message+'。チャットから再読み込みできます。';load.disabled=false;}}
+      };
+      if(index===artifacts.length-1)load.click();
+    }
+  }
   async function sendMessage(event){
     event.preventDefault();const prompt=$('prompt').value.trim()||(selectedImages.length?'添付画像を確認してください。':'');if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
     const imageIds=selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds);
     if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt||pendingMessage.imageSignature!==imageSignature)pendingMessage={sessionId:owner,prompt,imageSignature,requestId:window.crypto.randomUUID()};
-    setBusy(true);$('prompt').value='';setConnectionStatus('実行中…');addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
+    setBusy(true);$('prompt').value='';setConnectionStatus('実行中…');addMessage('user',prompt);addMessage('agent','作成・処理中です。成果物は保存完了後にこのチャット内へ表示します。');$('trace').replaceChildren();trace('started',{prompt});
     try{
       const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,image_ids:imageIds,stream:true})});
       if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}

@@ -35,6 +35,7 @@ from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import instant_website
+from karry_agent import website_artifacts
 from karry_agent import website_storage
 from karry_agent import task_persistence
 from karry_agent import image_attachments
@@ -331,6 +332,7 @@ class RunResponse(BaseModel):
     private_mode: bool = False
     trace: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any]
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
     generated_images: list[str] = Field(default_factory=list)
 
 
@@ -466,6 +468,8 @@ def _drop_session_locked(session_id: str) -> None:
     for store in (_SESSIONS, _SESSION_META, _SESSION_LOCKS, _PRIVATE_SESSIONS, _PENDING_CALENDAR):
         store.pop(session_id, None)
     image_attachments.clear_memory_session(session_id)
+    with website_artifacts.LOCK:
+        website_artifacts.MEMORY.pop(session_id, None)
     for approval, (owner, _) in list(_SESSION_APPROVALS.items()):
         if owner == session_id:
             _SESSION_APPROVALS.pop(approval, None)
@@ -497,10 +501,12 @@ def _session_detail_locked(session_id: str) -> dict[str, Any]:
             output["images"] = list(source["images"])
     images = image_attachments.memory_document(session_id)
     run = _RUNS.get(meta.get("latest_run_id", ""))
-    return {"session_id": session_id, "title": meta["title"], "messages": messages, "latest_url": meta["latest_url"],
+    snapshot = website_artifacts.verified_document({'session_id':session_id,'latest_url':meta['latest_url'],'website_artifacts':website_artifacts.MEMORY.get(session_id,{})})
+    return {"session_id": session_id, "title": meta["title"], "messages": messages, "latest_url": snapshot['latest_url'],
             "last_run": dict(run) if run and run.get("status") != "running" else None,
             "persistence": "durable" if task_persistence.mode() == "s3" else "ephemeral",
-            "image_assets": images["images"], "pending_images": [images["images"][key] for key in images["pending_images"]]}
+            "image_assets": images["images"], "pending_images": [images["images"][key] for key in images["pending_images"]],
+            "artifacts": website_artifacts.summaries(snapshot)}
 
 
 def _restore_task_locked(document: dict[str, Any]) -> None:
@@ -516,6 +522,7 @@ def _restore_task_locked(document: dict[str, Any]) -> None:
 
 
 def _durable_task_details(document: dict[str, Any]) -> dict[str, Any]:
+    document = website_artifacts.verified_document(document)
     sid = document["session_id"]
     with _STATE_LOCK:
         run = _RUNS.get((document.get("last_run") or {}).get("run_id", ""))
@@ -523,7 +530,7 @@ def _durable_task_details(document: dict[str, Any]) -> dict[str, Any]:
         {"role": "assistant" if row["role"] == "model" else row["role"], "content": row["content"], **({"images": row["images"]} if row.get("images") else {})} for row in document["messages"]],
         "latest_url": document["latest_url"], "last_run": run or document.get("last_run"), "persistence": "durable",
         "image_assets": document.get("images", {}), "pending_images": [document.get("images", {})[key] for key in document.get("pending_images", [])],
-        "image_uploads_pending": len(document.get("image_uploads", {}))}
+        "image_uploads_pending": len(document.get("image_uploads", {})), "artifacts": website_artifacts.summaries(document)}
 
 
 def _request_digest(prompt: str, image_ids: list[str] | None = None) -> str:
@@ -566,7 +573,30 @@ def _verify_publication(intent: dict[str, Any]) -> bool:
     return hashlib.sha256(body).hexdigest() == intent["sha256"]
 
 
-def _remember_website_previews(session_id: str, result: AgentResult) -> None:
+def _remember_website_previews(session_id: str, result: AgentResult) -> list[dict]:
+    artifacts = []
+    for event in result.trace:
+        observation = event.observation
+        if event.action != 'deploy_instant_website' or not isinstance(observation, dict) or not observation.get('confirmation_required'):
+            continue
+        aid = observation.get('approval_id')
+        with instant_website._LOCK:
+            plan = instant_website._PENDING.get(aid)
+            plan = dict(plan) if plan else None
+        if plan is None:
+            continue
+        artifact = website_artifacts.make(aid, plan)
+        if task_persistence.mode() == 's3':
+            task_persistence.repository().save_artifact(session_id, artifact)
+        else:
+            with website_artifacts.LOCK:
+                records = dict(website_artifacts.MEMORY.get(session_id, {}))
+                records[aid] = artifact
+                website_artifacts.validate(records)
+                website_artifacts.MEMORY[session_id] = records
+        meta = website_artifacts.metadata(artifact, session_id)
+        observation.update(artifact_id=aid, artifact=meta, preview_url=meta['preview_url'])
+        artifacts.append(meta)
     with _STATE_LOCK:
         now = time.monotonic()
         for key, (sid, expiry) in list(_SESSION_APPROVALS.items()):
@@ -579,6 +609,7 @@ def _remember_website_previews(session_id: str, result: AgentResult) -> None:
             approval = observation.get("approval_id")
             if observation.get("confirmation_required") and isinstance(approval, str) and approval in instant_website._PENDING:
                 _SESSION_APPROVALS[approval] = (session_id, now + instant_website.APPROVAL_TTL)
+    return artifacts
 
 
 def _remember_published_website(session_id: str | None, result: dict[str, Any]) -> None:
@@ -597,6 +628,10 @@ def _remember_published_website(session_id: str | None, result: dict[str, Any]) 
                 return
         else:
             result["history_persistence"] = "ephemeral"
+            with website_artifacts.LOCK:
+                for artifact in website_artifacts.MEMORY.get(session_id, {}).values():
+                    if artifact['plan']['filename'] == result['filename']:
+                        artifact['state'] = 'published'
         with _STATE_LOCK:
             if session_id in _SESSION_META:
                 _SESSION_META[session_id]["latest_url"] = url
@@ -811,7 +846,7 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
             _RUNS[run_id]["status"] = "failed"
         raise HTTPException(status_code=500, detail="agent execution failed") from exc
     _remember_calendar_preview(session_id, result)
-    _remember_website_previews(session_id, result)
+    artifacts = _remember_website_previews(session_id, result)
     generated = image_generation.generated_ids()
     if memory:
         with _STATE_LOCK:
@@ -830,6 +865,7 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         tool_calls=result.tool_calls,
         private_mode=private_mode,
         trace=_trace(result),
+        artifacts=artifacts,
         metrics=_metrics(result, image_generation.api_calls()),
         generated_images=generated,
     )
@@ -1224,6 +1260,51 @@ def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
     with _STATE_LOCK:
         if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
             _SESSION_APPROVALS.pop(request.approval_id, None)
+    return result
+
+
+def _website_record(artifact_id: str, session_id: str) -> dict:
+    if not re.fullmatch(r'[a-f0-9]{32}', artifact_id):
+        raise HTTPException(404, '指定された下書きが見つかりません。')
+    if task_persistence.mode() == 's3':
+        document = task_persistence.repository().reconcile(session_id, _verify_publication)
+        records = website_artifacts.verified_document(document).get('website_artifacts', {})
+    else:
+        with _STATE_LOCK:
+            if session_id not in _SESSIONS:
+                raise HTTPException(404, '指定されたタスクが見つかりません。')
+        with website_artifacts.LOCK:
+            records = dict(website_artifacts.MEMORY.get(session_id, {}))
+        records = website_artifacts.verified_document({'website_artifacts':records}).get('website_artifacts', {})
+    row = records.get(artifact_id)
+    if row is None:
+        raise HTTPException(404, '指定された下書きが見つかりません。')
+    return row
+
+
+@app.get('/api/website-artifacts/{artifact_id}', dependencies=[Depends(require_tool_auth)])
+def website_artifact_source(artifact_id: str, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    return JSONResponse(website_artifacts.source(_website_record(artifact_id, session_id), session_id), headers={'Cache-Control':'no-store'})
+
+
+@app.get('/artifacts/{artifact_id}', dependencies=[Depends(require_tool_auth)])
+def website_artifact_preview(artifact_id: str, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    row = _website_record(artifact_id, session_id)
+    return Response(row['plan']['html_content'], media_type='text/html', headers=instant_website.PUBLIC_HEADERS)
+
+
+@app.post('/api/website-artifacts/{artifact_id}/prepare', dependencies=[Depends(require_tool_auth)])
+def prepare_saved_website(artifact_id: str, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    row = _website_record(artifact_id, session_id)
+    if row['state'] == 'unavailable':
+        raise HTTPException(409, '公開ファイルの実体を確認できません。下書きのプレビューは残っています。公開には新しい成果物として作成し直してください。')
+    if row['state'] == 'published':
+        return {'success':True,'status':'published','public_url':row['plan']['public_url']}
+    result = instant_website.prepare_plan(row['plan'])
+    if result.get('confirmation_required'):
+        with _STATE_LOCK:
+            _SESSION_APPROVALS[result['approval_id']] = (session_id, time.monotonic()+instant_website.APPROVAL_TTL)
+        result['artifact_id'] = artifact_id
     return result
 
 

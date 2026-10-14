@@ -164,18 +164,32 @@ def prepare_instant_website(html_content: str, filename: str | None = None) -> d
     """Model calls only stage the exact payload for owner confirmation, never publish."""
     try:
         plan = _plan(html_content, filename)
+        return prepare_plan(plan)
+    except Exception as exc:
+        return _error(exc)
+
+
+def prepare_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Renew confirmation for a persisted exact snapshot without changing its filename."""
+    try:
+        body = _html_bytes(plan['html_content'])
+        if hashlib.sha256(body).hexdigest() != plan['sha256'] or plan['_storage_identity'] != website_storage.storage_identity() or plan['public_url'] != public_base_url() + '/static/instant/' + plan['filename']:
+            raise ValueError('保存済み下書きの内容または公開先が変わりました。再作成してください。')
         with _LOCK:
             now = time.monotonic()
             for key in list(_PENDING):
                 if _PENDING[key]["expires"] <= now:
                     _PENDING.pop(key)
-            if len(_PENDING) >= MAX_PENDING:
-                raise ValueError("公開確認待ちが上限に達しています。")
-            approval_id = uuid.uuid4().hex
+            identity = tuple(plan[key] for key in ('filename','sha256','public_url','_storage_identity'))
+            approval_id = next((key for key, saved in _PENDING.items() if tuple(saved[field] for field in ('filename','sha256','public_url','_storage_identity')) == identity), None)
+            if approval_id is None:
+                if len(_PENDING) >= MAX_PENDING:
+                    raise ValueError("公開確認待ちが上限に達しています。")
+                approval_id = uuid.uuid4().hex
             _PENDING[approval_id] = {**plan, "expires": now + APPROVAL_TTL}
         return {"success": False, "status": "needs_user_action", "confirmation_required": True,
-                "approval_id": approval_id, "preview": {key: value for key, value in plan.items() if not key.startswith("_")}, "expires_in_seconds": APPROVAL_TTL,
-                "message": "このHTML全文・公開URLを確認してください。公開前に所有者の確認が必要です。公開URLは確認完了までアクセスできない（404）ため、公開済みとして案内しないでください。",
+                "approval_id": approval_id, "preview": {**{key: value for key, value in plan.items() if not key.startswith("_")}, 'public_url': None, 'planned_public_url': plan['public_url']}, "expires_in_seconds": APPROVAL_TTL,
+                "message": "HTMLを作成しました。チャット内の非公開プレビューで確認できます。公開URLは、内容確認と公開成功後にのみ発行されます。",
                 "confirmation_endpoint": "/api/agent/websites/confirm"}
     except Exception as exc:
         return _error(exc)
