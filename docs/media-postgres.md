@@ -49,7 +49,7 @@ ReplicateのAPI出力は既定で約1時間後に削除されるため、URL文�
 
 ローカルの隔離PostgreSQLでDrizzle Migrationを2回実行し、SQLのtype制約、画像INSERT/一覧/再読込、同じ画像の再送、生成受付→完了保存、未知受付、二重送信防止、失敗時の再確認を結合テストで検証しました。モデル応答はモックです。
 
-Python **535 passed, 2 skipped**、既存DOM **25 passed**。DrizzleのTypeScript型検証も成功しています。CIにも隔離PostgreSQLサービスと2回のMigrationを追加しました。実DB接続がない通常のテストではDB結合11件のみ明示スキップし、SQLiteやインメモリをPostgreSQLと偽って代用しません。
+作業中にmainへ追加されたOptimus Coreを保持して統合し、Python **569 passed, 2 skipped**、既存DOM **25 passed**。DrizzleのTypeScript型検証も成功しています。CIにも隔離PostgreSQLサービスと2回のMigrationを追加しました。実DB接続がない通常のテストではDB結合11件のみ明示スキップし、SQLiteやインメモリをPostgreSQLと偽って代用しません。
 
 ## References
 

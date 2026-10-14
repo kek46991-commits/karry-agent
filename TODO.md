@@ -97,3 +97,4 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 - [ ] 既存画像添付・チャットUI・タスクR2永続保存を維持し、DBとAPIの結合を隔離したPostgreSQLで検証する。外部の課金生成や本番DB作成は実行しない。実装を1つのPRへ保存し、本番未適用の条件は正確に報告する。
 
 DB検証: 隔離したSandbox PostgreSQLのkarry_media_testへDrizzleを2回実適用。6フィールドと索引・type制約、SQL履歴を確認。Python535 passed/2 skipped、DOM25 passed、TypeScript・構文・依存・差分・wheel成功。レビュー指摘の生成保存枠とアップロード競合、明確な受付拒否による永久ブロックを修正し回帰追加。課金生成・本番DB作成・本番Migrationは未実行。本番DATABASE_URLの指定待ち。
+作業中のmain更新94b8320（Optimus Core）を保持して統合。統合後のPython569 passed/2 skipped、DOM25 passed、TypeScript確認成功。
