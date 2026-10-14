@@ -29,6 +29,7 @@ def isolated(monkeypatch,tmp_path):
     monkeypatch.setattr(sites,'_PENDING',{})
     monkeypatch.setattr(sites,'INSTANT_DIR',tmp_path/'instant')
     monkeypatch.setenv('KARRY_API_TOKEN','synthetic-owner')
+    monkeypatch.setenv('KARRY_WEBSITE_STORAGE','local')
     monkeypatch.setenv('RENDER_EXTERNAL_URL','https://example.onrender.com')
     for key in ['PARTNER_NAME','CORE_USER_NAME','CORE_PRIVATE_CONTEXT']:
         monkeypatch.delenv(key,raising=False)
