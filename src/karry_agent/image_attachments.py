@@ -207,7 +207,14 @@ class AttachmentService:
             pending.append(image_id)
             value.get('image_uploads', {}).pop(image_id, None)
             return value
-        self._mutate(append)
+        try:
+            self._mutate(append)
+        except Exception:
+            if self.repo is None:
+                with _MEMORY_LOCK:
+                    if image_id not in _MEMORY_DOCUMENTS.get(self.sid, {}).get('images', {}):
+                        _MEMORY_BYTES.pop((self.sid, image_id), None)
+            raise
         return meta
 
     def reconcile(self, document: dict | None = None) -> dict:

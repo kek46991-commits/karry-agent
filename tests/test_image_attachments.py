@@ -384,3 +384,11 @@ def test_retry_same_image_reuses_reservation_after_put_failure(durable,monkeypat
     assert response.status_code==200 and response.json()['image_id']==reserved
     assert tasks.repository().load(sid)['image_uploads']=={}
     assert len([key for key in durable.objects if key.endswith('.bin')])==1
+
+
+def test_memory_reference_failure_removes_only_unreferenced_new_bytes(monkeypatch):
+    client=TestClient(web.app);sid=create(client);service=images.AttachmentService(sid,None)
+    def fail(callback):raise images.ImageAttachmentError('concurrent pending limit',409)
+    monkeypatch.setattr(service,'_mutate',fail)
+    with pytest.raises(images.ImageAttachmentError):service.upload(images.normalize(picture(),'image/png'),'photo.png')
+    assert not images._MEMORY_BYTES and not images.memory_document(sid)['images']

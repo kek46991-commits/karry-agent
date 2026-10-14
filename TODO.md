@@ -78,6 +78,7 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 - [x] 添付コードのPOST /api/upload_image（session_idとfileのmultipart）を既存FastAPIへ追加する。所有者Bearer認証、既存タスク確認、JPG/PNG/WEBP/GIFの実データ検証、サイズ/画素/件数制限、例外処理とファイルcloseを行い、filename・image_url・session_idを返す。GIFはGemini対応の静止PNGへ正規化する。
 - [x] 既存チャット画面へ画像選択・アップロード中・プレビュー・添付を外す操作を追加する。タスク切替で混線しないようにし、表示の×だけでなくサーバーのpending_imagesからも外す。追加/確認/取消ではLLMを呼ばない。
 - [x] 非公開R2/S3で画像バイトとタスク別参照を管理し、履歴JSONへ大きなbase64を埋め込まない。再起動時にpending参照を復元し、送信する選択画像だけをPart.from_bytesで既存Geminiへ渡す。失敗時はpendingを失わず、成功時に使った参照だけを消費する。画像を公開staticやGitへ保存しない。
-- [ ] 既存の再送照合・タスク履歴・URL短縮経路を維持し、画像付き依頼、キャンセル、別タスク、サイズ/形式偽装、再起動とUIをモックで検証して画像機能の1つの追加PRへ保存する。PR #10はすでにmainマージ済み（62b5f13）なので、閉じたPRへ追記しない。本番設定・マージ・実画像送信は別途必要。
+- [x] 既存の再送照合・タスク履歴・URL短縮経路を維持し、画像付き依頼、キャンセル、別タスク、サイズ/形式偽装、再起動とUIをモックで検証して画像機能の1つの追加PRへ保存する。PR #10はすでにmainマージ済み（62b5f13）なので、閉じたPRへ追記しない。本番設定・マージ・実画像送信は別途必要。
 
-画像添付の検証: Python 499 passed, 2 skipped（元456件＋追加43件）、DOM20 passed（元12件＋追加8件）。構文・依存・差分・wheel同梱成功。レビュー指摘の古い選択IDをpending検査で拒否し、バイナリ前のCAS予約・同じ画像の予約再利用・再読込復旧を追加して孤立ファイルの無制限増加を防ぐ。向き補正・GIF・保存失敗・旧URL短縮も確認。実R2/S3・実Gemini・本番画像APIは未実行。
+画像添付の検証: Python 500 passed, 2 skipped（元456件＋追加44件）、DOM20 passed（元12件＋追加8件）。構文・依存・差分・wheel同梱成功。レビュー指摘の古い選択IDをpending検査で拒否し、バイナリ前のCAS予約・同じ画像の予約再利用・再読込復旧を追加して孤立ファイルの無制限増加を防ぐ。memory参照失敗時の新規孤立バイトも回収。向き補正・GIF・保存失敗・旧URL短縮も確認。実R2/S3・実Gemini・本番画像APIは未実行。
+画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。main未マージ・本番未反映。
