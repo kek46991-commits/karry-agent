@@ -53,3 +53,9 @@ services:
         value: s3
       - key: KARRY_TASK_S3_PREFIX
         value: karry-tasks/
+      - key: DATABASE_URL
+        sync: false
+      - key: REPLICATE_API_TOKEN
+        sync: false
+      - key: KARRY_MEDIA_GENERATION_ENABLED
+        value: "0"

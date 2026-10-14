@@ -190,3 +190,7 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 `src/karry_agent/jimmy_core_memory.json` は、ジミーの大阪弁の相棒像・長期目標・開発原則を含む汎用公開テンプレートです。個人名は保存せず、呼称は非公開環境変数 `PARTNER_NAME` または `CORE_USER_NAME` から読み込みます。未設定時は `Partner`。wheelにも汎用JSONだけを同梱し、新しいセッションや再起動でも設定を読み込みます。
 
 個人プロフィール・私的記憶はコードへ保存せず、必要な場合だけ非公開の `CORE_PRIVATE_CONTEXT` から認証済みプライベートモードへ渡します。認証やSelf-Healingの有効化設定は変更しません。設定方法、モデルへ渡る情報、公開履歴の制約は [docs/jimmy-core-memory.md](docs/jimmy-core-memory.md) を参照してください。
+
+## PostgreSQLメディア管理
+
+`schema.ts`のDrizzle定義とMigrationで`media_files`を作成し、Python/FastAPIから同じPostgreSQLへ画像を保存します。所有者認証付きの`/api/media/upload`、FLUX生成・状態照会、非公開一覧・読取を追加しています。旧チャット画像添付のR2/Gemini経路は維持します。管理者がDATABASE_URLを秘密設定へ登録して`npm run db:migrate`を適用してください。生成はREPLICATE_API_TOKENと明示有効化が必要で、既定では課金APIを呼びません。接続先・保存・再送・本番未適用の詳細は[メディアDBガイド](docs/media-postgres.md)を参照してください。
