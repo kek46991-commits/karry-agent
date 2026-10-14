@@ -84,6 +84,10 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 `deploy_instant_website` は既定で非公開R2/S3互換ストレージへHTMLを永続保存し、同じ `/static/instant/` URLから配信します。**Renderの再起動・再デプロイで公開済みHTMLは消えません。** Git pushは不要ですが、管理者による一度限りのバケット・S3鍵設定が必要です。設定不足・障害時は一時ディスクへ戻りません。チャットでの全文確認・公開承認とCSP隔離は維持。明示的な `local` モードは一時開発用だけに残します。方式比較・本番設定・旧ページを同じURLで移す手順は [docs/durable-website-storage.md](docs/durable-website-storage.md)、公開APIの使い方は [docs/instant-website.md](docs/instant-website.md) を参照してください。
 
+### タスク管理UIと履歴永続化
+
+タスクの作成・一覧・切替と会話履歴の復元を、既存チャットUIへ統合しています。`/api/sessions`・`/api/chat` は同じ非公開R2/S3へタスクJSONを永続保存し、再起動後も完了済みの会話と最新公開URLを復元します。HTMLと同じ鍵・バケットを使い、専用prefixだけを分ける構成です。一覧・作成・切替はLLMを呼ばず、送信だけ既存AgentCoreへ接続します。CAS・共有リース・再送ID・公開outboxで競合と重複実行を抑止し、資格情報は保存しません。設定と制約は [docs/task-session-chat.md](docs/task-session-chat.md) を参照してください。
+
 ### Phase 17: ストリーミングとファイル操作
 
 `POST /chat` に `{"stream": true}` を指定すると、SSE 形式で `started`、`step`（Thought/Action/Observation の実行トレース）、`completed` または `error` イベントを返します。現段階では実行本体を安全に完了させた後にトレースを送る基盤実装であり、真の逐次 Thought 生成は今後のストリーミング SDK 対応で拡張します。

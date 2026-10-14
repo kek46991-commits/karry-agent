@@ -26,7 +26,7 @@
         <input id="taskTitle" type="text" maxlength="120" placeholder="新しいタスク">
         <button id="newTask" type="button" disabled>＋ 新しいタスクを作る</button>
         <div id="taskList" class="task-list"><p class="hint">APIトークンを入力してタスクを読み込んでください。</p></div>
-        <p class="hint">一覧・作成・切替ではLLMを呼びません。タスクと履歴はサーバーの再起動で消えます。</p>
+        <p class="hint">一覧・作成・切替ではLLMを呼びません。</p><p class="hint" id="storageHint">保存方式は接続後に確認できます。</p>
       </nav>
       <div class="panel chat">
         <div class="task-heading"><h2 id="currentTask">タスクを選択してください</h2><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
@@ -40,7 +40,7 @@
   </main>
 <script>
   const $ = id => document.getElementById(id);
-  let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0;
+  let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0, pendingMessage=null;
   try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
   const recognition=SpeechRecognition?new SpeechRecognition():null;
@@ -98,12 +98,13 @@
   }
   function renderSession(data){
     clearView();$('currentTask').textContent=data.title;$('session').textContent=data.session_id;
+    $('storageHint').textContent=data.persistence==='durable'?'タスクと履歴は非公開R2/S3へ永続保存されています。':data.persistence==='ephemeral'?'一時メモリモードです。タスクと履歴は再起動で消えます。':'保存方式は接続後に確認できます。';
     for(const message of data.messages||[])addMessage(message.role==='user'?'user':'agent',message.content);
     showLatest(data.latest_url);
     const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);websiteApproval(run,data.latest_url);}
   }
   async function connectSessions(){
-    if(busy)return;const version=++viewVersion,cached=sessionId;setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';$('status').textContent='接続中…';
+    if(busy)return;const version=++viewVersion;let cached=sessionId;try{cached=cached||localStorage.getItem('karry-session');}catch(_){}setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';$('status').textContent='接続中…';
     try{
       sessions=await requestJson('/api/sessions');if(!Array.isArray(sessions))throw new Error('タスク一覧の形式が不正です');
       if(!sessions.length)sessions=[await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title:'最初のタスク'})})];
@@ -141,15 +142,17 @@
   }
   async function sendMessage(event){
     event.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
+    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt)pendingMessage={sessionId:owner,prompt,requestId:window.crypto.randomUUID()};
     setBusy(true);$('prompt').value='';$('status').textContent='実行中…';addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
     try{
-      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,stream:true})});
+      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,stream:true})});
       if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
       if(!response.body)throw new Error('ストリーミング応答を取得できませんでした');
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=null;
       function parseChunk(chunk){const kind=(chunk.match(/^event: (.*)$/m)||[])[1],raw=(chunk.match(/^data: (.*)$/m)||[])[1];if(!raw)return;const data=JSON.parse(raw);trace(kind,data);if(kind==='completed')completed=data;if(kind==='error')throw new Error(data.detail||'実行に失敗しました');}
       try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
       if(!completed||completed.session_id!==owner)throw new Error('タスクの完了応答を確認できませんでした');
+      pendingMessage=null;
       if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}$('status').textContent='オンライン';
     }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}$('status').textContent='エラー';}
     finally{setBusy(false);$('prompt').focus();}

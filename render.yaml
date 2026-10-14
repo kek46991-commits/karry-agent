@@ -49,3 +49,7 @@ services:
         sync: false
       - key: KARRY_WEBSITE_S3_SECRET_ACCESS_KEY
         sync: false
+      - key: KARRY_TASK_STORAGE
+        value: s3
+      - key: KARRY_TASK_S3_PREFIX
+        value: karry-tasks/
