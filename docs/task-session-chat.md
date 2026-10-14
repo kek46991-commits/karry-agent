@@ -97,3 +97,5 @@ npm run test:ui
 **Python 456テスト合格・2件スキップ、DOM 12テスト合格。** 既存389件に、タスクAPI・JSON保存・再起動相当復元・outbox復旧・資格情報保護・PUT後GET障害・再送冪等化の67件を追加しました。Python/JavaScript構文、依存整合性、差分チェック、wheelビルド成功。開発用DOM依存は本番ビルドに不要です。
 
 2026-10-14、本番の状態APIを読み取り専用で確認しました。`mode=s3` ですが `configuration_valid=false`、`connection_status=not_checked`、`error_code=storage_configuration` です。したがってライブ保存・本番履歴移行・実際のRender再起動テストは未実施です。モデル呼出し・成果物公開・本番設定変更をテスト目的では行っていません。
+
+統合実装は [PR #10](https://github.com/kek46991-commits/karry-agent/pull/10) に保存しました。UIと履歴永続化の分割PRは作成していません。main未マージ・本番未反映です。**ストレージ設定不足のままマージすると、タスクAPIと既存chat/runの永続モードは503になります。設定完了を先に確認してください。**
