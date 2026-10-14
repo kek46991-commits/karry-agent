@@ -8,3 +8,6 @@ __pycache__
 .env
 progress.md
 static/instant/
+node_modules/
+.env.*
+!.env.example

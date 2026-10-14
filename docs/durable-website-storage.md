@@ -72,11 +72,11 @@ python -m karry_agent.website_migration --source-dir /path/to/exported-html --ap
 
 ## 検証結果と未完了事項
 
-実装は [PR #9](https://github.com/kek46991-commits/karry-agent/pull/9) へ保存済みです。main未マージ・本番未適用です。
+実装は [PR #9](https://github.com/kek46991-commits/karry-agent/pull/9) からmainへマージ済みです（2260667）。タスクUIと履歴の永続化は、この基盤へ統合して追加します。[タスク永続化ガイド](task-session-chat.md)を参照してください。
 
 **389テスト合格・2件スキップ**（元348件＋追加41件）。モックでローカルディスク・確認メモリを初期化した後もオブジェクトを読むこと、条件付きPUT・HEAD・SHA256・SDKパラメーター、保存／読取失敗、サイズ上限、認証、隔離ヘッダー、旧ローカルへの非フォールバック、非破壊移行を確認しました。Python／JavaScript構文、依存整合性、差分チェック、wheelビルド成功。
 
-本番R2が未有効化のため、R2へのライブ保存・本番データ移行・実再起動後の読取は未実施です。mainマージ・本番秘密設定・新規成果物の公開も今回のPR作成とは分けています。これらを完了するまでは、現在の本番サンプルは引き続き旧来の一時保存です。
+2026-10-14の最新確認では、本番状態APIはs3モードですが `configuration_valid=false`、`error_code=storage_configuration` でした。バケット・S3鍵設定を完了するまで、コードのマージを本番永続保存成功とは説明しません。今回、ライブ保存・本番データ移行・実再起動後の読取は未実施です。旧来の一時保存サンプルは移行済みとは確認していません。
 
 ## References
 

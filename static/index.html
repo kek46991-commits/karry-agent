@@ -5,78 +5,165 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
-    :root { color-scheme: dark; --bg:#0b1020; --panel:#121a2d; --line:#263451; --text:#edf3ff; --muted:#91a0bd; --accent:#65a8ff; --good:#55d6a2; --warn:#ffc857; }
-    * { box-sizing:border-box; } body { margin:0; min-height:100vh; background:radial-gradient(circle at 20% 0,#17264b 0,#0b1020 42%); color:var(--text); font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .shell { width:min(1180px,100%); margin:auto; padding:28px 18px 48px; } header { display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:22px; }
-    .brand { display:flex; gap:12px; align-items:center; } .logo { width:42px;height:42px;display:grid;place-items:center;border:1px solid #4378c7;border-radius:13px;background:#172b53;color:#8fc3ff;font-weight:800;font-size:20px; }
-    h1 { margin:0; font-size:22px; letter-spacing:.02em; } .subtitle { color:var(--muted); margin:2px 0 0; font-size:13px; }
-    .status { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; } .dot { width:9px;height:9px;border-radius:50%;background:var(--good);box-shadow:0 0 12px var(--good); }
-    .grid { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:18px; } .panel { background:rgba(18,26,45,.9); border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 35px #0003; }
-    .chat { min-height:650px; display:flex; flex-direction:column; } .messages { flex:1; padding:20px; overflow:auto; max-height:590px; }
-    .message { max-width:88%; padding:12px 15px; border-radius:14px; margin:0 0 14px; white-space:pre-wrap; word-break:break-word; } .message.user { margin-left:auto;background:#1e477d; } .message.agent { background:#182238;border:1px solid #283858; }
-    .message .label { display:block; color:#9ec9ff; font-size:11px; margin-bottom:4px; font-weight:700; } .empty { color:var(--muted); text-align:center; padding:120px 25px; }
-    form { border-top:1px solid var(--line); padding:15px; display:flex; gap:10px; align-items:stretch; } textarea { flex:1; resize:vertical; min-height:52px; max-height:160px; border:1px solid #344766; border-radius:11px; padding:12px; background:#0c1426;color:var(--text);font:inherit; } button { border:0;border-radius:11px;padding:0 20px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer; } button:disabled { opacity:.5;cursor:wait; } .icon-button { min-width:48px; padding:0 12px; background:#263c61;color:var(--text);font-size:18px; } .icon-button.active { background:#a34b67; } .voice-options { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; margin-top:8px; } .voice-options input { accent-color:var(--accent); }
-    aside { padding:18px; } aside h2 { font-size:15px;margin:0 0 15px; } .metric { display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted); } .metric strong { color:var(--text);font-variant-numeric:tabular-nums; }
-    .trace { margin-top:22px; } .trace-list { max-height:280px; overflow:auto; } .event { border-left:2px solid var(--accent); padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px; } .event .kind { color:var(--accent);font-weight:800; } .event pre { margin:4px 0 0;white-space:pre-wrap;color:#bdc9df; }
-    .session { color:var(--muted); font-size:11px; word-break:break-all; margin-top:12px; } .hint { color:var(--muted);font-size:12px;margin-top:14px; } a { color:#8fc3ff; }
-    @media (max-width:800px) { .grid{grid-template-columns:1fr;} .chat{min-height:560px;} aside{order:-1;} header{align-items:flex-start;flex-direction:column;} }
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0,#17264b 0,#0b1020 42%);color:var(--text);font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .shell{width:min(1500px,100%);margin:auto;padding:28px 18px 48px}header{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.brand{display:flex;gap:12px;align-items:center}.logo{width:42px;height:42px;display:grid;place-items:center;border:1px solid #4378c7;border-radius:13px;background:#172b53;color:#8fc3ff;font-weight:800;font-size:20px}h1{margin:0;font-size:22px;letter-spacing:.02em}.subtitle{color:var(--muted);margin:2px 0 0;font-size:13px}
+    .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--good)}.grid{display:grid;grid-template-columns:245px minmax(0,1fr) 290px;gap:18px}.panel{background:rgba(18,26,45,.9);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0003}
+    .tasks{padding:18px}.tasks h2,aside h2{font-size:15px;margin:0 0 15px}.tasks input{width:100%;margin-bottom:9px}.tasks button{width:100%;padding:10px}.task-list{max-height:480px;overflow:auto;margin-top:15px}.task-item{display:block;margin:7px 0;text-align:left;color:var(--text);background:#172239;overflow-wrap:anywhere;font-weight:500}.task-item[aria-current="true"]{background:#254d80;outline:1px solid #65a8ff;font-weight:700}
+    .chat{min-height:650px;min-width:0;display:flex;flex-direction:column}.task-heading{padding:14px 20px;border-bottom:1px solid var(--line)}.task-heading h2{font-size:16px;margin:0}.latest{font-size:12px;margin-top:5px}.messages{flex:1;padding:20px;overflow:auto;max-height:590px}.message{max-width:90%;padding:12px 15px;border-radius:14px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}.message.user{margin-left:auto;background:#1e477d}.message.agent{background:#182238;border:1px solid #283858}.message .label{display:block;color:#9ec9ff;font-size:11px;margin-bottom:4px;font-weight:700}.empty{color:var(--muted);text-align:center;padding:95px 20px}
+    form{border-top:1px solid var(--line);padding:15px;display:flex;gap:10px;align-items:stretch}textarea{flex:1;resize:vertical;min-height:52px;max-height:220px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0c1426;color:var(--text);font:inherit}input[type="text"],input[type="password"]{padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit}button{border:0;border-radius:11px;padding:0 18px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid #9ec9ff;outline-offset:3px}.icon-button{min-width:42px;padding:0 10px;background:#263c61;color:var(--text);font-size:18px}.icon-button.active{background:#a34b67}.voice-options{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:0 15px 12px}.voice-options input{accent-color:var(--accent)}
+    aside{padding:18px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted)}.metric strong{color:var(--text);font-variant-numeric:tabular-nums}.trace{margin-top:22px}.trace-list{max-height:280px;overflow:auto}.event{border-left:2px solid var(--accent);padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px}.event .kind{color:var(--accent);font-weight:800}.event pre{margin:4px 0 0;white-space:pre-wrap;color:#bdc9df;overflow-wrap:anywhere}.session{color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}.hint{color:var(--muted);font-size:12px;margin-top:14px}a{color:#8fc3ff}.auth{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}.auth input{width:min(100%,360px)}.auth button{padding:10px 16px}.auth label{width:100%}[hidden]{display:none!important}
+    @media(max-width:1100px){.grid{grid-template-columns:220px minmax(0,1fr)}aside{grid-column:1/-1}.trace-list{max-height:180px}}
+    @media(max-width:700px){.grid{grid-template-columns:1fr}.chat{min-height:560px}.task-list{max-height:170px}aside{grid-column:auto}header{align-items:flex-start;flex-direction:column}.shell{padding:18px 12px 32px}form{gap:7px;padding:12px}button{padding:0 12px}}
   </style>
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p></div></div><div class="status"><span class="dot"></span><span id="status">オンライン</span></div></header>
+    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
     <section class="grid">
-      <div class="panel chat"><div id="messages" class="messages"><div class="empty" id="empty">指示を入力すると、エージェントがツールを選択して実行します。<br>Thought → Action → Observation の流れを右側で確認できます。</div></div>
-        <form id="chatForm"><textarea id="prompt" placeholder="例：現在時刻を確認してください" required></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力">🎙</button><button id="send" type="submit">送信</button></form><div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span id="voiceStatus">音声機能を確認中…</span></div>
+      <nav class="panel tasks" aria-label="タスク一覧">
+        <h2>タスク</h2><label class="hint" for="taskTitle">新しいタスクの名前</label>
+        <input id="taskTitle" type="text" maxlength="120" placeholder="新しいタスク">
+        <button id="newTask" type="button" disabled>＋ 新しいタスクを作る</button>
+        <div id="taskList" class="task-list"><p class="hint">APIトークンを入力してタスクを読み込んでください。</p></div>
+        <p class="hint">一覧・作成・切替ではLLMを呼びません。</p><p class="hint" id="storageHint">保存方式は接続後に確認できます。</p>
+      </nav>
+      <div class="panel chat">
+        <div class="task-heading"><h2 id="currentTask">タスクを選択してください</h2><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
+        <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
+        <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
+        <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span id="voiceStatus">音声機能を確認中…</span></div>
       </div>
-      <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">新規</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank">/docs</a> で確認できます。</p></aside>
+      <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
     </section>
-    <label class="hint" for="apiToken">APIトークン（認証が有効な場合のみ・ブラウザに保存しません）</label>
-    <input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" style="display:block;width:min(100%,420px);padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px">
+    <div class="auth"><label class="hint" for="apiToken">所有者APIトークン（ブラウザに保存しません）</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン"><button id="loadTasks" type="button">接続・タスク読み込み</button></div>
   </main>
 <script>
   const $ = id => document.getElementById(id);
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = SpeechRecognition ? new SpeechRecognition() : null;
-  let speaking = false;
-  if (recognition) { recognition.lang='ja-JP'; recognition.interimResults=true; recognition.continuous=false; recognition.onstart=()=>{ $('mic').classList.add('active'); $('voiceStatus').textContent='聞き取り中…'; }; recognition.onend=()=>{ $('mic').classList.remove('active'); $('voiceStatus').textContent='音声入力を利用できます'; }; recognition.onerror=event=>{ $('mic').classList.remove('active'); $('voiceStatus').textContent=`音声入力エラー: ${event.error}`; }; recognition.onresult=event=>{ const text=Array.from(event.results).map(result=>result[0].transcript).join(''); $('prompt').value=text; }; }
-  else { $('mic').disabled=true; $('voiceStatus').textContent='このブラウザは音声入力に未対応です'; }
-  function speak(text) { if (!('speechSynthesis' in window)) { $('voiceStatus').textContent='このブラウザは読み上げに未対応です'; return; } window.speechSynthesis.cancel(); const utterance=new SpeechSynthesisUtterance(text); utterance.lang='ja-JP'; utterance.rate=1; utterance.onstart=()=>{ speaking=true; $('voiceStatus').textContent='読み上げ中…'; }; utterance.onend=()=>{ speaking=false; $('voiceStatus').textContent='音声機能を利用できます'; }; window.speechSynthesis.speak(utterance); }
-  function addSpeakButton(element, text) { if (!('speechSynthesis' in window)) return; const button=document.createElement('button'); button.className='icon-button'; button.type='button'; button.title='この返答を読み上げ'; button.textContent='🔊'; button.onclick=()=>speak(text); element.appendChild(button); }
-  let sessionId = localStorage.getItem('karry-session') || null;
-  if (sessionId) $('session').textContent = sessionId;
-  function addMessage(kind, text) { $('empty')?.remove(); const el=document.createElement('div'); el.className=`message ${kind}`; el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`; $('messages').appendChild(el); if(kind==='agent') addSpeakButton(el,text); $('messages').scrollTop=$('messages').scrollHeight; return el; }
-  function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function trace(kind, data) { const el=document.createElement('div'); el.className='event'; el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(JSON.stringify(data,null,2))}</pre>`; $('trace').appendChild(el); $('trace').scrollTop=$('trace').scrollHeight; }
-  function metrics(data) { const m=data.metrics||{}; $('steps').textContent=data.steps??'—'; $('toolCalls').textContent=data.tool_calls??'—'; $('apiCalls').textContent=m.api_calls??'—'; $('tokens').textContent=m.total_tokens??'—'; $('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—'; }
-  function websiteApproval(data) {
-    const event=(data.trace||[]).find(item=>item.action==='deploy_instant_website' && item.observation?.confirmation_required);
-    if(!event)return;
-    const pending=event.observation, preview=pending.preview;
-    if(!preview)return;
-    const persistence=preview.persistence==='durable'?'外部ストレージへの永続公開です。Render再起動では消えません。削除・保持設定・サービス停止は別です。':'一時公開です。再起動・再デプロイで消えます。';
+  let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0, pendingMessage=null;
+  try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const recognition=SpeechRecognition?new SpeechRecognition():null;
+  if(recognition){
+    recognition.lang='ja-JP';recognition.interimResults=true;recognition.continuous=false;
+    recognition.onstart=()=>{$('mic').classList.add('active');$('voiceStatus').textContent='聞き取り中…';};
+    recognition.onend=()=>{$('mic').classList.remove('active');$('voiceStatus').textContent='音声入力を利用できます';};
+    recognition.onerror=event=>{$('mic').classList.remove('active');$('voiceStatus').textContent=`音声入力エラー: ${event.error}`;};
+    recognition.onresult=event=>{if(!busy)$('prompt').value=Array.from(event.results).map(r=>r[0].transcript).join('');};
+  }else{$('voiceStatus').textContent='このブラウザは音声入力に未対応です';}
+  function speak(text){
+    if(!('speechSynthesis' in window))return;
+    window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='ja-JP';utterance.rate=1;
+    window.speechSynthesis.speak(utterance);
+  }
+  function addSpeakButton(element,text){
+    if(!('speechSynthesis' in window))return;
+    const button=document.createElement('button');button.className='icon-button';button.type='button';button.title='この返答を読み上げ';button.textContent='🔊';button.onclick=()=>speak(text);element.appendChild(button);
+  }
+  function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function addMessage(kind,text){
+    $('empty')?.remove();const el=document.createElement('div');el.className=`message ${kind}`;
+    el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`;
+    $('messages').appendChild(el);if(kind==='agent')addSpeakButton(el,text);$('messages').scrollTop=$('messages').scrollHeight;return el;
+  }
+  function trace(kind,data){const el=document.createElement('div');el.className='event';el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(JSON.stringify(data,null,2))}</pre>`;$('trace').appendChild(el);}
+  function metrics(data){const m=data.metrics||{};$('steps').textContent=data.steps??'—';$('toolCalls').textContent=data.tool_calls??'—';$('apiCalls').textContent=m.api_calls??'—';$('tokens').textContent=m.total_tokens??'—';$('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—';}
+  function setBusy(value){
+    busy=value;$('loadTasks').disabled=value;$('apiToken').disabled=value;$('taskTitle').disabled=value;
+    $('newTask').disabled=value||!connected;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
+    $('mic').disabled=value||!connected||!sessionId||!recognition;
+    if(value&&recognition&&$('mic').classList.contains('active'))recognition.stop();
+    for(const button of $('taskList').querySelectorAll('button'))button.disabled=value;
+  }
+  function headers(){const h={'Content-Type':'application/json'};const token=$('apiToken').value.trim();if(token)h.Authorization=`Bearer ${token}`;return h;}
+  async function requestJson(url,options={}){
+    const response=await fetch(url,{...options,headers:headers(),cache:'no-store'});let data;
+    try{data=await response.json();}catch(_){throw new Error('サーバーから正しいJSONが返りませんでした');}
+    if(!response.ok){const message=response.status===401?'APIトークンを確認してください':response.status===404?'タスクが存在しません。再起動後はタスクを読み込み直してください':response.status===409?'タスク数上限または同じタスクの実行中です':typeof data.detail==='string'?data.detail:'入力またはサーバー設定を確認してください';throw new Error(message);}
+    return data;
+  }
+  function saveSelection(){try{if(sessionId)localStorage.setItem('karry-session',sessionId);else localStorage.removeItem('karry-session');}catch(_) {}}
+  function showLatest(url){
+    $('latestBox').hidden=true;$('latestUrl').removeAttribute('href');
+    if(!url)return;
+    try{const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))return;$('latestUrl').href=parsed.href;$('latestBox').hidden=false;}catch(_){}
+  }
+  function clearView(){
+    $('messages').replaceChildren();const empty=document.createElement('div');empty.id='empty';empty.className='empty';empty.textContent='このタスクへの指示を入力してください。';$('messages').appendChild(empty);
+    $('trace').replaceChildren();metrics({});showLatest('');$('prompt').value='';
+  }
+  function renderTasks(){
+    $('taskList').replaceChildren();
+    for(const session of sessions){const button=document.createElement('button');button.type='button';button.className='task-item';button.textContent=session.title;button.dataset.sessionId=session.session_id;button.setAttribute('aria-current',String(session.session_id===sessionId));button.disabled=busy;button.onclick=()=>selectSession(session.session_id);$('taskList').appendChild(button);}
+  }
+  function renderSession(data){
+    clearView();$('currentTask').textContent=data.title;$('session').textContent=data.session_id;
+    $('storageHint').textContent=data.persistence==='durable'?'タスクと履歴は非公開R2/S3へ永続保存されています。':data.persistence==='ephemeral'?'一時メモリモードです。タスクと履歴は再起動で消えます。':'保存方式は接続後に確認できます。';
+    for(const message of data.messages||[])addMessage(message.role==='user'?'user':'agent',message.content);
+    showLatest(data.latest_url);
+    const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);websiteApproval(run,data.latest_url);}
+  }
+  async function connectSessions(){
+    if(busy)return;const version=++viewVersion;let cached=sessionId;try{cached=cached||localStorage.getItem('karry-session');}catch(_){}setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';$('status').textContent='接続中…';
+    try{
+      sessions=await requestJson('/api/sessions');if(!Array.isArray(sessions))throw new Error('タスク一覧の形式が不正です');
+      if(!sessions.length)sessions=[await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title:'最初のタスク'})})];
+      const selected=sessions.find(s=>s.session_id===cached)||sessions[0];const data=await requestJson('/api/sessions/'+encodeURIComponent(selected.session_id));
+      if(version!==viewVersion)return;sessionId=selected.session_id;connected=true;saveSelection();renderTasks();renderSession(data);$('status').textContent='オンライン';
+    }catch(error){sessionId=null;connected=false;sessions=[];renderTasks();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';addMessage('agent',`接続エラー: ${error.message}`);$('status').textContent='接続できませんでした';}
+    finally{setBusy(false);}
+  }
+  async function selectSession(id){
+    if(busy||!connected)return;const version=++viewVersion;setBusy(true);clearView();$('currentTask').textContent='履歴を読み込み中…';$('status').textContent='タスク切替中…';
+    try{const data=await requestJson('/api/sessions/'+encodeURIComponent(id));if(version!==viewVersion)return;sessionId=id;saveSelection();renderSession(data);renderTasks();$('status').textContent='オンライン';}
+    catch(error){sessionId=null;saveSelection();renderTasks();$('currentTask').textContent='タスクを選択してください';$('session').textContent='未選択';addMessage('agent',`切替エラー: ${error.message}`);$('status').textContent='タスクを読み込み直してください';}
+    finally{setBusy(false);}
+  }
+  async function createNewSession(){
+    if(busy||!connected)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
+    try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});$('status').textContent='オンライン';}
+    catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
+    finally{setBusy(false);}
+  }
+  function websiteApproval(data,latestUrl=''){
+    const event=(data.trace||[]).find(item=>item.action==='deploy_instant_website'&&item.observation?.confirmation_required);if(!event)return;
+    const pending=event.observation,preview=pending.preview;if(!preview||preview.public_url===latestUrl)return;const owner=sessionId;
+    const persistence=preview.persistence==='durable'?'外部ストレージへの永続公開です。':'一時公開です。再起動・再デプロイで消えます。';
     const box=addMessage('agent',`公開確認（10分以内）\n公開先: ${preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧可能です。${persistence}秘密情報を含まないことを確認してください。`);
-    const source=document.createElement('textarea'); source.readOnly=true; source.value=preview.html_content; source.setAttribute('aria-label','公開するHTML全文'); source.style.cssText='display:block;width:100%;min-height:180px;margin:12px 0'; box.appendChild(source);
-    const label=document.createElement('label'), check=document.createElement('input'); check.type='checkbox'; label.append(check,document.createTextNode('HTML全文と公開先を確認し、公開を承認します')); box.appendChild(label);
-    const publish=document.createElement('button'); publish.type='button'; publish.textContent='確認した内容を即時公開'; publish.disabled=true; publish.style.cssText='display:block;padding:10px;margin-top:10px'; box.appendChild(publish); check.onchange=()=>{publish.disabled=!check.checked;};
+    const source=document.createElement('textarea');source.readOnly=true;source.value=preview.html_content;source.setAttribute('aria-label','公開するHTML全文');source.style.cssText='display:block;width:100%;min-height:180px;margin:12px 0';box.appendChild(source);
+    const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';label.append(check,document.createTextNode('HTML全文と公開先を確認し、公開を承認します'));box.appendChild(label);
+    const publish=document.createElement('button');publish.type='button';publish.textContent='確認した内容を即時公開';publish.disabled=true;publish.style.cssText='display:block;padding:10px;margin-top:10px';box.appendChild(publish);check.onchange=()=>{publish.disabled=!check.checked||busy;};
     publish.onclick=async()=>{
-      publish.disabled=true; check.disabled=true;
-      try {
-        const headers={'Content-Type':'application/json'}; if($('apiToken').value)headers.Authorization=`Bearer ${$('apiToken').value}`;
-        const response=await fetch('/api/agent/websites/confirm',{method:'POST',headers,body:JSON.stringify({approval_id:pending.approval_id,sha256:preview.sha256,confirmed:true})});
-        const result=await response.json(); if(!response.ok || !result.success)throw new Error(result.error||result.detail||'公開できませんでした');
-        const message=addMessage('agent',`公開完了\n${result.public_url}\n${result.warning}`), link=document.createElement('a'); link.href=result.public_url; link.textContent='公開ページを開く'; link.target='_blank'; link.rel='noopener noreferrer'; message.appendChild(link); publish.textContent='公開済み';
-      }catch(error){addMessage('agent',`公開エラー: ${error.message}。必要な場合は再度成果物の公開準備を依頼してください。`);publish.textContent='公開できませんでした';}
+      if(busy||!check.checked||sessionId!==owner)return;setBusy(true);publish.disabled=true;check.disabled=true;
+      try{const result=await requestJson('/api/agent/websites/confirm',{method:'POST',body:JSON.stringify({approval_id:pending.approval_id,sha256:preview.sha256,confirmed:true})});if(!result.success)throw new Error(result.error||'公開できませんでした');if(sessionId===owner){addMessage('agent',`公開完了\n${result.public_url}\n${result.warning||''}`);showLatest(result.public_url);}publish.textContent='公開済み';}
+      catch(error){if(sessionId===owner)addMessage('agent',`公開エラー: ${error.message}。必要なら公開準備を再度依頼してください。`);publish.textContent='公開できませんでした';}
+      finally{setBusy(false);}
     };
   }
-  $('mic').addEventListener('click',()=>{ if(recognition) { if($('mic').classList.contains('active')) recognition.stop(); else recognition.start(); } });
-  $('chatForm').addEventListener('submit', async event => { event.preventDefault(); const prompt=$('prompt').value.trim(); if(!prompt)return; $('prompt').value=''; $('send').disabled=true; $('status').textContent='実行中…'; addMessage('user',prompt); trace('started',{prompt});
-    try { const headers={'content-type':'application/json'}; const token=$('apiToken').value; if(token) headers.Authorization=`Bearer ${token}`; const response=await fetch('/chat',{method:'POST',headers,body:JSON.stringify({prompt,session_id:sessionId,stream:true})}); if(!response.ok) throw new Error(await response.text()); const reader=response.body.getReader(), decoder=new TextDecoder(); let buffer=''; let completed=null;
-      while(true){ const {value,done}=await reader.read(); if(done)break; buffer+=decoder.decode(value,{stream:true}); const chunks=buffer.split('\n\n'); buffer=chunks.pop(); for(const chunk of chunks){ const event=(chunk.match(/^event: (.*)$/m)||[])[1]; const raw=(chunk.match(/^data: (.*)$/m)||[])[1]; if(!raw)continue; const data=JSON.parse(raw); trace(event,data); if(event==='completed')completed=data; if(event==='error')throw new Error(data.detail||'実行に失敗しました'); } }
-      if(completed){ sessionId=completed.session_id; if(sessionId){localStorage.setItem('karry-session',sessionId);$('session').textContent=sessionId;} addMessage('agent',completed.text); metrics(completed); websiteApproval(completed); if($('autoSpeak').checked) speak(completed.text); }
-      $('status').textContent='オンライン';
-    } catch(error){ addMessage('agent',`エラー: ${error.message}`); $('status').textContent='エラー'; } finally { $('send').disabled=false; $('prompt').focus(); }
-  });
+  async function sendMessage(event){
+    event.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
+    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt)pendingMessage={sessionId:owner,prompt,requestId:window.crypto.randomUUID()};
+    setBusy(true);$('prompt').value='';$('status').textContent='実行中…';addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
+    try{
+      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,stream:true})});
+      if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
+      if(!response.body)throw new Error('ストリーミング応答を取得できませんでした');
+      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=null;
+      function parseChunk(chunk){const kind=(chunk.match(/^event: (.*)$/m)||[])[1],raw=(chunk.match(/^data: (.*)$/m)||[])[1];if(!raw)return;const data=JSON.parse(raw);trace(kind,data);if(kind==='completed')completed=data;if(kind==='error')throw new Error(data.detail||'実行に失敗しました');}
+      try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
+      if(!completed||completed.session_id!==owner)throw new Error('タスクの完了応答を確認できませんでした');
+      pendingMessage=null;
+      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}$('status').textContent='オンライン';
+    }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}$('status').textContent='エラー';}
+    finally{setBusy(false);$('prompt').focus();}
+  }
+  $('loadTasks').addEventListener('click',connectSessions);
+  $('newTask').addEventListener('click',createNewSession);
+  $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});
+  $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setBusy(false);}});
+  $('mic').addEventListener('click',()=>{if(recognition&&!busy){if($('mic').classList.contains('active'))recognition.stop();else recognition.start();}});
+  $('chatForm').addEventListener('submit',sendMessage);
+  setBusy(false);
 </script>
 </body>
 </html>

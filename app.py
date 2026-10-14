@@ -8,6 +8,8 @@ import os
 import re
 import logging
 import secrets
+import time
+import hashlib
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -20,7 +22,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult
@@ -32,6 +35,7 @@ from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import instant_website
 from karry_agent import website_storage
+from karry_agent import task_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +116,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
+@app.exception_handler(task_persistence.TaskStorageError)
+async def task_storage_error(request: Request, exc: task_persistence.TaskStorageError):
+    status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
+    return JSONResponse(status_code=status, content={"detail": str(exc), "error_code": exc.code}, headers={"Cache-Control": "no-store"})
+
+
 class RunRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=20_000, description="エージェントへの指示")
     session_id: str | None = Field(default=None, max_length=100)
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
+    request_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class AgentTaskRequest(BaseModel):
@@ -123,6 +134,32 @@ class AgentTaskRequest(BaseModel):
 
     task: str = Field(..., min_length=1, max_length=20_000, description="エージェントへのタスク")
     session_id: str | None = Field(default=None, max_length=100)
+
+
+class SessionCreate(BaseModel):
+    title: str = Field(default="新しいタスク", min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(ord(c) < 32 for c in value):
+            raise ValueError("タスク名は空白・制御文字を含まない文字列にしてください")
+        return value
+
+
+class MessageRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=20_000)
+    stream: bool = False
+    request_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @field_validator("prompt")
+    @classmethod
+    def nonempty_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("メッセージを入力してください")
+        return value
 
 
 class InstantWebsitePayload(BaseModel):
@@ -173,6 +210,9 @@ _RUNS: dict[str, dict[str, Any]] = {}
 _SESSIONS: dict[str, ConversationMemory] = {}
 _PRIVATE_SESSIONS: dict[str, PrivateModeSession] = {}
 _PENDING_CALENDAR: dict[str, dict[str, Any]] = {}
+_SESSION_META: dict[str, dict[str, str]] = {}
+_SESSION_LOCKS: dict[str, threading.Lock] = {}
+_SESSION_APPROVALS: dict[str, tuple[str, float]] = {}
 _STATE_LOCK = threading.Lock()
 _MAX_RUNS = 100
 _MAX_SESSIONS = 100
@@ -184,6 +224,8 @@ _BEARER = HTTPBearer(auto_error=False)
 def require_api_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
     """Preserve existing default API behavior, but require auth when a token or shell is enabled."""
     token = os.getenv("KARRY_API_TOKEN")
+    if not token and task_persistence.mode() == "s3":
+        raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for persistent task access")
     if not token and os.getenv("KARRY_ALLOW_SHELL") == "1":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for shell execution")
     if token and (credentials is None or not secrets.compare_digest(credentials.credentials, token)):
@@ -200,6 +242,7 @@ def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None
 class ToolRequest(BaseModel):
     tool_name: str = Field(min_length=1, max_length=100)
     arguments: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 def get_agent() -> AgentCore:
@@ -245,12 +288,134 @@ def _session(session_id: str | None) -> tuple[str | None, ConversationMemory | N
     if not session_id:
         return None, None
     with _STATE_LOCK:
-        if session_id not in _SESSIONS:
-            if len(_SESSIONS) >= _MAX_SESSIONS:
-                oldest = next(iter(_SESSIONS))
-                _SESSIONS.pop(oldest, None)
-            _SESSIONS[session_id] = ConversationMemory(max_history=10)
-        return session_id, _SESSIONS[session_id]
+        return session_id, _allocate_session_locked(session_id)
+
+
+def _drop_session_locked(session_id: str) -> None:
+    for store in (_SESSIONS, _SESSION_META, _SESSION_LOCKS, _PRIVATE_SESSIONS, _PENDING_CALENDAR):
+        store.pop(session_id, None)
+    for approval, (owner, _) in list(_SESSION_APPROVALS.items()):
+        if owner == session_id:
+            _SESSION_APPROVALS.pop(approval, None)
+
+
+def _allocate_session_locked(session_id: str, title: str = "新しいタスク") -> ConversationMemory:
+    if session_id not in _SESSIONS:
+        if len(_SESSIONS) >= _MAX_SESSIONS:
+            # Preserve legacy bounded eviction, but never evict an active run.
+            oldest = next((sid for sid in _SESSIONS if not _SESSION_LOCKS.get(sid, threading.Lock()).locked()), None)
+            if oldest is None:
+                raise HTTPException(status_code=409, detail="all sessions are busy")
+            _drop_session_locked(oldest)
+        _SESSIONS[session_id] = ConversationMemory(max_history=10)
+    _SESSION_META.setdefault(session_id, {"title": title, "latest_url": "", "latest_run_id": ""})
+    _SESSION_LOCKS.setdefault(session_id, threading.Lock())
+    return _SESSIONS[session_id]
+
+
+def _session_detail_locked(session_id: str) -> dict[str, Any]:
+    memory = _SESSIONS.get(session_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    meta = _SESSION_META.get(session_id, {"title": "新しいタスク", "latest_url": "", "latest_run_id": ""})
+    messages = [{"role": "assistant" if item["role"] == "model" else item["role"], "content": item["content"]}
+                for item in memory.get_history()]
+    run = _RUNS.get(meta.get("latest_run_id", ""))
+    return {"session_id": session_id, "title": meta["title"], "messages": messages, "latest_url": meta["latest_url"],
+            "last_run": dict(run) if run and run.get("status") != "running" else None,
+            "persistence": "durable" if task_persistence.mode() == "s3" else "ephemeral"}
+
+
+def _restore_task_locked(document: dict[str, Any]) -> None:
+    sid = document["session_id"]
+    memory = _allocate_session_locked(sid, document["title"])
+    memory.history = [{"role": "model" if row["role"] == "assistant" else row["role"], "content": row["content"]} for row in document["messages"][-20:]]
+    run = document.get("last_run") or {}
+    _SESSION_META[sid] = {"title": document["title"], "latest_url": document["latest_url"], "latest_run_id": run.get("run_id", "")}
+    if run.get("run_id") and run["run_id"] not in _RUNS:
+        if len(_RUNS) >= _MAX_RUNS:
+            _RUNS.pop(next(iter(_RUNS)), None)
+        _RUNS[run["run_id"]] = {**run, "session_id": sid}
+
+
+def _durable_task_details(document: dict[str, Any]) -> dict[str, Any]:
+    sid = document["session_id"]
+    with _STATE_LOCK:
+        run = _RUNS.get((document.get("last_run") or {}).get("run_id", ""))
+    return {"session_id": sid, "title": document["title"], "messages": [
+        {"role": "assistant" if row["role"] == "model" else row["role"], "content": row["content"]} for row in document["messages"]],
+        "latest_url": document["latest_url"], "last_run": run or document.get("last_run"), "persistence": "durable"}
+
+
+def _request_digest(prompt: str) -> str:
+    return hashlib.sha256(task_persistence.credential_safe(prompt).encode()).hexdigest()
+
+
+def _cached_run(request: RunRequest | MessageRequest, document: dict[str, Any]) -> RunResponse | None:
+    stored = document.get("last_run") or {}
+    if not request.request_id or stored.get("request_id_hash") != hashlib.sha256(request.request_id.encode()).hexdigest():
+        return None
+    if stored.get("request_digest") != _request_digest(request.prompt):
+        raise task_persistence.TaskStorageError("同じrequest_idで異なる入力を再送できません。", "storage_conflict")
+    with _STATE_LOCK:
+        result = dict(_RUNS.get(stored["run_id"], stored))
+    result.update(session_id=request.session_id, private_mode=False)
+    return RunResponse.model_validate(result)
+
+
+def _replay_payload(result: RunResponse, document: dict[str, Any]) -> dict[str, Any]:
+    details = _durable_task_details(document)
+    details.pop("last_run", None)
+    return {**result.model_dump(), **details, "response": result.text, "replayed": True}
+
+
+def _stream_replay(payload: dict[str, Any]):
+    yield _sse("started", {"replayed": True})
+    yield _sse("completed", payload)
+
+
+def _verify_publication(intent: dict[str, Any]) -> bool:
+    content = instant_website.public_artifact_content(intent["filename"])
+    if content is None:
+        return False
+    body = content if isinstance(content, bytes) else content.read_bytes()
+    return hashlib.sha256(body).hexdigest() == intent["sha256"]
+
+
+def _remember_website_previews(session_id: str, result: AgentResult) -> None:
+    with _STATE_LOCK:
+        now = time.monotonic()
+        for key, (sid, expiry) in list(_SESSION_APPROVALS.items()):
+            if expiry <= now or sid not in _SESSIONS:
+                _SESSION_APPROVALS.pop(key, None)
+        for event in result.trace:
+            observation = event.observation
+            if event.action != "deploy_instant_website" or not isinstance(observation, dict):
+                continue
+            approval = observation.get("approval_id")
+            if observation.get("confirmation_required") and isinstance(approval, str) and approval in instant_website._PENDING:
+                _SESSION_APPROVALS[approval] = (session_id, now + instant_website.APPROVAL_TTL)
+
+
+def _remember_published_website(session_id: str | None, result: dict[str, Any]) -> None:
+    if not session_id or not result.get("success") or result.get("status") != "published":
+        return
+    url = result.get("public_url")
+    if isinstance(url, str) and url.startswith(instant_website.public_base_url() + "/static/instant/"):
+        if task_persistence.mode() == "s3":
+            try:
+                task_persistence.repository().acknowledge_publication(session_id, result["filename"])
+                result["history_persistence"] = "durable"
+            except task_persistence.TaskStorageError as exc:
+                result["history_persistence"] = "failed"
+                result["history_error_code"] = exc.code
+                result["warning"] = (result.get("warning", "") + " HTMLの公開は成功しましたが、タスクへのURL記録に失敗しました。このURLを控え、再公開せず接続を確認してください。").strip()
+                return
+        else:
+            result["history_persistence"] = "ephemeral"
+        with _STATE_LOCK:
+            if session_id in _SESSION_META:
+                _SESSION_META[session_id]["latest_url"] = url
 
 
 def _private_mode(session_id: str | None, prompt: str) -> bool:
@@ -350,7 +515,76 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
     return agent.run(prompt)
 
 
-def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
+def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) -> RunResponse | dict[str, Any]:
+    if not request.session_id:
+        request.session_id = uuid.uuid4().hex
+    repo = task_persistence.repository() if task_persistence.mode() == "s3" else None
+    if repo is not None and (not task_mode or request.request_id):
+        try:
+            existing = repo.load(request.session_id)
+            cached = _cached_run(request, existing)
+            if cached is not None:
+                return _replay_payload(cached, existing) if task_mode else cached
+        except task_persistence.TaskStorageError as exc:
+            if exc.code != "not_found" or task_mode:
+                raise
+            repo.create(request.session_id, "新しいタスク")
+    with _STATE_LOCK:
+        if task_mode and repo is None and request.session_id not in _SESSIONS:
+            raise HTTPException(status_code=404, detail="Session not found")
+        _allocate_session_locked(request.session_id)
+        lock = _SESSION_LOCKS[request.session_id]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="session is already running")
+    lease_id = uuid.uuid4().hex
+    claimed = None
+    saved = False
+    response = None
+    try:
+        if repo is not None:
+            claimed = repo.begin(request.session_id, lease_id)
+            cached = _cached_run(request, claimed)
+            if cached is not None:
+                return _replay_payload(cached, claimed) if task_mode else cached
+            with _STATE_LOCK:
+                _restore_task_locked(claimed)
+        response = _execute_locked(request, agent)
+        if repo is not None:
+            messages = [dict(row) for row in claimed["messages"]] + [
+                {"role": "user", "content": request.prompt}, {"role": "model", "content": response.text}]
+            persisted_run = response.model_dump()
+            if request.request_id:
+                persisted_run.update(request_id_hash=hashlib.sha256(request.request_id.encode()).hexdigest(), request_digest=_request_digest(request.prompt))
+            document = repo.finish(request.session_id, lease_id, messages, persisted_run)
+            saved = True
+            with _STATE_LOCK:
+                _restore_task_locked(document)
+        if task_mode:
+            if repo is not None:
+                details = _durable_task_details(document)
+            else:
+                with _STATE_LOCK:
+                    details = _session_detail_locked(request.session_id)
+            details.pop("last_run", None)
+            return {**response.model_dump(), **details, "response": response.text}
+        return response
+    except task_persistence.TaskStorageError:
+        with _STATE_LOCK:
+            if response is not None and response.run_id in _RUNS:
+                _RUNS[response.run_id]["status"] = "persistence_failed"
+            if claimed is not None:
+                _restore_task_locked(claimed)
+        raise
+    finally:
+        if repo is not None and claimed is not None and not saved:
+            try:
+                repo.release(request.session_id, lease_id)
+            except Exception as exc:
+                healing_engine.analyze_and_heal(exc, {"source": "task_lease_release"})
+        lock.release()
+
+
+def _execute_locked(request: RunRequest, agent: AgentCore) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
@@ -373,9 +607,11 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
             _RUNS[run_id]["status"] = "failed"
         raise HTTPException(status_code=500, detail="agent execution failed") from exc
     _remember_calendar_preview(session_id, result)
+    _remember_website_previews(session_id, result)
     if memory:
-        memory.add_message("user", request.prompt)
-        memory.add_message("model", result.text)
+        with _STATE_LOCK:
+            memory.add_message("user", request.prompt)
+            memory.add_message("model", result.text)
     response = RunResponse(
         run_id=run_id,
         session_id=session_id,
@@ -388,6 +624,8 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
         metrics=_metrics(result),
     )
     _finish_run(run_id, response)
+    with _STATE_LOCK:
+        _SESSION_META[session_id]["latest_run_id"] = run_id
     return response
 
 
@@ -395,14 +633,18 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _stream_chat(request: RunRequest, agent: AgentCore):
+def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
         yield _sse("started", {"prompt": request.prompt})
-        response = _execute(request, agent)
-        for index, event in enumerate(response.trace, start=1):
+        response = _execute(request, agent, task_mode=task_mode)
+        payload = response if isinstance(response, dict) else response.model_dump()
+        for index, event in enumerate(payload["trace"], start=1):
             yield _sse("step", {"index": index, **event})
-        yield _sse("completed", response.model_dump())
+        yield _sse("completed", payload)
+    except task_persistence.TaskStorageError as exc:
+        status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
+        yield _sse("error", {"status_code": status, "detail": str(exc), "error_code": exc.code})
     except HTTPException as exc:
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
         healing = healing_engine.analyze_and_heal(cause, {"source": "api_stream", "status_code": exc.status_code})
@@ -478,11 +720,72 @@ def chat(request: RunRequest, agent: Annotated[AgentCore, Depends(get_agent)]) -
 
 @app.get("/sessions/{session_id}", response_model=SessionResponse, dependencies=[Depends(require_api_auth)])
 def get_session(session_id: str) -> SessionResponse:
+    if task_persistence.mode() == "s3":
+        document = task_persistence.repository().load(session_id)
+        return SessionResponse(session_id=session_id, history=document["messages"])
     with _STATE_LOCK:
         memory = _SESSIONS.get(session_id)
     if memory is None:
         raise HTTPException(status_code=404, detail="session not found")
     return SessionResponse(session_id=session_id, history=memory.get_history())
+
+
+@app.post("/api/sessions", dependencies=[Depends(require_tool_auth)])
+def create_session(data: SessionCreate):
+    if task_persistence.mode() == "s3":
+        sid = uuid.uuid4().hex
+        document = task_persistence.repository().create(sid, data.title)
+        return JSONResponse({"session_id": sid, "title": document["title"], "persistence": "durable"}, headers={"Cache-Control": "no-store"})
+    with _STATE_LOCK:
+        if len(_SESSIONS) >= _MAX_SESSIONS:
+            raise HTTPException(status_code=409, detail="session capacity reached")
+        session_id = uuid.uuid4().hex
+        if session_id in _SESSIONS:
+            raise HTTPException(status_code=409, detail="session id collision; retry")
+        _allocate_session_locked(session_id, data.title)
+    return JSONResponse({"session_id": session_id, "title": data.title, "persistence": "ephemeral"}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
+def list_sessions():
+    if task_persistence.mode() == "s3":
+        return JSONResponse(task_persistence.repository().list(), headers={"Cache-Control": "no-store"})
+    with _STATE_LOCK:
+        rows = [{"session_id": sid, "title": _SESSION_META.get(sid, {}).get("title", "新しいタスク")} for sid in _SESSIONS]
+    return JSONResponse(rows, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sessions/{session_id}", dependencies=[Depends(require_tool_auth)])
+def task_session(session_id: str):
+    if task_persistence.mode() == "s3":
+        document = task_persistence.repository().reconcile(session_id, _verify_publication)
+        return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
+    with _STATE_LOCK:
+        details = _session_detail_locked(session_id)
+    return JSONResponse(details, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
+def task_chat(request: MessageRequest):
+    if task_persistence.mode() == "s3":
+        document = task_persistence.repository().load(request.session_id)
+        cached = _cached_run(request, document)
+        if cached is not None:
+            payload = _replay_payload(cached, document)
+            if request.stream:
+                return StreamingResponse(_stream_replay(payload), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+            return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    else:
+        with _STATE_LOCK:
+            if request.session_id not in _SESSIONS:
+                raise HTTPException(status_code=404, detail="Session not found")
+    # Do not initialize the model for list/create/detail/unknown-session requests.
+    agent_factory = app.dependency_overrides.get(get_agent, get_agent)
+    agent = agent_factory()
+    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id)
+    if request.stream:
+        return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+    return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/runs/{run_id}", dependencies=[Depends(require_api_auth)])
@@ -505,20 +808,52 @@ def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
     # Direct authenticated owner calls supply the exact final HTML themselves.
     # Model dispatch instead calls the staged registry wrapper and cannot approve.
     if request.tool_name == "deploy_instant_website":
+        if request.session_id:
+            if task_persistence.mode() == "s3":
+                task_persistence.repository().load(request.session_id)
+            else:
+                with _STATE_LOCK:
+                    if request.session_id not in _SESSIONS:
+                        raise HTTPException(status_code=404, detail="Session not found")
         if set(request.arguments) - {"html_content", "filename"}:
             raise HTTPException(status_code=400, detail="invalid publication arguments")
         try:
             payload = InstantWebsitePayload(**request.arguments)
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid HTML publication payload") from None
-        return {"tool_name": request.tool_name,
-                "result": instant_website.deploy_instant_website(payload.html_content, payload.filename)}
+        if request.session_id and task_persistence.mode() == "s3":
+            try:
+                plan = instant_website._plan(payload.html_content, payload.filename)
+                task_persistence.repository().stage_publication(request.session_id, plan)
+                result = instant_website._publish(plan)
+            except task_persistence.TaskStorageError:
+                raise
+            except Exception as exc:
+                result = instant_website._error(exc)
+        else:
+            result = instant_website.deploy_instant_website(payload.html_content, payload.filename)
+        _remember_published_website(request.session_id, result)
+        return {"tool_name": request.tool_name, "result": result}
     return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
 
 
 @app.post("/api/agent/websites/confirm", dependencies=[Depends(require_tool_auth)])
 def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
-    return instant_website.confirm_instant_website(request.approval_id, request.sha256, request.confirmed)
+    with _STATE_LOCK:
+        owner = _SESSION_APPROVALS.get(request.approval_id)
+    if request.confirmed and owner and owner[1] > time.monotonic() and task_persistence.mode() == "s3":
+        with instant_website._LOCK:
+            plan = instant_website._PENDING.get(request.approval_id)
+            plan = dict(plan) if plan and plan["sha256"] == request.sha256 and plan["expires"] > time.monotonic() else None
+        if plan:
+            task_persistence.repository().stage_publication(owner[0], plan)
+    result = instant_website.confirm_instant_website(request.approval_id, request.sha256, request.confirmed)
+    if owner and owner[1] > time.monotonic():
+        _remember_published_website(owner[0], result)
+    with _STATE_LOCK:
+        if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
+            _SESSION_APPROVALS.pop(request.approval_id, None)
+    return result
 
 
 @app.get("/api/agent/websites/storage", dependencies=[Depends(require_tool_auth)])
