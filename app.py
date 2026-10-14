@@ -39,6 +39,7 @@ from karry_agent import website_storage
 from karry_agent import task_persistence
 from karry_agent import image_attachments
 from karry_agent import media_repository, media_generation
+from karry_agent import image_generation
 from karry_agent import optimus_core
 from karry_agent import resource_errors
 
@@ -330,6 +331,7 @@ class RunResponse(BaseModel):
     private_mode: bool = False
     trace: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any]
+    generated_images: list[str] = Field(default_factory=list)
 
 
 class AgentRunResponse(BaseModel):
@@ -735,10 +737,15 @@ def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) 
         selected = list(request.image_ids if request.image_ids is not None else image_document.get("pending_images", []))
         images = service.resolve(selected, document=image_document)
         request.image_ids = selected
-        response = _execute_locked(request, agent, images=images)
+
+        def store_generated(body: bytes, mime_type: str, filename: str) -> dict[str, Any]:
+            return service.store_generated(image_attachments.normalize(body, mime_type), filename, lease_id if repo is not None else None)
+
+        with image_generation.generation_context(store_generated):
+            response = _execute_locked(request, agent, images=images)
         if repo is not None:
             messages = [dict(row) for row in claimed["messages"]] + [
-                {"role": "user", "content": request.prompt, **({"images": selected} if selected else {})}, {"role": "model", "content": response.text}]
+                {"role": "user", "content": request.prompt, **({"images": selected} if selected else {})}, {"role": "model", "content": response.text, **({"images": response.generated_images} if response.generated_images else {})}]
             persisted_run = response.model_dump()
             persisted_run["image_ids"] = selected
             if request.request_id:
@@ -801,12 +808,15 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         raise HTTPException(status_code=500, detail="agent execution failed") from exc
     _remember_calendar_preview(session_id, result)
     _remember_website_previews(session_id, result)
+    generated = image_generation.generated_ids()
     if memory:
         with _STATE_LOCK:
             memory.add_message("user", request.prompt)
             memory.add_message("model", result.text)
             if request.image_ids:
                 memory.history[-2]["images"] = list(request.image_ids)
+            if generated:
+                memory.history[-1]["images"] = generated
     response = RunResponse(
         run_id=run_id,
         session_id=session_id,
@@ -817,6 +827,7 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         private_mode=private_mode,
         trace=_trace(result),
         metrics=_metrics(result),
+        generated_images=generated,
     )
     _finish_run(run_id, response)
     with _STATE_LOCK:

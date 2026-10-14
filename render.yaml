@@ -39,6 +39,8 @@ services:
         value: /tmp/karry-agent/credentials.json
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-2.5-flash-image
       - key: KARRY_WORKSPACE
         value: /tmp/karry-agent
       - key: KARRY_WEBSITE_STORAGE

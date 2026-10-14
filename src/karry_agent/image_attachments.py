@@ -141,6 +141,20 @@ class AttachmentService:
             raise ImageAttachmentError('画像IDの形式が不正です。')
         return self.repo.prefix + 'images/' + hashlib.sha256(self.sid.encode()).hexdigest() + '/' + image_id + '.bin'
 
+    def _put_blob(self, image_id: str, image: NormalizedImage, meta: dict) -> None:
+            try:
+                response = self.repo.client.put_object(Bucket=self.repo.config.bucket, Key=self._blob_key(image_id), Body=image.body,
+                    ContentType=image.mime_type, CacheControl='no-store', IfNoneMatch='*',
+                    ContentMD5=base64.b64encode(hashlib.md5(image.body).digest()).decode(), Metadata={'sha256': meta['sha256']})
+                if not response.get('ETag'):
+                    raise tasks.TaskStorageError('画像の保存確認に失敗しました。', 'storage_unavailable')
+            except ClientError as exc:
+                if str(exc.response.get('Error', {}).get('Code', '')) not in {'PreconditionFailed', '412', 'ConditionalRequestConflict', '409'}:
+                    raise tasks.TaskStorageError('画像の非公開保存に失敗しました。同じ画像を再選択して復旧できます。', 'storage_unavailable') from None
+                self.get(image_id, document={'images': {image_id: meta}})
+            except (BotoCoreError, OSError):
+                raise tasks.TaskStorageError('画像の非公開保存に失敗しました。', 'storage_unavailable') from None
+
     def upload(self, image: NormalizedImage, filename: str) -> dict:
         import uuid
         document = self.document()
@@ -172,18 +186,7 @@ class AttachmentService:
             # Reserve before PUT. Ambiguous network failures retain a bounded,
             # reachable reservation and are reconciled on the next task read.
             self._mutate(reserve)
-            try:
-                response = self.repo.client.put_object(Bucket=self.repo.config.bucket, Key=self._blob_key(image_id), Body=image.body,
-                    ContentType=image.mime_type, CacheControl='no-store', IfNoneMatch='*',
-                    ContentMD5=base64.b64encode(hashlib.md5(image.body).digest()).decode(), Metadata={'sha256': meta['sha256']})
-                if not response.get('ETag'):
-                    raise tasks.TaskStorageError('画像の保存確認に失敗しました。', 'storage_unavailable')
-            except ClientError as exc:
-                if str(exc.response.get('Error', {}).get('Code', '')) not in {'PreconditionFailed', '412', 'ConditionalRequestConflict', '409'}:
-                    raise tasks.TaskStorageError('画像の非公開保存に失敗しました。同じ画像を再選択して復旧できます。', 'storage_unavailable') from None
-                self.get(image_id, document={'images': {image_id: meta}})
-            except (BotoCoreError, OSError):
-                raise tasks.TaskStorageError('画像の非公開保存に失敗しました。', 'storage_unavailable') from None
+            self._put_blob(image_id, image, meta)
         else:
             with _MEMORY_LOCK:
                 if sum(len(body) for body in _MEMORY_BYTES.values()) + len(image.body) > MAX_MEMORY_BYTES:
@@ -214,6 +217,47 @@ class AttachmentService:
                 with _MEMORY_LOCK:
                     if image_id not in _MEMORY_DOCUMENTS.get(self.sid, {}).get('images', {}):
                         _MEMORY_BYTES.pop((self.sid, image_id), None)
+            raise
+        return meta
+
+    def store_generated(self, image: NormalizedImage, filename: str, lease_id: str | None = None) -> dict:
+        """実行中に生成した画像を保存する。次回の Gemini 入力（pending）には加えない。"""
+        import uuid
+        image_id = uuid.uuid4().hex
+        label = tasks.credential_safe(PurePath(filename).name)[:120] or 'generated.jpg'
+        meta = {'id': image_id, 'filename': label, 'mime_type': image.mime_type, 'width': image.width, 'height': image.height,
+                'size_bytes': len(image.body), 'sha256': hashlib.sha256(image.body).hexdigest(), 'warning': image.warning}
+        if len(image.body) > MAX_IMAGE_BYTES:
+            raise ImageAttachmentError('生成画像の容量上限を超えました。', 413)
+
+        def check(value):
+            lease = value.get('lease')
+            if self.repo and (not lease or lease['id'] != lease_id):
+                raise tasks.TaskStorageError('タスク実行の保存権を確認できません。', 'storage_conflict')
+            if len(value.get('images', {})) + len(value.get('image_uploads', {})) >= MAX_ASSETS:
+                raise ImageAttachmentError('タスクの画像数の上限に達しました。新しいタスクで依頼してください。', 409)
+
+        check(self.document())
+        if self.repo:
+            self._put_blob(image_id, image, meta)
+        else:
+            with _MEMORY_LOCK:
+                if sum(len(body) for body in _MEMORY_BYTES.values()) + len(image.body) > MAX_MEMORY_BYTES:
+                    raise ImageAttachmentError('一時画像領域の容量上限に達しました。', 409)
+                _MEMORY_BYTES[(self.sid, image_id)] = image.body
+
+        def append(value):
+            if self.repo:
+                self.repo._validate(value, self.sid)
+            check(value)
+            value.setdefault('images', {})[image_id] = meta
+            return value
+        try:
+            self._mutate(append)
+        except Exception:
+            if self.repo is None:
+                with _MEMORY_LOCK:
+                    _MEMORY_BYTES.pop((self.sid, image_id), None)
             raise
         return meta
 

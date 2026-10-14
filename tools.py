@@ -16,7 +16,7 @@ def web_search_mock(query: str) -> str:
 
 def generate_image_mock(prompt: str) -> str:
     """テキストプロンプトに基づく画像生成の安全なモック。"""
-    return f"[Image Generated]: Successfully generated image for prompt '{prompt}' (mock_image_path.png)"
+    return f"[Image Generated]: mock only for prompt '{prompt}'. No image file or URL was created."
 
 
 # エージェントに登録するツール一覧
