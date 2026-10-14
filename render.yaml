@@ -35,3 +35,17 @@ services:
         value: gemini-3.5-flash
       - key: KARRY_WORKSPACE
         value: /tmp/karry-agent
+      - key: KARRY_WEBSITE_STORAGE
+        value: s3
+      - key: KARRY_WEBSITE_S3_PREFIX
+        value: karry-websites/
+      - key: KARRY_WEBSITE_S3_BUCKET
+        sync: false
+      - key: KARRY_WEBSITE_S3_ENDPOINT
+        sync: false
+      - key: KARRY_WEBSITE_S3_REGION
+        sync: false
+      - key: KARRY_WEBSITE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: KARRY_WEBSITE_S3_SECRET_ACCESS_KEY
+        sync: false

@@ -54,7 +54,8 @@
     if(!event)return;
     const pending=event.observation, preview=pending.preview;
     if(!preview)return;
-    const box=addMessage('agent',`公開確認（10分以内）\n公開先: ${preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧できる一時公開です。再起動・再デプロイで消えます。秘密情報を含まないことを確認してください。`);
+    const persistence=preview.persistence==='durable'?'外部ストレージへの永続公開です。Render再起動では消えません。削除・保持設定・サービス停止は別です。':'一時公開です。再起動・再デプロイで消えます。';
+    const box=addMessage('agent',`公開確認（10分以内）\n公開先: ${preview.public_url}\nSHA256: ${preview.sha256}\n誰でも閲覧可能です。${persistence}秘密情報を含まないことを確認してください。`);
     const source=document.createElement('textarea'); source.readOnly=true; source.value=preview.html_content; source.setAttribute('aria-label','公開するHTML全文'); source.style.cssText='display:block;width:100%;min-height:180px;margin:12px 0'; box.appendChild(source);
     const label=document.createElement('label'), check=document.createElement('input'); check.type='checkbox'; label.append(check,document.createTextNode('HTML全文と公開先を確認し、公開を承認します')); box.appendChild(label);
     const publish=document.createElement('button'); publish.type='button'; publish.textContent='確認した内容を即時公開'; publish.disabled=true; publish.style.cssText='display:block;padding:10px;margin-top:10px'; box.appendChild(publish); check.onchange=()=>{publish.disabled=!check.checked;};
