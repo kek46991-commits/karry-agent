@@ -113,6 +113,10 @@ _HTML_START_RE = re.compile(r"<!doctype\s+html|<html\b", re.IGNORECASE)
 _HTML_BODY_START_RE = re.compile(r"<(?:head|body|main|header|section|div|h1)\b", re.IGNORECASE)
 _HTML_END_RE = re.compile(r"</html\s*>", re.IGNORECASE)
 _LEADING_FENCE_RE = re.compile(r"\A\s*```(?:html)?[ \t]*\r?\n", re.IGNORECASE)
+_WEBSITE_RETRY = (
+    "前回の出力は完全なHTMLになりませんでした。CSSは短くし、本文を優先して、"
+    "<!doctype html>で始まり</html>で終わる短めの完全なHTMLだけを返してください。"
+)
 _WEBSITE_CONTINUE = (
     "直前のHTMLは出力上限で途中までになりました。直前の出力の最後の文字の直後から、続きだけを出力してください。"
     "最初から書き直さず、説明やコードフェンスを付けず、</html>で終えてください。"
@@ -332,30 +336,71 @@ class AgentCore:
         document = fragment[: ends[-1].end()].strip()
         return document if _COMPLETE_HTML_RE.fullmatch(document) else None
 
-    def _generate_website_html(
+    def _website_attempt(
         self, contents: list[Any], metrics: AgentMetrics, private_mode: bool
-    ) -> tuple[str | None, bool]:
-        """完全なHTMLを返す。出力上限で切れたら続きを1回だけ依頼し、それでも欠けていれば閉じタグを補う。"""
+    ) -> tuple[str | None, str | None]:
+        """1回分の生成。(完全なHTML, 未完成の断片) を返す。MAX_TOKENSで切れたら続きを1回だけ依頼する。"""
         options = _website_generation_options()
-        response = self._generate_content_with_retry(contents, metrics, private_mode, final_only=True, **options)
+        try:
+            response = self._generate_content_with_retry(contents, metrics, private_mode, final_only=True, **options)
+        except errors.ClientError as exc:
+            # A model that rejects the larger output budget still gets a default-budget attempt.
+            if getattr(exc, "code", None) != 400:
+                raise
+            options.pop("max_output_tokens")
+            response = self._generate_content_with_retry(contents, metrics, private_mode, final_only=True, **options)
         text = self._response_text(response)
         if text is None:
-            return None, False
+            return None, None
         html = self._html_document(text)
         fragment = self._html_fragment(text)
         if html is None and fragment is not None and self._truncated(response):
             continuation = [*contents, types.Content(role="model", parts=[types.Part.from_text(text=fragment)]),
                             types.Content(role="user", parts=[types.Part.from_text(text=_WEBSITE_CONTINUE)])]
-            more = self._response_text(self._generate_content_with_retry(
-                continuation, metrics, private_mode, final_only=True, **options)) or ""
+            try:
+                more = self._response_text(self._generate_content_with_retry(
+                    continuation, metrics, private_mode, final_only=True, **options)) or ""
+            except Exception as exc:
+                self.healer.analyze_and_heal(exc, {"source": "website_creation_core", "operation": "continue_html"})
+                more = ""
             more = _LEADING_FENCE_RE.sub("", more, count=1)
             restarted = _HTML_START_RE.match(more.lstrip())
             fragment = more.lstrip() if restarted else fragment + more
             html = self._html_document(fragment)
-        if html is None and fragment is not None:
-            html = html_repair.close_truncated_html(fragment)
-            return html, html is not None
-        return html, False
+        return html, fragment
+
+    def _generate_website_html(
+        self, contents: list[Any], metrics: AgentMetrics, private_mode: bool, request: str
+    ) -> tuple[str, str]:
+        """必ず完全なHTMLを返す。2つ目の値は complete / repaired / fallback。
+
+        完全なHTML → 閉じタグ補完 → 簡潔版での再生成 → 本文なしでも見出しを補って補完 → 依頼文からの簡易ページ、の順に試す。"""
+        fragments: list[str] = []
+        for attempt in range(2):
+            attempt_contents = contents if attempt == 0 else [*contents, types.Content(
+                role="user", parts=[types.Part.from_text(text=_WEBSITE_RETRY)])]
+            try:
+                html, fragment = self._website_attempt(attempt_contents, metrics, private_mode)
+            except Exception as exc:
+                metrics.errors += 1
+                self.healer.analyze_and_heal(exc, {"source": "website_creation_core", "operation": "generate_complete_html",
+                                                   "attempt": attempt + 1})
+                if _is_timeout(exc):
+                    break
+                continue
+            if html is not None:
+                return html, "complete"
+            if fragment is not None:
+                fragments.append(fragment)
+                repaired = html_repair.close_truncated_html(fragment)
+                if repaired is not None:
+                    return repaired, "repaired"
+        heading = html_repair.page_subject(request)
+        for fragment in reversed(fragments):
+            repaired = html_repair.close_truncated_html(fragment, empty_body_heading=heading)
+            if repaired is not None:
+                return repaired, "repaired"
+        return html_repair.fallback_page(request), "fallback"
 
     def _run_website_creation(
         self, prompt: str, original_request: str, private_mode: bool, images: list[dict[str, Any]] | None = None
@@ -373,17 +418,7 @@ class AgentCore:
         )
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=creation_instruction), *self._image_parts(images)])]
         trace: list[ExecutionEvent] = []
-        try:
-            html, repaired = self._generate_website_html(contents, metrics, private_mode)
-            if html is None:
-                raise ValueError("website creation response is not complete HTML")
-        except Exception as exc:
-            metrics.errors += 1
-            self.healer.analyze_and_heal(exc, {"source": "website_creation_core", "operation": "generate_complete_html"})
-            metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
-            message = ("HTMLの生成が時間内に終わりませんでした。公開されていません。少し内容を絞ってもう一度お試しください。"
-                       if _is_timeout(exc) else "HTMLを完全な形式で作成できませんでした。公開されていません。")
-            return AgentResult(message, 1, 0, trace, metrics, status="failed")
+        html, quality = self._generate_website_html(contents, metrics, private_mode, original_request)
 
         stage_started = time.perf_counter()
         try:
@@ -396,7 +431,10 @@ class AgentCore:
                                     (time.perf_counter() - stage_started) * 1000))
         metrics.elapsed_ms = (time.perf_counter() - started_at) * 1000
         if isinstance(staged, dict) and staged.get("status") == "needs_user_action":
-            note = "（生成が途中で止まったため、閉じタグを自動で補いました）" if repaired else ""
+            note = {"complete": "",
+                    "repaired": "（生成が途中で止まったため、閉じタグを自動で補いました）",
+                    "fallback": "（AIのHTML生成が完了しなかったため、依頼文から簡易ページを作りました。内容を書き換えてから公開してください）",
+                    }[quality]
             return AgentResult(f"HTML作成済み{note}。チャット内プレビューで確認できます。公開は確認後です。",
                                1, 1, trace, metrics, status="needs_user_action")
         metrics.errors += 1
