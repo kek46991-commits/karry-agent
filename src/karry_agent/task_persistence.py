@@ -154,6 +154,22 @@ class S3TaskRepository:
         for row in messages:
             if not isinstance(row, dict) or row.get("role") not in {"user", "model", "assistant"} or not isinstance(row.get("content"), str) or len(row["content"]) > 100_000:
                 raise TaskStorageError("保存済み会話の構造が不正です。", "storage_integrity")
+        images = value.get("images", {})
+        pending = value.get("pending_images", [])
+        uploads = value.get("image_uploads", {})
+        if not isinstance(images, dict) or not isinstance(uploads, dict) or len(images) + len(uploads) > 100 or not isinstance(pending, list) or len(pending) + len(uploads) > 4 or any(not isinstance(key, str) for key in pending) or len(set(pending)) != len(pending) or set(images).intersection(uploads):
+            raise TaskStorageError("画像添付の構造が不正です。", "storage_integrity")
+        for key, meta in {**images, **uploads}.items():
+            if not re.fullmatch(r"[a-f0-9]{32}", key) or not isinstance(meta, dict) or meta.get("id") != key or meta.get("mime_type") not in {"image/jpeg", "image/png", "image/webp"} or not isinstance(meta.get("filename"), str) or len(meta["filename"]) > 120 or not isinstance(meta.get("size_bytes"), int) or not 0 < meta["size_bytes"] <= 2 * 1024 * 1024 or not isinstance(meta.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", meta["sha256"]):
+                raise TaskStorageError("保存画像の参照が不正です。", "storage_integrity")
+            if type(meta.get("width")) is not int or type(meta.get("height")) is not int or meta["width"] <= 0 or meta["height"] <= 0 or meta["width"] * meta["height"] > 16_000_000 or not isinstance(meta.get("warning", ""), str) or len(meta.get("warning", "")) > 200:
+                raise TaskStorageError("保存画像の寸法が不正です。", "storage_integrity")
+        if any(not isinstance(key, str) or key not in images for key in pending):
+            raise TaskStorageError("次回添付画像の参照が不正です。", "storage_integrity")
+        for row in messages:
+            ids = row.get("images", [])
+            if not isinstance(ids, list) or len(ids) > 4 or any(not isinstance(key, str) or key not in images for key in ids):
+                raise TaskStorageError("会話画像の参照が不正です。", "storage_integrity")
         if not isinstance(value.get("latest_url"), str) or len(value["latest_url"]) > 2048 or value.get("last_run") is not None and not isinstance(value["last_run"], dict):
             raise TaskStorageError("保存済みメタ情報の構造が不正です。", "storage_integrity")
         lease = value.get("lease")
@@ -227,9 +243,10 @@ class S3TaskRepository:
     def finish(self, sid: str, lease_id: str, messages: list[dict], run: dict) -> dict[str, Any]:
         if len(messages) > MAX_MESSAGES:
             raise TaskStorageError("履歴件数の上限に達しました。切り捨てず保存を停止します。", "storage_capacity")
-        clean = [{"role": r["role"], "content": credential_safe(r["content"])} for r in messages]
+        clean = [{"role": r["role"], "content": credential_safe(r["content"]),
+                  **({"images": list(r["images"])} if r.get("images") else {})} for r in messages]
         # Pending confirmation payloads and authentication state are never persisted.
-        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest") if key in run}
+        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest", "image_ids") if key in run}
         summary["trace"] = []
         summary["text"] = clean[-1]["content"] if clean and clean[-1]["role"] in {"model", "assistant"} else ""
         def commit(value):
@@ -240,6 +257,9 @@ class S3TaskRepository:
             if not lease or lease["id"] != lease_id or lease["expires"] <= time.time():
                 raise TaskStorageError("タスク実行の保存権を確認できません。再取得してください。", "storage_conflict")
             value.update(messages=clean, last_run=summary, lease=None)
+            if run.get("status") in {"completed", "needs_user_action"}:
+                consumed = clean[-2].get("images", []) if len(clean) >= 2 else []
+                value["pending_images"] = [key for key in value.get("pending_images", []) if key not in consumed]
             self._validate(value, sid)
             return value
         return self._cas(self._key(sid), None, commit)

@@ -15,7 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form, Query
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -36,6 +36,7 @@ from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import instant_website
 from karry_agent import website_storage
 from karry_agent import task_persistence
+from karry_agent import image_attachments
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,48 @@ class ArtifactStaticFiles(StaticFiles):
 
 
 app.mount("/static", ArtifactStaticFiles(directory=STATIC_DIR), name="static")
+
+
+class ImageUploadGuard:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") != "/api/upload_image":
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers", []))
+        token = os.getenv("KARRY_API_TOKEN")
+        scheme, _, supplied = headers.get(b"authorization", b"").partition(b" ")
+        if not token or scheme.lower() != b"bearer" or not secrets.compare_digest(supplied, token.encode()):
+            status = 503 if not token else 401
+            return await JSONResponse({"detail": "KARRY_API_TOKEN is not configured" if not token else "Invalid bearer token"}, status_code=status)(scope, receive, send)
+        try:
+            length = int(headers.get(b"content-length", b"0"))
+        except ValueError:
+            return await JSONResponse({"detail": "Content-Length is invalid"}, status_code=400)(scope, receive, send)
+        if length < 0 or length > image_attachments.FORM_BODY_LIMIT:
+            return await JSONResponse({"detail": "画像リクエストの容量上限を超えています。"}, status_code=413)(scope, receive, send)
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body.extend(message.get("body", b""))
+            if len(body) > image_attachments.FORM_BODY_LIMIT:
+                return await JSONResponse({"detail": "画像リクエストの容量上限を超えています。"}, status_code=413)(scope, receive, send)
+            if not message.get("more_body", False):
+                break
+        consumed = False
+        async def bounded_receive():
+            nonlocal consumed
+            if not consumed:
+                consumed = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+        await self.app(scope, bounded_receive, send)
+
+
+app.add_middleware(ImageUploadGuard)
 
 try:
     _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
@@ -126,11 +169,20 @@ async def task_storage_error(request: Request, exc: task_persistence.TaskStorage
     return JSONResponse(status_code=status, content=content, headers={"Cache-Control": "no-store"})
 
 
+@app.exception_handler(image_attachments.ImageAttachmentError)
+async def image_attachment_error(request: Request, exc: image_attachments.ImageAttachmentError):
+    return JSONResponse({"detail": str(exc)}, status_code=exc.status_code, headers={"Cache-Control": "no-store"})
+
+
+ImageId = Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+
+
 class RunRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=20_000, description="エージェントへの指示")
     session_id: str | None = Field(default=None, max_length=100)
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
+    image_ids: list[ImageId] | None = Field(default=None, max_length=4)
 
 
 class AgentTaskRequest(BaseModel):
@@ -157,6 +209,7 @@ class MessageRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=20_000)
     stream: bool = False
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
+    image_ids: list[ImageId] | None = Field(default=None, max_length=4)
 
     @field_validator("prompt")
     @classmethod
@@ -264,6 +317,24 @@ def _metrics(result: AgentResult) -> dict[str, Any]:
     return asdict(result.metrics)
 
 
+def _image_service(session_id: str) -> image_attachments.AttachmentService:
+    repo = task_persistence.repository() if task_persistence.mode() == "s3" else None
+    if repo is None:
+        with _STATE_LOCK:
+            if session_id not in _SESSIONS:
+                raise HTTPException(status_code=404, detail="Session not found")
+    return image_attachments.AttachmentService(session_id, repo)
+
+
+def _image_mutation_lock(session_id: str):
+    with _STATE_LOCK:
+        _allocate_session_locked(session_id)
+        lock = _SESSION_LOCKS[session_id]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="session is already running")
+        return lock
+
+
 def _trace(result: AgentResult) -> list[dict[str, Any]]:
     return [asdict(event) for event in result.trace]
 
@@ -298,6 +369,7 @@ def _session(session_id: str | None) -> tuple[str | None, ConversationMemory | N
 def _drop_session_locked(session_id: str) -> None:
     for store in (_SESSIONS, _SESSION_META, _SESSION_LOCKS, _PRIVATE_SESSIONS, _PENDING_CALENDAR):
         store.pop(session_id, None)
+    image_attachments.clear_memory_session(session_id)
     for approval, (owner, _) in list(_SESSION_APPROVALS.items()):
         if owner == session_id:
             _SESSION_APPROVALS.pop(approval, None)
@@ -324,16 +396,21 @@ def _session_detail_locked(session_id: str) -> dict[str, Any]:
     meta = _SESSION_META.get(session_id, {"title": "新しいタスク", "latest_url": "", "latest_run_id": ""})
     messages = [{"role": "assistant" if item["role"] == "model" else item["role"], "content": item["content"]}
                 for item in memory.get_history()]
+    for output, source in zip(messages, memory.get_history()):
+        if source.get("images"):
+            output["images"] = list(source["images"])
+    images = image_attachments.memory_document(session_id)
     run = _RUNS.get(meta.get("latest_run_id", ""))
     return {"session_id": session_id, "title": meta["title"], "messages": messages, "latest_url": meta["latest_url"],
             "last_run": dict(run) if run and run.get("status") != "running" else None,
-            "persistence": "durable" if task_persistence.mode() == "s3" else "ephemeral"}
+            "persistence": "durable" if task_persistence.mode() == "s3" else "ephemeral",
+            "image_assets": images["images"], "pending_images": [images["images"][key] for key in images["pending_images"]]}
 
 
 def _restore_task_locked(document: dict[str, Any]) -> None:
     sid = document["session_id"]
     memory = _allocate_session_locked(sid, document["title"])
-    memory.history = [{"role": "model" if row["role"] == "assistant" else row["role"], "content": row["content"]} for row in document["messages"][-20:]]
+    memory.history = [{"role": "model" if row["role"] == "assistant" else row["role"], "content": row["content"], **({"images": row["images"]} if row.get("images") else {})} for row in document["messages"][-20:]]
     run = document.get("last_run") or {}
     _SESSION_META[sid] = {"title": document["title"], "latest_url": document["latest_url"], "latest_run_id": run.get("run_id", "")}
     if run.get("run_id") and run["run_id"] not in _RUNS:
@@ -347,19 +424,26 @@ def _durable_task_details(document: dict[str, Any]) -> dict[str, Any]:
     with _STATE_LOCK:
         run = _RUNS.get((document.get("last_run") or {}).get("run_id", ""))
     return {"session_id": sid, "title": document["title"], "messages": [
-        {"role": "assistant" if row["role"] == "model" else row["role"], "content": row["content"]} for row in document["messages"]],
-        "latest_url": document["latest_url"], "last_run": run or document.get("last_run"), "persistence": "durable"}
+        {"role": "assistant" if row["role"] == "model" else row["role"], "content": row["content"], **({"images": row["images"]} if row.get("images") else {})} for row in document["messages"]],
+        "latest_url": document["latest_url"], "last_run": run or document.get("last_run"), "persistence": "durable",
+        "image_assets": document.get("images", {}), "pending_images": [document.get("images", {})[key] for key in document.get("pending_images", [])],
+        "image_uploads_pending": len(document.get("image_uploads", {}))}
 
 
-def _request_digest(prompt: str) -> str:
-    return hashlib.sha256(task_persistence.credential_safe(prompt).encode()).hexdigest()
+def _request_digest(prompt: str, image_ids: list[str] | None = None) -> str:
+    clean = task_persistence.credential_safe(prompt)
+    data = json.dumps([clean, image_ids], ensure_ascii=False) if image_ids else clean
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 def _cached_run(request: RunRequest | MessageRequest, document: dict[str, Any]) -> RunResponse | None:
     stored = document.get("last_run") or {}
+    if stored.get("status") == "failed":
+        return None
     if not request.request_id or stored.get("request_id_hash") != hashlib.sha256(request.request_id.encode()).hexdigest():
         return None
-    if stored.get("request_digest") != _request_digest(request.prompt):
+    ids = request.image_ids if request.image_ids is not None else stored.get("image_ids", [])
+    if stored.get("request_digest") != _request_digest(request.prompt, ids):
         raise task_persistence.TaskStorageError("同じrequest_idで異なる入力を再送できません。", "storage_conflict")
     with _STATE_LOCK:
         result = dict(_RUNS.get(stored["run_id"], stored))
@@ -510,10 +594,14 @@ def _remember_calendar_preview(session_id: str | None, result: AgentResult) -> N
         break
 
 
-def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt: str | None = None) -> AgentResult:
+def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt: str | None = None, images: list[dict] | None = None) -> AgentResult:
     # 既存の差し替え用 FakeAgent（run(prompt) のみ）との互換性を保つ。
     if isinstance(agent, AgentCore):
+        if images:
+            return agent.run(prompt, private_mode=private_mode, current_prompt=current_prompt, images=images)
         return agent.run(prompt, private_mode=private_mode, current_prompt=current_prompt)
+    if images:
+        return agent.run(prompt, private_mode=private_mode, images=images)
     if private_mode:
         return agent.run(prompt, private_mode=True)
     return agent.run(prompt)
@@ -552,17 +640,26 @@ def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) 
                 return _replay_payload(cached, claimed) if task_mode else cached
             with _STATE_LOCK:
                 _restore_task_locked(claimed)
-        response = _execute_locked(request, agent)
+        service = image_attachments.AttachmentService(request.session_id, repo)
+        image_document = claimed if repo else service.document()
+        selected = list(request.image_ids if request.image_ids is not None else image_document.get("pending_images", []))
+        images = service.resolve(selected, document=image_document)
+        request.image_ids = selected
+        response = _execute_locked(request, agent, images=images)
         if repo is not None:
             messages = [dict(row) for row in claimed["messages"]] + [
-                {"role": "user", "content": request.prompt}, {"role": "model", "content": response.text}]
+                {"role": "user", "content": request.prompt, **({"images": selected} if selected else {})}, {"role": "model", "content": response.text}]
             persisted_run = response.model_dump()
+            persisted_run["image_ids"] = selected
             if request.request_id:
-                persisted_run.update(request_id_hash=hashlib.sha256(request.request_id.encode()).hexdigest(), request_digest=_request_digest(request.prompt))
+                persisted_run.update(request_id_hash=hashlib.sha256(request.request_id.encode()).hexdigest(), request_digest=_request_digest(request.prompt, selected))
             document = repo.finish(request.session_id, lease_id, messages, persisted_run)
             saved = True
             with _STATE_LOCK:
                 _restore_task_locked(document)
+        elif response.status in {"completed", "needs_user_action"}:
+            with image_attachments._MEMORY_LOCK:
+                image_document["pending_images"] = [key for key in image_document.get("pending_images", []) if key not in selected]
         if task_mode:
             if repo is not None:
                 details = _durable_task_details(document)
@@ -588,7 +685,7 @@ def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) 
         lock.release()
 
 
-def _execute_locked(request: RunRequest, agent: AgentCore) -> RunResponse:
+def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | None = None) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
@@ -599,9 +696,11 @@ def _execute_locked(request: RunRequest, agent: AgentCore) -> RunResponse:
         context = "\n".join(f"{item['role']}: {item['content']}" for item in memory.get_history()[-6:])
         prompt = f"会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
     try:
+        if images and _calendar_confirmation(request.prompt) and session_id in _PENDING_CALENDAR:
+            raise ValueError("予定確認時は画像の添付を外してください。")
         result = _pending_calendar_result(session_id, request.prompt)
         if result is None:
-            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt)
+            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
@@ -616,6 +715,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore) -> RunResponse:
         with _STATE_LOCK:
             memory.add_message("user", request.prompt)
             memory.add_message("model", result.text)
+            if request.image_ids:
+                memory.history[-2]["images"] = list(request.image_ids)
     response = RunResponse(
         run_id=run_id,
         session_id=session_id,
@@ -649,6 +750,8 @@ def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = Fal
     except task_persistence.TaskStorageError as exc:
         status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
         yield _sse("error", {"status_code": status, "detail": str(exc), "error_code": exc.code})
+    except image_attachments.ImageAttachmentError as exc:
+        yield _sse("error", {"status_code": exc.status_code, "detail": str(exc)})
     except HTTPException as exc:
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
         healing = healing_engine.analyze_and_heal(cause, {"source": "api_stream", "status_code": exc.status_code})
@@ -789,16 +892,59 @@ def list_sessions():
 def task_session(session_id: str):
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().reconcile(session_id, _verify_publication)
+        document = _image_service(session_id).reconcile(document)
         return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         details = _session_detail_locked(session_id)
     return JSONResponse(details, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/upload_image", dependencies=[Depends(require_tool_auth)])
+async def upload_image(session_id: Annotated[str, Form(min_length=1, max_length=100)], file: Annotated[UploadFile, File()]):
+    try:
+        contents = await file.read(image_attachments.MAX_UPLOAD_BYTES + 1)
+        def upload():
+            service = _image_service(session_id)
+            service.document()
+            lock = _image_mutation_lock(session_id)
+            try:
+                image = image_attachments.normalize(contents, file.content_type or "")
+                meta = service.upload(image, file.filename or "image")
+                return {"status": "success", "filename": meta["filename"], "image_id": meta["id"],
+                    "image_url": image_attachments.data_uri(image.body, image.mime_type), "session_id": session_id,
+                    "image": meta, "warning": image.warning}
+            finally:
+                lock.release()
+        result = await run_in_threadpool(upload)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    finally:
+        await file.close()
+
+
+@app.get("/api/images/{image_id}", dependencies=[Depends(require_tool_auth)])
+def image_preview(image_id: str, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    meta, body = _image_service(session_id).get(image_id)
+    return JSONResponse({"image_url": image_attachments.data_uri(body, meta["mime_type"]), "image": meta}, headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/pending_images/{image_id}", dependencies=[Depends(require_tool_auth)])
+def detach_image(image_id: str, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    service = _image_service(session_id)
+    service.document()
+    lock = _image_mutation_lock(session_id)
+    try:
+        service.detach(image_id)
+        return JSONResponse({"status": "detached", "image_id": image_id, "session_id": session_id}, headers={"Cache-Control": "no-store"})
+    finally:
+        lock.release()
+
+
 @app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
 def task_chat(request: MessageRequest):
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().load(request.session_id)
+        if document.get("image_uploads"):
+            document = _image_service(request.session_id).reconcile(document)
         cached = _cached_run(request, document)
         if cached is not None:
             payload = _replay_payload(cached, document)
@@ -812,7 +958,7 @@ def task_chat(request: MessageRequest):
     # Do not initialize the model for list/create/detail/unknown-session requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
     agent = agent_factory()
-    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id)
+    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id, image_ids=request.image_ids)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
     return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "no-store"})

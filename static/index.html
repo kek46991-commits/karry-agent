@@ -13,6 +13,7 @@
     .chat{min-height:650px;min-width:0;display:flex;flex-direction:column}.task-heading{padding:14px 20px;border-bottom:1px solid var(--line)}.task-heading h2{font-size:16px;margin:0}.latest{font-size:12px;margin-top:5px}.messages{flex:1;padding:20px;overflow:auto;max-height:590px}.message{max-width:90%;padding:12px 15px;border-radius:14px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}.message.user{margin-left:auto;background:#1e477d}.message.agent{background:#182238;border:1px solid #283858}.message .label{display:block;color:#9ec9ff;font-size:11px;margin-bottom:4px;font-weight:700}.empty{color:var(--muted);text-align:center;padding:95px 20px}
     form{border-top:1px solid var(--line);padding:15px;display:flex;gap:10px;align-items:stretch}textarea{flex:1;resize:vertical;min-height:52px;max-height:220px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0c1426;color:var(--text);font:inherit}input[type="text"],input[type="password"]{padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit}button{border:0;border-radius:11px;padding:0 18px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid #9ec9ff;outline-offset:3px}.icon-button{min-width:42px;padding:0 10px;background:#263c61;color:var(--text);font-size:18px}.icon-button.active{background:#a34b67}.voice-options{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:0 15px 12px}.voice-options input{accent-color:var(--accent)}
     aside{padding:18px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted)}.metric strong{color:var(--text);font-variant-numeric:tabular-nums}.trace{margin-top:22px}.trace-list{max-height:280px;overflow:auto}.event{border-left:2px solid var(--accent);padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px}.event .kind{color:var(--accent);font-weight:800}.event pre{margin:4px 0 0;white-space:pre-wrap;color:#bdc9df;overflow-wrap:anywhere}.session{color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}.hint{color:var(--muted);font-size:12px;margin-top:14px}a{color:#8fc3ff}.auth{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}.auth input{width:min(100%,360px)}.auth button{padding:10px 16px}.auth label{width:100%}[hidden]{display:none!important}
+    .attachments{padding:12px 15px 0;border-top:1px solid var(--line)}.attachments label{display:inline-block;padding:6px 12px;border:1px solid #4378c7;border-radius:8px;color:#a5cdff;cursor:pointer}.attachments input{max-width:230px;font-size:12px}.image-previews{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.image-card{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.image-card img{width:64px;height:64px;object-fit:contain;background:#0b1020;border-radius:5px}.image-card button{padding:4px 8px}.history-image{display:block;max-width:100%;max-height:240px;object-fit:contain;margin:8px 0}.image-link{padding:4px 8px;margin-top:8px;font-size:11px}
     @media(max-width:1100px){.grid{grid-template-columns:220px minmax(0,1fr)}aside{grid-column:1/-1}.trace-list{max-height:180px}}
     @media(max-width:700px){.grid{grid-template-columns:1fr}.chat{min-height:560px}.task-list{max-height:170px}aside{grid-column:auto}header{align-items:flex-start;flex-direction:column}.shell{padding:18px 12px 32px}form{gap:7px;padding:12px}button{padding:0 12px}}
   </style>
@@ -40,6 +41,7 @@
       <div class="panel chat">
         <div class="task-heading"><h2 id="currentTask">タスクを選択してください</h2><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
+        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span id="voiceStatus">音声機能を確認中…</span></div>
       </div>
@@ -49,6 +51,8 @@
 <script>
   const $ = id => document.getElementById(id);
   let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0, pendingMessage=null;
+  let selectedImages=[], imageVersion=0;
+  const imageUrls=new Map();
   try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
   const recognition=SpeechRecognition?new SpeechRecognition():null;
@@ -80,13 +84,16 @@
     busy=value;$('loadTasks').disabled=value;$('apiToken').disabled=value;$('taskTitle').disabled=value;
     $('newTask').disabled=value||!connected;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
     $('mic').disabled=value||!connected||!sessionId||!recognition;
+    $('imageFile').disabled=value||!connected||!sessionId||selectedImages.length>=4;
+    for(const button of $('imagePreviews').querySelectorAll('button'))button.disabled=value;
     if(value&&recognition&&$('mic').classList.contains('active'))recognition.stop();
     for(const button of $('taskList').querySelectorAll('button'))button.disabled=value;
   }
   function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
   function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
   function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';}
-  function headers(){const h={'Content-Type':'application/json'};const token=ownerToken();if(token)h.Authorization=`Bearer ${token}`;return h;}
+  function authHeaders(){const token=ownerToken();return token?{Authorization:`Bearer ${token}`}:{};}
+  function headers(){return {...authHeaders(),'Content-Type':'application/json'};}
   async function requestJson(url,options={}){
     const response=await fetch(url,{...options,headers:headers(),cache:'no-store'});let data;
     try{data=await response.json();}catch(_){throw new Error('サーバーから正しいJSONが返りませんでした');}
@@ -100,6 +107,8 @@
     try{const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))return;$('latestUrl').href=parsed.href;$('latestBox').hidden=false;}catch(_){}
   }
   function clearView(){
+    selectedImages=[];imageUrls.clear();imageVersion++;$('imagePreviews').replaceChildren();$('imageFile').value='';$('prompt').required=true;
+    $('imageStatus').textContent='JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
     $('messages').replaceChildren();const empty=document.createElement('div');empty.id='empty';empty.className='empty';empty.textContent='このタスクへの指示を入力してください。';$('messages').appendChild(empty);
     $('trace').replaceChildren();metrics({});showLatest('');$('prompt').value='';
   }
@@ -110,7 +119,10 @@
   function renderSession(data){
     clearView();$('currentTask').textContent=data.title;$('session').textContent=data.session_id;
     $('storageHint').textContent=data.persistence==='durable'?'タスクと履歴は非公開R2/S3へ永続保存されています。':data.persistence==='ephemeral'?'一時メモリモードです。タスクと履歴は再起動で消えます。':'保存方式は接続後に確認できます。';
-    for(const message of data.messages||[])addMessage(message.role==='user'?'user':'agent',message.content);
+    selectedImages=Array.isArray(data.pending_images)?data.pending_images.slice(0,4):[];
+    renderAttachments();
+    if(data.image_uploads_pending)$('imageStatus').textContent=`未完了の画像アップロードが${data.image_uploads_pending}件あります。接続・タスク読み込みで復旧を確認してください。`;
+    for(const message of data.messages||[]){const el=addMessage(message.role==='user'?'user':'agent',message.content);renderHistoryImages(el,message.images||[],data.image_assets||{});}
     showLatest(data.latest_url);
     const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);websiteApproval(run,data.latest_url);}
   }
@@ -138,6 +150,45 @@
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
     finally{setBusy(false);}
   }
+  function safeImageUrl(url){return typeof url==='string'&&url.length<3000000&&/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(url);}
+  async function privateImageUrl(id,owner){
+    if(imageUrls.has(id))return imageUrls.get(id);
+    const data=await requestJson('/api/images/'+encodeURIComponent(id)+'?session_id='+encodeURIComponent(owner));
+    if(!safeImageUrl(data.image_url))throw new Error('画像の応答形式が不正です');
+    if(sessionId===owner)imageUrls.set(id,data.image_url);
+    return data.image_url;
+  }
+  function renderAttachments(){
+    $('imagePreviews').replaceChildren();$('prompt').required=selectedImages.length===0;
+    const owner=sessionId,version=imageVersion;
+    for(const meta of selectedImages){
+      const card=document.createElement('div');card.className='image-card';const img=document.createElement('img');img.alt=meta.filename;
+      const label=document.createElement('span');label.textContent=meta.filename;const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','画像の添付を外す');remove.disabled=busy;remove.onclick=()=>removeImage(meta.id);
+      card.append(img,label,remove);$('imagePreviews').appendChild(card);
+      privateImageUrl(meta.id,owner).then(url=>{if(version===imageVersion&&owner===sessionId&&card.isConnected)img.src=url;}).catch(error=>{if(version===imageVersion&&card.isConnected)label.textContent=meta.filename+'（プレビュー失敗）';});
+    }
+    $('imageFile').disabled=busy||!connected||!sessionId||selectedImages.length>=4;
+  }
+  function renderHistoryImages(element,ids,assets){
+    const owner=sessionId,version=imageVersion;
+    for(const id of ids){const button=document.createElement('button');button.type='button';button.className='image-link';button.textContent='画像を確認: '+(assets[id]?.filename||id.slice(0,8));element.appendChild(button);
+      button.onclick=async()=>{button.disabled=true;try{const url=await privateImageUrl(id,owner);if(version!==imageVersion||sessionId!==owner||!element.isConnected)return;const img=document.createElement('img');img.src=url;img.alt=assets[id]?.filename||'添付画像';img.className='history-image';element.appendChild(img);button.hidden=true;}catch(error){button.textContent='画像を確認できませんでした';button.disabled=false;}};
+    }
+  }
+  async function uploadSelectedImage(event){
+    const file=event.target.files?.[0];if(!file||busy||!connected||!sessionId)return;
+    if(file.size>4*1024*1024||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){$('imageStatus').textContent='JPG/PNG/WEBP/GIFの4 MiB以内の画像を選んでください。';$('imageFile').value='';return;}
+    const owner=sessionId;setBusy(true);$('imageStatus').textContent='アップロード中…';const form=new FormData();form.append('session_id',owner);form.append('file',file);
+    try{const response=await fetch('/api/upload_image',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'画像をアップロードできませんでした');if(!safeImageUrl(data.image_url)||!data.image||!/^([a-f0-9]{32})$/.test(data.image.id))throw new Error('画像の応答形式が不正です');if(sessionId===owner){imageUrls.set(data.image.id,data.image_url);selectedImages.push(data.image);renderAttachments();$('imageStatus').textContent=data.warning||'添付しました。送信するまではLLMを呼びません。';}}
+    catch(error){$('imageStatus').textContent='画像アップロード: '+error.message;}
+    finally{$('imageFile').value='';setBusy(false);}
+  }
+  async function removeImage(id){
+    if(busy||!connected||!sessionId)return;const owner=sessionId;setBusy(true);
+    try{await requestJson('/api/pending_images/'+encodeURIComponent(id)+'?session_id='+encodeURIComponent(owner),{method:'DELETE'});if(sessionId===owner){selectedImages=selectedImages.filter(meta=>meta.id!==id);imageUrls.delete(id);renderAttachments();$('imageStatus').textContent='次回の送信から画像を外しました。';}}
+    catch(error){$('imageStatus').textContent='添付取消: '+error.message;}
+    finally{setBusy(false);}
+  }
   function websiteApproval(data,latestUrl=''){
     const event=(data.trace||[]).find(item=>item.action==='deploy_instant_website'&&item.observation?.confirmation_required);if(!event)return;
     const pending=event.observation,preview=pending.preview;if(!preview||preview.public_url===latestUrl)return;const owner=sessionId;
@@ -154,11 +205,12 @@
     };
   }
   async function sendMessage(event){
-    event.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
-    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt)pendingMessage={sessionId:owner,prompt,requestId:window.crypto.randomUUID()};
+    event.preventDefault();const prompt=$('prompt').value.trim()||(selectedImages.length?'添付画像を確認してください。':'');if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
+    const imageIds=selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds);
+    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt||pendingMessage.imageSignature!==imageSignature)pendingMessage={sessionId:owner,prompt,imageSignature,requestId:window.crypto.randomUUID()};
     setBusy(true);$('prompt').value='';setConnectionStatus('実行中…');addMessage('user',prompt);$('trace').replaceChildren();trace('started',{prompt});
     try{
-      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,stream:true})});
+      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,image_ids:imageIds,stream:true})});
       if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
       if(!response.body)throw new Error('ストリーミング応答を取得できませんでした');
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=null;
@@ -166,7 +218,8 @@
       try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
       if(!completed||completed.session_id!==owner)throw new Error('タスクの完了応答を確認できませんでした');
       pendingMessage=null;
-      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}setConnectionStatus('オンライン');
+      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}
+      if(completed.status==='failed'){setConnectionStatus('生成に失敗しました');if(sessionId===owner)$('prompt').value=prompt;}else{setConnectionStatus('オンライン');}
     }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}setConnectionStatus('エラー');}
     finally{setBusy(false);$('prompt').focus();}
   }
@@ -176,6 +229,7 @@
   $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('mic').addEventListener('click',()=>{if(recognition&&!busy){if($('mic').classList.contains('active'))recognition.stop();else recognition.start();}});
   $('chatForm').addEventListener('submit',sendMessage);
+  $('imageFile').addEventListener('change',uploadSelectedImage);
   setBusy(false);
 </script>
 </body>

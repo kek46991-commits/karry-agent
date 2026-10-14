@@ -98,4 +98,4 @@ npm run test:ui
 
 2026-10-14、本番の状態APIを読み取り専用で確認しました。`mode=s3` ですが `configuration_valid=false`、`connection_status=not_checked`、`error_code=storage_configuration` です。したがってライブ保存・本番履歴移行・実際のRender再起動テストは未実施です。モデル呼出し・成果物公開・本番設定変更をテスト目的では行っていません。
 
-統合実装は [PR #10](https://github.com/kek46991-commits/karry-agent/pull/10) に保存しました。UIと履歴永続化の分割PRは作成していません。main未マージ・本番未反映です。**ストレージ設定不足のままマージすると、タスクAPIと既存chat/runの永続モードは503になります。設定完了を先に確認してください。**
+統合実装は [PR #10](https://github.com/kek46991-commits/karry-agent/pull/10) に保存し、画像添付追加の時点でmainへマージ済み（62b5f13）と確認しました。UIと履歴永続化の分割PRは作成していません。今回の画像追加では本番設定・ライブ保存は再確認していません。**ストレージ設定不足の環境では、タスクAPIと既存chat/runの永続モードは503になります。設定完了を確認してください。** 画像添付の追加仕様は [image-attachments.md](image-attachments.md) を参照してください。
