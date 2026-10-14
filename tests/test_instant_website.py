@@ -174,7 +174,8 @@ def test_confirmation_api_auth_and_reviewed_content(monkeypatch):
     assert not sites.INSTANT_DIR.exists()
     response = client.post("/api/agent/websites/confirm", json=payload, headers={"Authorization": "Bearer synthetic-owner"})
     assert response.status_code == 200 and response.json()["success"]
-    assert response.json()["public_url"] == pending["preview"]["public_url"]
+    assert pending['preview']['public_url'] is None
+    assert response.json()["public_url"] == pending["preview"]["planned_public_url"]
 
 
 def test_fail_closed_without_owner_token():

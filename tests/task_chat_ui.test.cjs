@@ -252,3 +252,53 @@ test('missing image keeps image-specific guidance rather than blaming task loss'
     assert.match(error.message,/指定された画像.*画像をもう一度添付/);assert.doesNotMatch(error.message,/再起動後はタスク/);assert.equal(error.status,404);return true;
   });assert.equal(s.calls.length,1);s.dom.window.close();
 });
+
+const DRAFT_ID='d'.repeat(32);
+const DRAFT_HTML='<!doctype html><html><head><title>Saved website</title></head><body><h1>Private homepage</h1><script>window.parent.bad=true</script></body></html>';
+function draftMeta(){return {artifact_id:DRAFT_ID,state:'draft',filename:'site_'+DRAFT_ID+'.html',sha256:'a'.repeat(64),public_url:null};}
+function draftReply(){return {...draftMeta(),status:'ready',html_content:DRAFT_HTML,planned_public_url:'https://example.onrender.com/static/instant/site_'+DRAFT_ID+'.html'};}
+const tick=()=>new Promise(resolve=>setTimeout(resolve,20));
+
+test('saved HTML preview restores without visiting an unpublished public URL',async()=>{
+ const r=record('a','A');r.artifacts=[draftMeta()];
+ const s=setup({sessions:[['a',r]],fetch:async(url)=>url.startsWith('/api/website-artifacts/')?json(draftReply()):null});
+ s.authenticate();await s.win.connectSessions();await tick();
+ const frame=s.doc.querySelector('iframe');assert.ok(frame);assert.equal(frame.getAttribute('sandbox'),'allow-scripts');
+ assert.match(frame.srcdoc,/Private homepage/);assert.match(frame.srcdoc,/connect-src 'none'/);assert.equal(frame.getAttribute('src'),null);
+ assert.equal(s.doc.getElementById('latestBox').hidden,true);
+ assert.equal(s.doc.querySelector('a[href*="site_" ]'),null);assert.equal(s.win.bad,undefined);
+ assert.equal(s.calls.filter(c=>c.url.startsWith('/static/instant/')).length,0);
+ assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);s.dom.window.close();
+});
+
+test('preview 404 stays in chat with retry instead of navigation or fake success',async()=>{
+ const r=record('a','A');r.artifacts=[draftMeta()];
+ const s=setup({sessions:[['a',r]],fetch:async(url)=>url.startsWith('/api/website-artifacts/')?json({detail:'下書きを確認してください。'},404):null});
+ s.authenticate();await s.win.connectSessions();await tick();
+ assert.match(s.doc.getElementById('messages').textContent,/プレビューを読み込めません/);assert.equal(s.doc.querySelector('iframe'),null);
+ assert.equal(s.win.location.pathname,'/');assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('switching tasks cancels display of delayed private HTML',async()=>{
+ let release;const wait=new Promise(resolve=>release=resolve);
+ const a=record('a','A');a.artifacts=[draftMeta()];
+ const s=setup({sessions:[['a',a],['b',record('b','B')]],fetch:async(url)=>{if(url.startsWith('/api/website-artifacts/')){await wait;return json(draftReply());}}});
+ s.authenticate();await s.win.connectSessions();await s.win.selectSession('b');release();await tick();
+ assert.equal(s.doc.querySelector('iframe'),null);assert.doesNotMatch(s.doc.getElementById('messages').textContent,/Private homepage/);s.dom.window.close();
+});
+
+test('public URL appears only after fresh confirmation and successful publication',async()=>{
+ const r=record('a','A');r.artifacts=[draftMeta()];const url=draftReply().planned_public_url;
+ const s=setup({sessions:[['a',r]],fetch:async(path)=>{
+  if(path.includes('/prepare?'))return json({success:false,confirmation_required:true,approval_id:'fresh',preview:{sha256:'a'.repeat(64)}});
+  if(path==='/api/agent/websites/confirm')return json({success:true,status:'published',public_url:url});
+  if(path.startsWith('/api/website-artifacts/'))return json(draftReply());
+ }});
+ s.authenticate();await s.win.connectSessions();await tick();
+ const box=s.doc.querySelector('[data-artifact-id]'),check=box.querySelector('input[type="checkbox"]');
+ const button=[...box.querySelectorAll('button')].find(b=>b.textContent==='確認した内容を即時公開');assert.equal(button.disabled,true);
+ assert.equal(s.calls.filter(c=>c.request.method==='POST').length,0);
+ check.checked=true;check.onchange();await button.onclick();
+ assert.equal(s.doc.getElementById('latestUrl').href,url);
+ assert.equal(s.calls.filter(c=>c.url==='/api/agent/websites/confirm').length,1);s.dom.window.close();
+});

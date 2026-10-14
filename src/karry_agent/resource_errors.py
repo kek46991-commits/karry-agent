@@ -22,7 +22,7 @@ _PAGE_HEADERS = {
 
 def kind(path: str) -> str:
     parts = [part for part in path.split('/') if part]
-    if parts[:2] == ['static', 'instant'] or path.startswith('/api/artifacts/'):
+    if parts[:2] == ['static', 'instant'] or path.startswith(('/api/artifacts/', '/api/website-artifacts/', '/artifacts/')):
         return 'artifact'
     if path.startswith(('/api/sessions/', '/sessions/')):
         return 'session'
@@ -34,7 +34,7 @@ def kind(path: str) -> str:
 
 
 def is_retrieval(path: str, method: str) -> bool:
-    return method in {'GET', 'HEAD'} and path.startswith(('/static/', '/api/sessions', '/sessions/', '/api/images/', '/runs/', '/api/artifacts/', '/api/media/'))
+    return method in {'GET', 'HEAD'} and path.startswith(('/static/', '/api/sessions', '/sessions/', '/api/images/', '/runs/', '/api/artifacts/', '/api/website-artifacts/', '/artifacts/', '/api/media/'))
 
 
 def missing(resource: str = 'resource', error_code: str | None = None) -> dict:
