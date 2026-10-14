@@ -56,3 +56,7 @@ ReplicateのAPI出力は既定で約1時間後に削除されるため、URL文�
 [1]: https://replicate.com/docs/reference/http "Replicate HTTP API official model prediction creation"
 [2]: https://replicate.com/docs/topics/predictions/data-retention "Replicate API prediction data retention"
 [3]: https://orm.drizzle.team/docs/get-started/postgresql-new "Drizzle PostgreSQL schema and migration setup"
+
+## 実装PRと本番状態
+
+[PR #14](https://github.com/kek46991-commits/karry-agent/pull/14)へ、DB定義・Migration・API・結合テストをまとめて保存しました。main未マージ・本番未適用です。本番のPostgreSQLサービス/DBを指定し、DATABASE_URLを秘密設定に登録してから適用します。
