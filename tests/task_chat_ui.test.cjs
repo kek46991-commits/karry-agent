@@ -23,7 +23,8 @@ function setup(options={}){
       if(url.startsWith('/api/sessions/')){const sid=decodeURIComponent(url.split('/').at(-1));return data.has(sid)?json(data.get(sid)):json({detail:'Session not found'},404);}
       if(url==='/api/chat'){
         const record=data.get(body.session_id);const reply='Answer for '+record.title;
-        record.messages=[...record.messages,{role:'user',content:body.prompt},{role:'assistant',content:reply}];
+        record.messages=[...record.messages,{role:'user',content:body.prompt,...(body.image_ids?.length?{images:body.image_ids}:{})},{role:'assistant',content:reply}];
+        record.pending_images=(record.pending_images||[]).filter(meta=>!(body.image_ids||[]).includes(meta.id));
         const result={...record,text:reply,response:reply,status:'completed',steps:1,tool_calls:0,metrics:{api_calls:1},trace:[]};
         return new Response('event: started\ndata: {}\n\nevent: completed\ndata: '+JSON.stringify(result)+'\n\n',{headers:{'content-type':'text/event-stream'}});
       }
@@ -128,4 +129,80 @@ test('manual retry keeps the same request ID and never automatically resends',as
   await s.win.sendMessage({preventDefault(){}});assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);
   await s.win.sendMessage({preventDefault(){}});const calls=s.calls.filter(c=>c.url==='/api/chat');
   assert.equal(calls.length,2);assert.equal(JSON.parse(calls[0].request.body).request_id,JSON.parse(calls[1].request.body).request_id);s.dom.window.close();
+});
+
+const IMAGE_ID='1'.repeat(32),IMAGE_ID2='2'.repeat(32);
+const IMAGE_URL='data:image/png;base64,iVBORw0KGgo=';
+function imageMeta(id=IMAGE_ID){return {id,filename:'screenshot.png',mime_type:'image/png',width:12,height:8,size_bytes:100,sha256:'a'.repeat(64)};}
+function withImage(r,id=IMAGE_ID){const meta=imageMeta(id);r.pending_images=[meta];r.image_assets={[id]:meta};return r;}
+function imageReply(meta=imageMeta()){return {status:'success',image_id:meta.id,image:meta,filename:meta.filename,session_id:'a',image_url:IMAGE_URL};}
+
+
+test('upload uses owner auth and browser multipart boundary, and never chats',async()=>{
+  const a=record('a','A');
+  const s=setup({sessions:[['a',a]],fetch:async(url,request)=>{if(url==='/api/upload_image'){assert.equal(request.body.get('session_id'),'a');a.pending_images=[imageMeta()];a.image_assets={[IMAGE_ID]:imageMeta()};return json(imageReply());}if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});}});
+  s.authenticate();await s.win.connectSessions();
+  await s.win.uploadSelectedImage({target:{files:[new s.win.File(['tiny image'],'screenshot.png',{type:'image/png'})]}});
+  const upload=s.calls.find(c=>c.url==='/api/upload_image');assert.equal(upload.request.headers.Authorization,'Bearer synthetic-owner');assert.equal(upload.request.headers['Content-Type'],undefined);
+  assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);assert.equal(s.doc.querySelector('#imagePreviews img').src,IMAGE_URL);assert.equal(s.doc.getElementById('prompt').required,false);s.dom.window.close();
+});
+
+
+test('removing an attachment updates server before the next text send',async()=>{
+  const a=withImage(record('a','A'));
+  const s=setup({sessions:[['a',a]],fetch:async(url,request)=>{if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});if(url.startsWith('/api/pending_images/')){assert.equal(request.method,'DELETE');a.pending_images=[];return json({status:'detached'});}}});
+  s.authenticate();await s.win.connectSessions();await s.win.removeImage(IMAGE_ID);
+  assert.equal(s.doc.querySelector('#imagePreviews img'),null);assert.equal(s.doc.getElementById('prompt').required,true);
+  s.doc.getElementById('prompt').value='Only text';await s.win.sendMessage({preventDefault(){}});
+  const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);assert.deepEqual(body.image_ids,[]);s.dom.window.close();
+});
+
+
+test('task switching never carries another tasks attachment IDs',async()=>{
+  const s=setup({sessions:[['a',withImage(record('a','A'))],['b',record('b','B')]],fetch:async(url)=>url.startsWith('/api/images/')?json({image_url:IMAGE_URL}):null});
+  s.authenticate();await s.win.connectSessions();assert.equal(s.doc.querySelectorAll('#imagePreviews img').length,1);
+  await s.win.selectSession('b');assert.equal(s.doc.querySelector('#imagePreviews img'),null);s.doc.getElementById('prompt').value='B only';await s.win.sendMessage({preventDefault(){}});
+  const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);assert.equal(body.session_id,'b');assert.deepEqual(body.image_ids,[]);s.dom.window.close();
+});
+
+
+test('image-only send includes references, never data URI in the chat body',async()=>{
+  const s=setup({sessions:[['a',withImage(record('a','A'))]],fetch:async(url)=>url.startsWith('/api/images/')?json({image_url:IMAGE_URL}):null});
+  s.authenticate();await s.win.connectSessions();await s.win.sendMessage({preventDefault(){}});
+  const post=s.calls.find(c=>c.url==='/api/chat'),body=JSON.parse(post.request.body);
+  assert.equal(body.prompt,'添付画像を確認してください。');assert.deepEqual(body.image_ids,[IMAGE_ID]);assert.doesNotMatch(post.request.body,/data:image/);
+  assert.equal(s.doc.querySelector('#imagePreviews img'),null);assert.match(s.doc.querySelector('.image-link').textContent,/screenshot/);s.dom.window.close();
+});
+
+
+test('preview rejects executable image URL schemes',async()=>{
+  const s=setup({sessions:[['a',withImage(record('a','A'))]],fetch:async(url)=>url.startsWith('/api/images/')?json({image_url:'javascript:window.bad=true'}):null});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(s.win.bad,undefined);assert.equal(s.doc.querySelector('#imagePreviews img').getAttribute('src'),null);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);s.dom.window.close();
+});
+
+
+test('upload disables task switching and model send until it completes',async()=>{
+  let finish;const pending=new Promise(resolve=>{finish=resolve;});
+  const s=setup({sessions:[['a',record('a','A')],['b',record('b','B')]],fetch:async(url)=>{if(url==='/api/upload_image'){await pending;return json(imageReply());}}});
+  s.authenticate();await s.win.connectSessions();const uploading=s.win.uploadSelectedImage({target:{files:[new s.win.File(['x'],'photo.png',{type:'image/png'})]}});
+  assert.equal(s.doc.getElementById('send').disabled,true);await s.win.selectSession('b');assert.equal(s.doc.getElementById('session').textContent,'a');finish();await uploading;
+  assert.equal(s.doc.getElementById('send').disabled,false);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);s.dom.window.close();
+});
+
+
+test('failed generation keeps pending preview and restores text for a manual retry',async()=>{
+  const a=withImage(record('a','A'));
+  const s=setup({sessions:[['a',a]],fetch:async(url)=>{if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});if(url==='/api/chat'){return new Response('event: completed\ndata: '+JSON.stringify({...a,status:'failed',text:'Model failed',response:'Model failed',trace:[],metrics:{},steps:1,tool_calls:0})+'\n\n');}}});
+  s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Read screenshot';await s.win.sendMessage({preventDefault(){}});
+  assert.equal(s.doc.querySelectorAll('#imagePreviews img').length,1);assert.equal(s.doc.getElementById('prompt').value,'Read screenshot');assert.match(s.doc.getElementById('status').textContent,/失敗/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);s.dom.window.close();
+});
+
+
+test('changing attachments after a lost reply creates a new request ID',async()=>{
+  const a=withImage(record('a','A'));let first=true;
+  const s=setup({sessions:[['a',a]],fetch:async(url)=>{if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});if(url==='/api/chat'&&first){first=false;throw new Error('lost reply');}}});
+  s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Read';await s.win.sendMessage({preventDefault(){}});
+  a.pending_images=[imageMeta(IMAGE_ID2)];a.image_assets[IMAGE_ID2]=imageMeta(IMAGE_ID2);s.win.renderSession(a);s.doc.getElementById('prompt').value='Read';await s.win.sendMessage({preventDefault(){}});
+  const posts=s.calls.filter(c=>c.url==='/api/chat').map(c=>JSON.parse(c.request.body));assert.notEqual(posts[0].request_id,posts[1].request_id);s.dom.window.close();
 });

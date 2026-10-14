@@ -9,3 +9,5 @@ requests>=2.31,<3
 beautifulsoup4>=4.12,<5
 urllib3>=2.2,<3
 boto3>=1.40,<2
+Pillow>=11.3,<13
+python-multipart>=0.0.20,<1
