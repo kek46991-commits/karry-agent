@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from google.genai import errors
 
 from karry_agent.core import AgentCore, _is_website_creation_request
 from karry_agent.tools import ToolRegistry
@@ -69,16 +70,20 @@ def test_explicit_creation_generates_once_and_prepares_once_without_announcing_u
 @pytest.mark.parametrize("response", [
     model_response(text_part("HTMLは作れませんでした")),
     model_response(text_part(HTML), function_part()),
+    model_response(),
 ])
-def test_invalid_or_tool_call_html_fails_without_prepare(response):
+def test_unusable_output_retries_then_previews_fallback_page(response):
     registry, prepare = registry_with_prepare()
-    client, generator = fake_client(response)
+    client, generator = fake_client(response, response)
 
-    result = AgentCore(client=client, registry=registry).run("HTMLを生成して")
+    result = AgentCore(client=client, registry=registry).run("犬のブリーダーのホームページ作成して公開まで持っていって")
 
-    assert result.status == "failed" and result.tool_calls == 0
-    assert generator.call_count == 1 and prepare.call_count == 0
-    assert "公開されていません" in result.text and "http" not in result.text
+    assert result.status == "needs_user_action" and generator.call_count == 2 and prepare.call_count == 1
+    assert "簡易ページ" in result.text and "http" not in result.text
+    html = prepare.call_args.kwargs["html_content"]
+    assert html.lstrip().startswith("<!doctype html>") and html.rstrip().endswith("</html>")
+    assert "<h1>犬のブリーダー</h1>" in html
+    assert "短めの完全なHTML" in generator.call_args_list[1].kwargs["contents"][-1].parts[0].text
 
 
 def test_prepare_error_is_failed_and_never_exposes_its_unpublished_url():
@@ -209,14 +214,39 @@ def test_unfinished_html_gets_closing_tags_and_preview():
     assert html.endswith("<p>子犬情報</p></main></body>\n</html>")
 
 
-def test_timeout_reports_timeout_without_prepare():
+def test_timeout_previews_fallback_page_without_second_long_wait():
     registry, prepare = registry_with_prepare()
-    client, _ = fake_client(TimeoutError("read timed out"))
+    client, generator = fake_client(TimeoutError("read timed out"))
 
     result = AgentCore(client=client, registry=registry).run("ホームページを作成して")
 
-    assert result.status == "failed" and prepare.call_count == 0
-    assert "時間内に終わりませんでした" in result.text
+    assert result.status == "needs_user_action" and generator.call_count == 1 and prepare.call_count == 1
+    assert "簡易ページ" in result.text
+
+
+def test_cut_off_in_head_twice_still_previews_with_heading():
+    registry, prepare = registry_with_prepare()
+    head = "<!DOCTYPE html><html lang='ja'><head><meta charset='utf-8'><style>body{margin:0}.hero{"
+    client, generator = fake_client(model_response(text_part(head)), model_response(text_part(head)))
+
+    result = AgentCore(client=client, registry=registry).run("犬のブリーダーのホームページ作成して")
+
+    assert result.status == "needs_user_action" and generator.call_count == 2
+    assert "閉じタグを自動で補いました" in result.text
+    html = prepare.call_args.kwargs["html_content"]
+    assert "<body><h1>犬のブリーダー</h1></body>" in html and html.endswith("</html>")
+
+
+def test_rejected_output_budget_retries_with_model_default():
+    registry, prepare = registry_with_prepare()
+    rejected = errors.ClientError(400, {"error": {"code": 400, "message": "max_output_tokens", "status": "INVALID_ARGUMENT"}})
+    client, generator = fake_client(rejected, model_response(text_part(HTML)))
+
+    result = AgentCore(client=client, registry=registry).run("ホームページを作成して")
+
+    assert result.status == "needs_user_action" and prepare.call_args.kwargs == {"html_content": HTML}
+    assert generator.call_args_list[0].kwargs["config"].max_output_tokens == 65_536
+    assert generator.call_args_list[1].kwargs["config"].max_output_tokens is None
 
 
 def test_prepare_error_reason_is_shown_without_urls():
