@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
-_SECRET_KEY = re.compile(r"token|secret|password|authorization|cookie|api.?key|access[_-]?key|credential|passphrase|partner_name|core_user_name|core_private_context", re.I)
+_SECRET_KEY = re.compile(r"token|secret|password|authorization|cookie|api.?key|access[_-]?key|credential|passphrase|database_url|postgres_url|dsn|partner_name|core_user_name|core_private_context", re.I)
 
 
 def redact(value: Any, depth: int = 0) -> Any:
@@ -41,7 +41,7 @@ def redact(value: Any, depth: int = 0) -> Any:
     text = re.sub(
         r'''(?i)(["']?[\w-]*(?:token|secret|password|passphrase|api[_-]?key|access[_-]?key|credential|authorization|cookie|partner_name|core_user_name|core_private_context)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)''',
         r"\1[redacted]", text)
-    text = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", text)
+    text = re.sub(r"((?:https?|postgres(?:ql)?)://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", text)
     text = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?[redacted]", text)
     return text[:6000]
 

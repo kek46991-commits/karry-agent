@@ -87,5 +87,15 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 - [x] 既存の再送照合・タスク履歴・URL短縮経路を維持し、画像付き依頼、キャンセル、別タスク、サイズ/形式偽装、再起動とUIをモックで検証して画像機能の1つの追加PRへ保存する。PR #10はすでにmainマージ済み（62b5f13）なので、閉じたPRへ追記しない。本番設定・マージ・実画像送信は別途必要。
 
 画像添付の検証: Python 500 passed, 2 skipped（元456件＋追加44件）、DOM20 passed（元12件＋追加8件）。構文・依存・差分・wheel同梱成功。レビュー指摘の古い選択IDをpending検査で拒否し、バイナリ前のCAS予約・同じ画像の予約再利用・再読込復旧を追加して孤立ファイルの無制限増加を防ぐ。memory参照失敗時の新規孤立バイトも回収。向き補正・GIF・保存失敗・旧URL短縮も確認。実R2/S3・実Gemini・本番画像APIは未実行。
-画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。main未マージ・本番未反映。
+画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。今回のDB追加時点でmainマージ済み（32c2e03）。今回、画像の本番アップロード・実モデル入力は再検証していない。
 最新main（PR #12 タスク接続パネル・保存診断）を統合: 接続パネルのトークン正規化（Bearer接頭辞除去）を画像アップロードにも適用し、送信/失敗表示はsetConnectionStatusで接続状態と連動。Python 512 passed, 2 skipped、DOM 25 passed。
+
+## PostgreSQLメディア管理
+
+- [ ] `schema.ts`（Drizzle ORM）に `media_files` のid UUID、session_id、type（image_input/image_generated）、file_url、prompt、created_atを定義し、再実行可能なMigrationをPostgreSQLへ適用する。本番DBの接続先は利用者の指定待ちで、既存データやR2のタスク履歴は変更しない。
+- [x] 提供された `/api/media/upload` と `/api/media/generate` を所有者Bearer認証付きで追加する。アップロード画像の実形式・容量を検証し、DBへ保存する。Replicateの正しいFLUX公式モデルAPIを使い、未完了を成功扱いせず、結果を非公開DBへコピーする。生成リクエストの状態と再送識別子を永続化し、通信障害後に課金APIを自動再送しない。
+- [x] 既存画像添付・チャットUI・タスクR2永続保存を維持し、DBとAPIの結合を隔離したPostgreSQLで検証する。外部の課金生成や本番DB作成は実行しない。実装を1つのPRへ保存し、本番未適用の条件は正確に報告する。
+
+DB検証: 隔離したSandbox PostgreSQLのkarry_media_testへDrizzleを2回実適用。6フィールドと索引・type制約、SQL履歴を確認。Python535 passed/2 skipped、DOM25 passed、TypeScript・構文・依存・差分・wheel成功。レビュー指摘の生成保存枠とアップロード競合、明確な受付拒否による永久ブロックを修正し回帰追加。課金生成・本番DB作成・本番Migrationは未実行。本番DATABASE_URLの指定待ち。
+作業中のmain更新94b8320（Optimus Core）を保持して統合。統合後のPython569 passed/2 skipped、DOM25 passed、TypeScript確認成功。
+メディアDB実装PR: https://github.com/kek46991-commits/karry-agent/pull/14 。main未マージ・本番未適用。本番PostgreSQL接続先の指定待ち。
