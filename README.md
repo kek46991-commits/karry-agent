@@ -82,7 +82,7 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 ### HTML成果物の即時URL公開
 
-`deploy_instant_website` はHTMLを `static/instant/` へ直接保存してURLを返します。個別成果物の公開にGit push・GitHub Token・追加の外部サービスは不要です。チャットではHTML全文・公開先を確認して公開ボタンを押し、確定HTMLを直接指定する所有者APIでは即時公開します。生成HTMLは隔離ヘッダー付きで配信します。**Renderの再起動・再デプロイで消える一時プレビューで、永続ホスティングではありません。** 使い方・制限は [docs/instant-website.md](docs/instant-website.md) を参照してください。
+`deploy_instant_website` は既定で非公開R2/S3互換ストレージへHTMLを永続保存し、同じ `/static/instant/` URLから配信します。**Renderの再起動・再デプロイで公開済みHTMLは消えません。** Git pushは不要ですが、管理者による一度限りのバケット・S3鍵設定が必要です。設定不足・障害時は一時ディスクへ戻りません。チャットでの全文確認・公開承認とCSP隔離は維持。明示的な `local` モードは一時開発用だけに残します。方式比較・本番設定・旧ページを同じURLで移す手順は [docs/durable-website-storage.md](docs/durable-website-storage.md)、公開APIの使い方は [docs/instant-website.md](docs/instant-website.md) を参照してください。
 
 ### Phase 17: ストリーミングとファイル操作
 

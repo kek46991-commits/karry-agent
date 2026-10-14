@@ -18,9 +18,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
+
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult
@@ -31,6 +33,7 @@ from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import instant_website
+from karry_agent import website_storage
 
 logger = logging.getLogger(__name__)
 
@@ -45,24 +48,30 @@ instant_website.configure_static_root(STATIC_DIR)
 
 @app.get("/static/instant/{filename}", include_in_schema=False)
 def instant_artifact(filename: str):
-    path = instant_website.public_artifact_path(filename)
-    if path is None:
+    try:
+        artifact = instant_website.public_artifact_content(filename)
+    except website_storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from None
+    if artifact is None:
         raise HTTPException(status_code=404, detail="artifact not found")
-    return FileResponse(path, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+    if isinstance(artifact, bytes):
+        return Response(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+    return FileResponse(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
 
 
 class ArtifactStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         parts = Path(os.path.normpath(path)).parts
         if parts and parts[0] == "instant":
-            target = instant_website.public_artifact_path(parts[1]) if len(parts) == 2 else None
-            if target is None:
+            if len(parts) != 2:
                 raise HTTPException(status_code=404, detail="artifact not found")
-            return FileResponse(target, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+            if scope.get("method") not in {"GET", "HEAD"}:
+                raise HTTPException(status_code=405, detail="method not allowed")
+            return await run_in_threadpool(instant_artifact, parts[1])
         response = await super().get_response(path, scope)
         target = getattr(response, "path", None)
         if target is not None and Path(target).resolve().is_relative_to(instant_website.INSTANT_DIR.resolve()):
-            response.headers.update(instant_website.PUBLIC_HEADERS)
+            return await run_in_threadpool(instant_artifact, Path(target).resolve().name)
         return response
 
 
@@ -673,6 +682,25 @@ def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
         if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
             _SESSION_APPROVALS.pop(request.approval_id, None)
     return result
+
+
+@app.get("/api/agent/websites/storage", dependencies=[Depends(require_tool_auth)])
+def website_storage_status(verify: bool = False) -> dict[str, Any]:
+    """Owner-only diagnostics. No secrets, no objects are created by this check."""
+    try:
+        mode = website_storage.storage_mode()
+        if mode == "local":
+            return {"mode": mode, "configuration_valid": True, "durable": False, "connection_status": "not_applicable"}
+        config = website_storage.load_storage_config()
+        if verify:
+            try:
+                website_storage.S3WebsiteStore(config).client.list_objects_v2(Bucket=config.bucket, Prefix=config.prefix, MaxKeys=1)
+            except Exception:
+                return {"mode": mode, "configuration_valid": True, "durable": True, "connection_status": "failed"}
+        return {"mode": mode, "configuration_valid": True, "durable": True, "connection_status": "verified" if verify else "not_checked"}
+    except website_storage.StorageError as exc:
+        return {"mode": os.getenv("KARRY_WEBSITE_STORAGE", "s3"), "configuration_valid": False, "durable": False,
+                "connection_status": "not_checked", "error_code": exc.code, "error": str(exc)}
 
 
 @app.get("/api/agent/healing", dependencies=[Depends(require_tool_auth)])
