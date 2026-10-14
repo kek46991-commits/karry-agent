@@ -93,7 +93,7 @@ def web_search_mock(query: str) -> str:
 
 def generate_image_mock(prompt: str) -> str:
     """テキストプロンプトに基づく画像生成の安全なモック。"""
-    return f"[Image Generated]: Successfully generated image for prompt '{prompt}' (mock_image_path.png)"
+    return f"[Image Generated]: mock only for prompt '{prompt}'. No image file or URL was created."
 
 
 def _safe_path(path: str) -> Path:
@@ -544,12 +544,13 @@ def build_default_registry() -> ToolRegistry:
     from . import agent_core as integrated
     from .url_analysis import fetch_and_summarize_url
     from .instant_website import prepare_instant_website
+    from .image_generation import generate_image
 
     registry = ToolRegistry()
     string_param = {"type": "string"}
     registry.register("get_current_datetime", "現在の日時を取得する", {"type": "object", "properties": {}}, get_current_datetime)
     registry.register("web_search_mock", "Web 検索のモックを実行する", {"type": "object", "properties": {"query": string_param}, "required": ["query"]}, web_search_mock)
-    registry.register("generate_image_mock", "画像生成のモックを実行する", {"type": "object", "properties": {"prompt": string_param}, "required": ["prompt"]}, generate_image_mock)
+    registry.register("generate_image", "プロンプトから画像を1枚生成し、タスクに保存してチャットの回答に表示する。URLやファイルパスは返さない", {"type": "object", "properties": {"prompt": {"type": "string", "description": "生成する画像の具体的な説明"}}, "required": ["prompt"]}, generate_image)
     registry.register("browse_path", "ワークスペース内のファイルまたはディレクトリを閲覧する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, browse_path)
     registry.register("append_text_file", "ワークスペース内の UTF-8 テキストファイルへ追記する", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, append_text_file)
     registry.register("list_workspace", "ワークスペース内のファイル一覧を取得する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, list_workspace)

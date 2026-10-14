@@ -17,7 +17,7 @@
 |---|---|
 | Gemini | `google-genai`、`GEMINI_API_KEY`、`GEMINI_MODEL`、指数バックオフ再試行 |
 | AgentCore | 最大ステップ付き ReAct、Function Calling、エラー・タイムアウト処理 |
-| ツール | 日時、Web 検索、画像生成モック、ファイル読み書き、閲覧・追記、安全なコマンド、Python スクリプト |
+| ツール | 日時、Web 検索、画像生成（Gemini、チャット内表示）、ファイル読み書き、閲覧・追記、安全なコマンド、Python スクリプト |
 | メモリ | `ConversationMemory` による会話履歴上限制御 |
 | マルチエージェント | 委譲、並列実行、結果集約、失敗隔離、タイムアウト |
 | 監視 | API 回数、retry、token、tool call、error、elapsed の `AgentMetrics` |
@@ -254,3 +254,10 @@ Render には同じリポジトリから `karry-agent-1`（本番、`GEMINI_API_
 - `start_time` はISO8601だけでなく「明日の10:00」「明日の10時30分」「今日の10時」を`Asia/Tokyo`基準でaware datetimeへ変換する。2026-10-13 JST時点の「明日の10:00」は`2026-10-14T10:00:00+09:00`になる。
 - 本番の標準設定は`GOOGLE_CALENDAR_CREDENTIALS_JSON`と`GOOGLE_CALENDAR_TOKEN_JSON`。互換用に`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`の組み合わせもtoken JSONへ変換して利用できる。推奨scopeは`https://www.googleapis.com/auth/calendar.events`。
 - Renderログ確認では`Calendar insert failed`のスタックトレースを検索し、秘密値・refresh tokenをログ出力しない。`GET /health/calendar`は`token.valid=true`を確認する。
+
+## 14. チャット画像生成と成果物 404 の修正
+
+- 原因: `generate_image_mock` が存在しない `mock_image_path.png` を返し、画像の URL が成果物 404 になっていた。
+- 修正: `generate_image`（`src/karry_agent/image_generation.py`）で実画像を生成し、タスクの非公開画像ストアに保存して回答の `images` に記録する。UI は `/api/images/{id}` から自動表示する。
+- 設定: `GEMINI_IMAGE_MODEL`（既定 `gemini-2.5-flash-image`）。Gemini API キーで画像生成モデルが使える利用枠が必要。
+- 詳細: [docs/image-generation.md](docs/image-generation.md)

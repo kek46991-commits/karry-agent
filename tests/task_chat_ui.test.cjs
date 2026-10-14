@@ -302,3 +302,18 @@ test('public URL appears only after fresh confirmation and successful publicatio
  assert.equal(s.doc.getElementById('latestUrl').href,url);
  assert.equal(s.calls.filter(c=>c.url==='/api/agent/websites/confirm').length,1);s.dom.window.close();
 });
+
+function withGeneratedImage(r,id=IMAGE_ID){const meta={...imageMeta(id),filename:'generated-1.jpg',mime_type:'image/jpeg'};r.messages=[{role:'user',content:'Draw'},{role:'assistant',content:'Done',images:[id]}];r.image_assets={[id]:meta};return r;}
+
+test('generated images in replies load inline from the private image API',async()=>{
+  const s=setup({sessions:[['a',withGeneratedImage(record('a','A'))]],fetch:async(url)=>url.startsWith('/api/images/')?json({image_url:IMAGE_URL}):null});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,10));
+  const img=s.doc.querySelector('#messages .generated-image');assert.equal(img.src,IMAGE_URL);assert.equal(img.alt,'generated-1.jpg');
+  assert.ok(s.calls.some(c=>c.url==='/api/images/'+IMAGE_ID+'?session_id=a'));assert.equal(s.calls.filter(c=>c.url.includes('/static/instant/')).length,0);s.dom.window.close();
+});
+
+test('missing generated image shows guidance instead of a broken image',async()=>{
+  const s=setup({sessions:[['a',withGeneratedImage(record('a','A'))]],fetch:async(url)=>url.startsWith('/api/images/')?json({detail:'Image not found'},404):null});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(s.doc.querySelector('#messages .generated-image'),null);assert.match(s.doc.getElementById('messages').textContent,/生成画像を表示できませんでした/);s.dom.window.close();
+});

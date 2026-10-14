@@ -251,7 +251,7 @@ class S3TaskRepository:
         clean = [{"role": r["role"], "content": credential_safe(r["content"]),
                   **({"images": list(r["images"])} if r.get("images") else {})} for r in messages]
         # Pending confirmation payloads and authentication state are never persisted.
-        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest", "image_ids", "artifacts") if key in run}
+        summary = {key: copy.deepcopy(run[key]) for key in ("run_id", "status", "steps", "tool_calls", "metrics", "request_id_hash", "request_digest", "image_ids", "artifacts", "generated_images") if key in run}
         summary["trace"] = []
         summary["text"] = clean[-1]["content"] if clean and clean[-1]["role"] in {"model", "assistant"} else ""
         def commit(value):

@@ -122,7 +122,7 @@
     selectedImages=Array.isArray(data.pending_images)?data.pending_images.slice(0,4):[];
     renderAttachments();
     if(data.image_uploads_pending)$('imageStatus').textContent=`未完了の画像アップロードが${data.image_uploads_pending}件あります。接続・タスク読み込みで復旧を確認してください。`;
-    for(const message of data.messages||[]){const el=addMessage(message.role==='user'?'user':'agent',message.content);renderHistoryImages(el,message.images||[],data.image_assets||{});}
+    for(const message of data.messages||[]){const el=addMessage(message.role==='user'?'user':'agent',message.content);if(message.role==='user')renderHistoryImages(el,message.images||[],data.image_assets||{});else renderGeneratedImages(el,message.images||[],data.image_assets||{});}
     showLatest(data.latest_url);
     const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);}
     const artifacts=data.artifacts||run?.artifacts||[];
@@ -175,6 +175,12 @@
     const owner=sessionId,version=imageVersion;
     for(const id of ids){const button=document.createElement('button');button.type='button';button.className='image-link';button.textContent='画像を確認: '+(assets[id]?.filename||id.slice(0,8));element.appendChild(button);
       button.onclick=async()=>{button.disabled=true;try{const url=await privateImageUrl(id,owner);if(version!==imageVersion||sessionId!==owner||!element.isConnected)return;const img=document.createElement('img');img.src=url;img.alt=assets[id]?.filename||'添付画像';img.className='history-image';element.appendChild(img);button.hidden=true;}catch(error){button.textContent='画像を確認できませんでした';button.disabled=false;}};
+    }
+  }
+  function renderGeneratedImages(element,ids,assets){
+    const owner=sessionId,version=imageVersion;
+    for(const id of ids){const img=document.createElement('img');img.className='history-image generated-image';img.alt=assets[id]?.filename||'生成画像';element.appendChild(img);
+      privateImageUrl(id,owner).then(url=>{if(version===imageVersion&&owner===sessionId&&img.isConnected)img.src=url;}).catch(()=>{if(version!==imageVersion||!img.isConnected)return;const note=document.createElement('span');note.className='hint';note.textContent='生成画像を表示できませんでした。タスクを読み込み直してください。';img.replaceWith(note);});
     }
   }
   async function uploadSelectedImage(event){

@@ -88,6 +88,10 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 タスクの作成・一覧・切替と会話履歴の復元を、既存チャットUIへ統合しています。`/api/sessions`・`/api/chat` は同じ非公開R2/S3へタスクJSONを永続保存し、再起動後も完了済みの会話と最新公開URLを復元します。HTMLと同じ鍵・バケットを使い、専用prefixだけを分ける構成です。一覧・作成・切替はLLMを呼ばず、送信だけ既存AgentCoreへ接続します。CAS・共有リース・再送ID・公開outboxで競合と重複実行を抑止し、資格情報は保存しません。設定と制約は [docs/task-session-chat.md](docs/task-session-chat.md) を参照してください。
 
+### チャットでの画像生成
+
+チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
+
 ### タスクへの画像添付
 
 `POST /api/upload_image`（multipartのsession_idとfile）でJPG/PNG/WEBP/GIFを読み込み、既存チャットUIからプレビュー・添付取消・画像付き送信ができます。画像バイトはタスクと同じ非公開R2/S3へ保存し、履歴には参照だけを記録します。送信した画像はGeminiの実画像Partへ渡します。GIFは先頭フレームをPNGへ変換。入力4 MiB・正規化後2 MiB・16 MP・次回4枚までに制限し、画像の実形式・向き・メタデータも検証します。アップロード・プレビュー・取消ではLLMを呼びません。画像の予約参照と再送照合で保存障害・古いUI状態を処理します。設定・API・検証結果は [docs/image-attachments.md](docs/image-attachments.md) を参照してください。
