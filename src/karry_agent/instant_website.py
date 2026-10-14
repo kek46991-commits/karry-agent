@@ -173,7 +173,7 @@ def prepare_instant_website(html_content: str, filename: str | None = None) -> d
             _PENDING[approval_id] = {**plan, "expires": now + APPROVAL_TTL}
         return {"success": False, "status": "needs_user_action", "confirmation_required": True,
                 "approval_id": approval_id, "preview": {key: value for key, value in plan.items() if not key.startswith("_")}, "expires_in_seconds": APPROVAL_TTL,
-                "message": "このHTML全文・公開URLを確認してください。公開前に所有者の確認が必要です。",
+                "message": "このHTML全文・公開URLを確認してください。公開前に所有者の確認が必要です。公開URLは確認完了までアクセスできない（404）ため、公開済みとして案内しないでください。",
                 "confirmation_endpoint": "/api/agent/websites/confirm"}
     except Exception as exc:
         return _error(exc)

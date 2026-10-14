@@ -52,6 +52,23 @@ STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
 
 
+class ArtifactNotFound(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, detail="artifact not found", headers={"Cache-Control": "no-store"})
+
+
+ARTIFACT_NOT_FOUND_HINT = ("公開ページが見つかりません。公開確認（10分以内）が未完了・期限切れ、"
+                           "またはURLが誤っている可能性があります。チャットで公開をやり直してください。")
+_ARTIFACT_NOT_FOUND_HTML = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ページが見つかりません</title></head>"
+    "<body style=\"font-family:sans-serif;max-width:560px;margin:48px auto;padding:0 16px;line-height:1.7\">"
+    "<h1>ページが見つかりません</h1><p>" + ARTIFACT_NOT_FOUND_HINT + "</p><p><a href=\"/\">karry-agent に戻る</a></p></body></html>")
+
+
+def _artifact_published(filename: str) -> bool:
+    return instant_website.public_artifact_content(filename) is not None
+
+
 @app.get("/static/instant/{filename}", include_in_schema=False)
 def instant_artifact(filename: str):
     try:
@@ -59,7 +76,7 @@ def instant_artifact(filename: str):
     except website_storage.StorageError as exc:
         raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from None
     if artifact is None:
-        raise HTTPException(status_code=404, detail="artifact not found")
+        raise ArtifactNotFound()
     if isinstance(artifact, bytes):
         return Response(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
     return FileResponse(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
@@ -70,7 +87,7 @@ class ArtifactStaticFiles(StaticFiles):
         parts = Path(os.path.normpath(path)).parts
         if parts and parts[0] == "instant":
             if len(parts) != 2:
-                raise HTTPException(status_code=404, detail="artifact not found")
+                raise ArtifactNotFound()
             if scope.get("method") not in {"GET", "HEAD"}:
                 raise HTTPException(status_code=405, detail="method not allowed")
             return await run_in_threadpool(instant_artifact, parts[1])
@@ -138,6 +155,15 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
                                                   "path": request.url.path, "direction": "inbound"})
     return JSONResponse(status_code=500, content={
         "detail": "Internal Agent Error Handled by Self-Healing Core", "healing_status": healing})
+
+
+@app.exception_handler(ArtifactNotFound)
+async def artifact_not_found(request: Request, exc: ArtifactNotFound) -> Response:
+    # Browsers opening a shared link get a readable page instead of raw JSON.
+    if "text/html" in request.headers.get("accept", ""):
+        return Response(_ARTIFACT_NOT_FOUND_HTML, status_code=404, media_type="text/html", headers=exc.headers)
+    return JSONResponse({"detail": exc.detail, "error_code": "artifact_not_found", "hint": ARTIFACT_NOT_FOUND_HINT},
+                        status_code=404, headers=exc.headers)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -1148,6 +1174,23 @@ def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
         if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
             _SESSION_APPROVALS.pop(request.approval_id, None)
     return result
+
+
+@app.get("/api/artifacts/{filename}", dependencies=[Depends(require_tool_auth)])
+def artifact_status(filename: str):
+    """Report publication state with 200 so clients can check a link before sharing it."""
+    if not website_storage.FILENAME_RE.fullmatch(filename):
+        return JSONResponse({"filename": filename, "published": False, "error_code": "invalid_filename",
+                             "hint": ARTIFACT_NOT_FOUND_HINT}, headers={"Cache-Control": "no-store"})
+    try:
+        published = _artifact_published(filename)
+    except website_storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from None
+    result = {"filename": filename, "published": published,
+              "public_url": instant_website.public_base_url() + "/static/instant/" + filename if published else None}
+    if not published:
+        result.update(error_code="artifact_not_found", hint=ARTIFACT_NOT_FOUND_HINT)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/agent/websites/storage", dependencies=[Depends(require_tool_auth)])

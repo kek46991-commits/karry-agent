@@ -176,6 +176,32 @@ def test_unknown_remote_key_returns_404_without_falling_back_to_local(fake):
     assert response.status_code==404
 
 
+def test_missing_artifact_returns_actionable_json_and_html(fake):
+    client=TestClient(web.app)
+    response=client.get('/static/instant/'+NAME)
+    body=response.json()
+    assert response.status_code==404 and body['detail']=='artifact not found'
+    assert body['error_code']=='artifact_not_found' and '公開' in body['hint']
+    assert response.headers['cache-control']=='no-store'
+    page=client.get('/static/instant/'+NAME, headers={'Accept':'text/html'})
+    assert page.status_code==404 and page.headers['content-type'].startswith('text/html')
+    assert 'ページが見つかりません' in page.text and 'href="/"' in page.text
+
+
+def test_artifact_status_api_reports_publication_without_404(fake,monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN','synthetic-owner')
+    client=TestClient(web.app); auth={'Authorization':'Bearer synthetic-owner'}
+    assert client.get('/api/artifacts/'+NAME).status_code==401
+    missing=client.get('/api/artifacts/'+NAME, headers=auth)
+    assert missing.status_code==200 and missing.json()['published'] is False
+    assert missing.json()['error_code']=='artifact_not_found' and missing.json()['public_url'] is None
+    invalid=client.get('/api/artifacts/unmanaged.html', headers=auth)
+    assert invalid.status_code==200 and invalid.json()['error_code']=='invalid_filename'
+    name=sites.deploy_instant_website(HTML)['filename']
+    found=client.get('/api/artifacts/'+name, headers=auth).json()
+    assert found['published'] is True and found['public_url']=='https://example.onrender.com/static/instant/'+name
+
+
 def test_bad_filename_never_queries_storage(fake,monkeypatch):
     get=Mock(); monkeypatch.setattr(fake,'get_object',get)
     assert TestClient(web.app).get('/static//instant/unmanaged.html').status_code==404
