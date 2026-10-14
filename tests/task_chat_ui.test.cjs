@@ -237,3 +237,18 @@ test('image upload reuses the normalized owner token from the connection panel',
   const upload=s.calls.find(c=>c.url==='/api/upload_image');assert.equal(upload.request.headers.Authorization,'Bearer synthetic-owner');
   assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);assert.equal(s.doc.body.dataset.connection,'online');s.dom.window.close();
 });
+
+
+test('missing session shows server recovery guidance and never creates a replacement',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url)=>url.startsWith('/api/sessions/')?json({status:'not_found',detail:'指定されたタスクが見つかりません。',hint:'一覧を再読み込みしてください。',error_code:'not_found'},404):null});
+  s.authenticate();await s.win.connectSessions();
+  assert.match(s.doc.getElementById('connectionNotice').textContent,/指定されたタスク.*一覧を再読み込み/);
+  assert.equal(s.doc.getElementById('send').disabled,true);assert.equal(s.calls.filter(c=>c.request.method==='POST').length,0);s.dom.window.close();
+});
+
+test('missing image keeps image-specific guidance rather than blaming task loss',async()=>{
+  const s=setup({fetch:async()=>json({status:'not_found',detail:'指定された画像が見つかりません。',hint:'画像をもう一度添付してください。'},404)});s.authenticate();
+  await assert.rejects(s.win.requestJson('/api/images/missing?session_id=a'),error=>{
+    assert.match(error.message,/指定された画像.*画像をもう一度添付/);assert.doesNotMatch(error.message,/再起動後はタスク/);assert.equal(error.status,404);return true;
+  });assert.equal(s.calls.length,1);s.dom.window.close();
+});

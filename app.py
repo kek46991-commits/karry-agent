@@ -40,6 +40,7 @@ from karry_agent import task_persistence
 from karry_agent import image_attachments
 from karry_agent import media_repository, media_generation
 from karry_agent import optimus_core
+from karry_agent import resource_errors
 
 logger = logging.getLogger(__name__)
 
@@ -54,32 +55,55 @@ instant_website.configure_static_root(STATIC_DIR)
 
 class ArtifactNotFound(HTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=404, detail="artifact not found", headers={"Cache-Control": "no-store"})
+        super().__init__(status_code=404, detail=resource_errors.missing('artifact')['detail'], headers={"Cache-Control": "no-store"})
 
 
-ARTIFACT_NOT_FOUND_HINT = ("公開ページが見つかりません。公開確認（10分以内）が未完了・期限切れ、"
-                           "またはURLが誤っている可能性があります。チャットで公開をやり直してください。")
-_ARTIFACT_NOT_FOUND_HTML = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">"
-    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ページが見つかりません</title></head>"
-    "<body style=\"font-family:sans-serif;max-width:560px;margin:48px auto;padding:0 16px;line-height:1.7\">"
-    "<h1>ページが見つかりません</h1><p>" + ARTIFACT_NOT_FOUND_HINT + "</p><p><a href=\"/\">karry-agent に戻る</a></p></body></html>")
+ARTIFACT_NOT_FOUND_HINT = resource_errors.missing('artifact')['hint']
 
 
 def _artifact_published(filename: str) -> bool:
-    return instant_website.public_artifact_content(filename) is not None
+    artifact = instant_website.public_artifact_content(filename)
+    if artifact is None:
+        return False
+    try:
+        if not isinstance(artifact, bytes):
+            instant_website.read_local_artifact(artifact)
+        return True
+    except FileNotFoundError:
+        return False
 
 
-@app.get("/static/instant/{filename}", include_in_schema=False)
-def instant_artifact(filename: str):
+def _artifact_response(filename: str, scope: dict):
     try:
         artifact = instant_website.public_artifact_content(filename)
+        if artifact is None:
+            return resource_errors.respond(scope, resource_errors.missing('artifact'), 404)
+        body = artifact if isinstance(artifact, bytes) else instant_website.read_local_artifact(artifact)
+        if not body or len(body) > instant_website.MAX_HTML_BYTES:
+            raise website_storage.StorageError('保存済み成果物の容量が不正です。', 'storage_integrity')
+        body.decode('utf-8')
+        response = Response(body, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+        if scope.get('method') == 'HEAD':
+            response.body = b''
+        return response
+    except StarletteHTTPException as exc:
+        return resource_errors.http_failure(scope, exc.status_code, exc.headers)
+    except FileNotFoundError:
+        return resource_errors.respond(scope, resource_errors.missing('artifact'), 404)
     except website_storage.StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from None
-    if artifact is None:
-        raise ArtifactNotFound()
-    if isinstance(artifact, bytes):
-        return Response(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
-    return FileResponse(artifact, media_type="text/html", headers=instant_website.PUBLIC_HEADERS)
+        healing_engine.analyze_and_heal(exc, {'source': 'artifact_read', 'status_code': 503})
+        return resource_errors.respond(scope, resource_errors.failed('artifact'), 503)
+    except (OSError, UnicodeError) as exc:
+        healing_engine.analyze_and_heal(exc, {'source': 'artifact_read', 'status_code': 503})
+        return resource_errors.respond(scope, resource_errors.failed('artifact'), 503)
+    except Exception as exc:
+        healing_engine.analyze_and_heal(exc, {'source': 'artifact_read', 'status_code': 500})
+        return resource_errors.respond(scope, resource_errors.failed('artifact', 500), 500)
+
+
+@app.api_route("/static/instant/{filename}", methods=["GET", "HEAD"], include_in_schema=False)
+def instant_artifact(filename: str, request: Request):
+    return _artifact_response(filename, request.scope)
 
 
 class ArtifactStaticFiles(StaticFiles):
@@ -87,14 +111,14 @@ class ArtifactStaticFiles(StaticFiles):
         parts = Path(os.path.normpath(path)).parts
         if parts and parts[0] == "instant":
             if len(parts) != 2:
-                raise ArtifactNotFound()
+                return resource_errors.respond(scope, resource_errors.missing('artifact'), 404)
             if scope.get("method") not in {"GET", "HEAD"}:
                 raise HTTPException(status_code=405, detail="method not allowed")
-            return await run_in_threadpool(instant_artifact, parts[1])
+            return await run_in_threadpool(_artifact_response, parts[1], scope)
         response = await super().get_response(path, scope)
         target = getattr(response, "path", None)
         if target is not None and Path(target).resolve().is_relative_to(instant_website.INSTANT_DIR.resolve()):
-            return await run_in_threadpool(instant_artifact, Path(target).resolve().name)
+            return await run_in_threadpool(_artifact_response, Path(target).resolve().name, scope)
         return response
 
 
@@ -153,21 +177,26 @@ except Exception as exc:
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     healing = healing_engine.analyze_and_heal(exc, {"source": "api", "method": request.method,
                                                   "path": request.url.path, "direction": "inbound"})
+    if resource_errors.is_retrieval(request.url.path, request.method):
+        payload = resource_errors.failed(resource_errors.kind(request.url.path), 500)
+        payload['healing_status'] = healing
+        return resource_errors.respond(request.scope, payload, 500)
     return JSONResponse(status_code=500, content={
         "detail": "Internal Agent Error Handled by Self-Healing Core", "healing_status": healing})
 
 
 @app.exception_handler(ArtifactNotFound)
 async def artifact_not_found(request: Request, exc: ArtifactNotFound) -> Response:
-    # Browsers opening a shared link get a readable page instead of raw JSON.
-    if "text/html" in request.headers.get("accept", ""):
-        return Response(_ARTIFACT_NOT_FOUND_HTML, status_code=404, media_type="text/html", headers=exc.headers)
-    return JSONResponse({"detail": exc.detail, "error_code": "artifact_not_found", "hint": ARTIFACT_NOT_FOUND_HINT},
-                        status_code=404, headers=exc.headers)
+    return resource_errors.respond(request.scope, resource_errors.missing('artifact'), 404)
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    if exc.status_code == 404:
+        return resource_errors.respond(request.scope, resource_errors.missing(resource_errors.kind(request.url.path)), 404)
+    if resource_errors.is_retrieval(request.url.path, request.method) and exc.status_code >= 500:
+        healing_engine.analyze_and_heal(exc, {'source': 'retrieval_http', 'status_code': exc.status_code})
+        return resource_errors.http_failure(request.scope, exc.status_code, exc.headers)
     content = {"detail": redact(exc.detail)}
     if exc.status_code == 401 or exc.status_code >= 500:
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
@@ -191,6 +220,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(task_persistence.TaskStorageError)
 async def task_storage_error(request: Request, exc: task_persistence.TaskStorageError):
     status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
+    if status == 404:
+        return resource_errors.respond(request.scope, resource_errors.missing('session', exc.code), 404)
     content = {"detail": str(exc), "error_code": exc.code}
     diagnostic = getattr(exc, "diagnostic_code", None)
     if diagnostic in website_storage.DIAGNOSTIC_HINTS:
@@ -200,6 +231,8 @@ async def task_storage_error(request: Request, exc: task_persistence.TaskStorage
 
 @app.exception_handler(image_attachments.ImageAttachmentError)
 async def image_attachment_error(request: Request, exc: image_attachments.ImageAttachmentError):
+    if exc.status_code == 404:
+        return resource_errors.respond(request.scope, resource_errors.missing('image'), 404)
     return JSONResponse({"detail": str(exc)}, status_code=exc.status_code, headers={"Cache-Control": "no-store"})
 
 
@@ -228,6 +261,8 @@ class GenerateImageRequest(BaseModel):
 
 @app.exception_handler(media_repository.MediaError)
 async def media_error(request: Request, exc: media_repository.MediaError):
+    if exc.status_code == 404:
+        return resource_errors.respond(request.scope, resource_errors.missing('image', exc.code), 404)
     return JSONResponse({"detail": str(exc), "error_code": exc.code}, status_code=exc.status_code,
                         headers={"Cache-Control": "no-store"})
 
@@ -804,7 +839,8 @@ def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = Fal
         yield _sse("completed", payload)
     except task_persistence.TaskStorageError as exc:
         status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
-        yield _sse("error", {"status_code": status, "detail": str(exc), "error_code": exc.code})
+        payload = resource_errors.missing('session', exc.code) if status == 404 else {"detail": str(exc), "error_code": exc.code}
+        yield _sse("error", {"status_code": status, **payload})
     except image_attachments.ImageAttachmentError as exc:
         yield _sse("error", {"status_code": exc.status_code, "detail": str(exc)})
     except HTTPException as exc:

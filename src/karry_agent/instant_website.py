@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
+import errno
 import threading
 import time
 import uuid
@@ -217,3 +219,24 @@ def public_artifact_content(filename: str) -> bytes | Path | None:
         if exc.code == "not_found":
             return None
         raise
+
+
+def read_local_artifact(path: Path) -> bytes:
+    """Read before response headers; do not follow a replacement symlink."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise FileNotFoundError('unmanaged artifact') from None
+        raise
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError('unmanaged artifact')
+        if not 0 < info.st_size <= MAX_HTML_BYTES:
+            raise website_storage.StorageError('保存済み成果物の容量が不正です。', 'storage_integrity')
+        body = stream.read(MAX_HTML_BYTES + 1)
+        if len(body) != info.st_size:
+            raise website_storage.StorageError('保存済み成果物の内容検証に失敗しました。', 'storage_integrity')
+        body.decode('utf-8')
+        return body

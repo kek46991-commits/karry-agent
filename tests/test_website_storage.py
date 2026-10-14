@@ -178,14 +178,14 @@ def test_unknown_remote_key_returns_404_without_falling_back_to_local(fake):
 
 def test_missing_artifact_returns_actionable_json_and_html(fake):
     client=TestClient(web.app)
-    response=client.get('/static/instant/'+NAME)
+    response=client.get('/static/instant/'+NAME, headers={'Accept':'application/json'})
     body=response.json()
-    assert response.status_code==404 and body['detail']=='artifact not found'
+    assert response.status_code==404 and '成果物が見つかりません' in body['detail']
     assert body['error_code']=='artifact_not_found' and '公開' in body['hint']
     assert response.headers['cache-control']=='no-store'
     page=client.get('/static/instant/'+NAME, headers={'Accept':'text/html'})
     assert page.status_code==404 and page.headers['content-type'].startswith('text/html')
-    assert 'ページが見つかりません' in page.text and 'href="/"' in page.text
+    assert '成果物が見つかりません' in page.text and 'href="/"' in page.text
 
 
 def test_artifact_status_api_reports_publication_without_404(fake,monkeypatch):

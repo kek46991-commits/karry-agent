@@ -97,7 +97,7 @@
   async function requestJson(url,options={}){
     const response=await fetch(url,{...options,headers:headers(),cache:'no-store'});let data;
     try{data=await response.json();}catch(_){throw new Error('サーバーから正しいJSONが返りませんでした');}
-    if(!response.ok){const message=response.status===401?'APIトークンを確認してください':response.status===404?'タスクが存在しません。再起動後はタスクを読み込み直してください':response.status===409?'タスク数上限または同じタスクの実行中です':response.status===503?(typeof data.hint==='string'?data.hint:'サーバーの永続保存へ接続できません。管理者がR2/S3のバケット・署名キー・権限・endpointを確認してください。'):typeof data.detail==='string'?data.detail:'入力またはサーバー設定を確認してください';const error=new Error(message);error.status=response.status;error.code=data.error_code;throw error;}
+    if(!response.ok){const message=response.status===401?'APIトークンを確認してください':response.status===404?(typeof data.detail==='string'?data.detail+(typeof data.hint==='string'?' '+data.hint:''):'指定されたリソースが見つかりません。接続・タスク読み込みから再確認してください。'):response.status===409?'タスク数上限または同じタスクの実行中です':response.status===503?(typeof data.hint==='string'?data.hint:'サーバーの永続保存へ接続できません。管理者がR2/S3のバケット・署名キー・権限・endpointを確認してください。'):typeof data.detail==='string'?data.detail:'入力またはサーバー設定を確認してください';const error=new Error(message);error.status=response.status;error.code=data.error_code;throw error;}
     return data;
   }
   function saveSelection(){try{if(sessionId)localStorage.setItem('karry-session',sessionId);else localStorage.removeItem('karry-session');}catch(_) {}}

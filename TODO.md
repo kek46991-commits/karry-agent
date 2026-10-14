@@ -90,12 +90,8 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。今回のDB追加時点でmainマージ済み（32c2e03）。今回、画像の本番アップロード・実モデル入力は再検証していない。
 最新main（PR #12 タスク接続パネル・保存診断）を統合: 接続パネルのトークン正規化（Bearer接頭辞除去）を画像アップロードにも適用し、送信/失敗表示はsetConnectionStatusで接続状態と連動。Python 512 passed, 2 skipped、DOM 25 passed。
 
-## PostgreSQLメディア管理
+## 成果物・リソース404の安全な処理
 
-- [ ] `schema.ts`（Drizzle ORM）に `media_files` のid UUID、session_id、type（image_input/image_generated）、file_url、prompt、created_atを定義し、再実行可能なMigrationをPostgreSQLへ適用する。本番DBの接続先は利用者の指定待ちで、既存データやR2のタスク履歴は変更しない。
-- [x] 提供された `/api/media/upload` と `/api/media/generate` を所有者Bearer認証付きで追加する。アップロード画像の実形式・容量を検証し、DBへ保存する。Replicateの正しいFLUX公式モデルAPIを使い、未完了を成功扱いせず、結果を非公開DBへコピーする。生成リクエストの状態と再送識別子を永続化し、通信障害後に課金APIを自動再送しない。
-- [x] 既存画像添付・チャットUI・タスクR2永続保存を維持し、DBとAPIの結合を隔離したPostgreSQLで検証する。外部の課金生成や本番DB作成は実行しない。実装を1つのPRへ保存し、本番未適用の条件は正確に報告する。
-
-DB検証: 隔離したSandbox PostgreSQLのkarry_media_testへDrizzleを2回実適用。6フィールドと索引・type制約、SQL履歴を確認。Python535 passed/2 skipped、DOM25 passed、TypeScript・構文・依存・差分・wheel成功。レビュー指摘の生成保存枠とアップロード競合、明確な受付拒否による永久ブロックを修正し回帰追加。課金生成・本番DB作成・本番Migrationは未実行。本番DATABASE_URLの指定待ち。
-作業中のmain更新94b8320（Optimus Core）を保持して統合。統合後のPython569 passed/2 skipped、DOM25 passed、TypeScript確認成功。
-メディアDB実装PR: https://github.com/kek46991-commits/karry-agent/pull/14 。main未マージ・本番未適用。本番PostgreSQL接続先の指定待ち。
+- [ ] 本番の `/static/instant/{filename}` で再現した `artifact not found` の英語JSON表示を解消する。欠落は404を維持し、ブラウザには日本語の復帰案内ページ、APIにはわかりやすい構造化エラーを返す。存在しないデータを成功や架空のセッションで代用しない。
+- [ ] 静的配信の別名・不正パス、成果物読取中のファイル消失、R2障害・破損を区別して安全に応答する。catch-allが意図したHTTPException/404を500へ変えたり、エラー本文・資格情報を出したりしない。既存認証・CSP・永続保存を維持し、取得リクエスト後もアプリが正常稼働する。
+- [ ] セッション・画像・実行記録等の既存取得エンドポイントでも欠落の日本語案内とno-storeを共通化する。正常なコンテンツと404/503/500を混同せず、取得系の例外でも安全なメッセージを返す。テストとCIを通して修正をmain/Renderへ反映し、本番の404案内・ヘルス・API認証・取得を確認する。
