@@ -317,3 +317,12 @@ test('missing generated image shows guidance instead of a broken image',async()=
   s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,10));
   assert.equal(s.doc.querySelector('#messages .generated-image'),null);assert.match(s.doc.getElementById('messages').textContent,/生成画像を表示できませんでした/);s.dom.window.close();
 });
+
+test('unavailable public file keeps private HTML preview but never displays a publish link',async()=>{
+ const r=record('a','A');r.artifacts=[{...draftMeta(),state:'unavailable'}];
+ const s=setup({sessions:[['a',r]],fetch:async(url)=>url.startsWith('/api/website-artifacts/')?json({...draftReply(),state:'unavailable'}):null});
+ s.authenticate();await s.win.connectSessions();await tick();
+ assert.ok(s.doc.querySelector('iframe'));assert.equal(s.doc.getElementById('latestBox').hidden,true);
+ assert.equal(s.doc.querySelector('[data-artifact-id] input[type="checkbox"]'),null);
+ assert.match(s.doc.getElementById('messages').textContent,/公開リンクの実体を確認できません/);s.dom.window.close();
+});
