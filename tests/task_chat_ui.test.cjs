@@ -206,3 +206,34 @@ test('changing attachments after a lost reply creates a new request ID',async()=
   a.pending_images=[imageMeta(IMAGE_ID2)];a.image_assets[IMAGE_ID2]=imageMeta(IMAGE_ID2);s.win.renderSession(a);s.doc.getElementById('prompt').value='Read';await s.win.sendMessage({preventDefault(){}});
   const posts=s.calls.filter(c=>c.url==='/api/chat').map(c=>JSON.parse(c.request.body));assert.notEqual(posts[0].request_id,posts[1].request_id);s.dom.window.close();
 });
+
+test('connection panel is before task grid and token is never prefilled',()=>{
+  const s=setup();const panel=s.doc.getElementById('connectionPanel'),grid=s.doc.querySelector('.grid');
+  assert.ok(panel.compareDocumentPosition(grid)&s.win.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.equal(s.doc.getElementById('apiToken').value,'');assert.equal(s.doc.querySelectorAll('#apiToken').length,1);
+  assert.notEqual(s.doc.body.dataset.connection,'online');s.dom.window.close();
+});
+test('empty token stays local and never creates tasks or calls APIs',async()=>{
+  const s=setup();await s.win.connectSessions();assert.equal(s.calls.length,0);
+  assert.match(s.doc.getElementById('connectionNotice').textContent,/トークンを入力/);
+  assert.equal(s.doc.getElementById('send').disabled,true);s.dom.window.close();
+});
+test('pasted Bearer prefix is normalized without changing server authentication',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]]});s.doc.getElementById('apiToken').value=' Bearer synthetic-owner ';
+  await s.win.connectSessions();assert.equal(s.calls[0].request.headers.Authorization,'Bearer synthetic-owner');
+  assert.equal(s.doc.body.dataset.connection,'online');assert.equal(s.win.localStorage.getItem('apiToken'),null);s.dom.window.close();
+});
+test('storage 503 explains server permission failure at the visible connection panel',async()=>{
+  const s=setup({fetch:async()=>json({detail:'read failed',error_code:'storage_unavailable',hint:'対象バケットの読み取り権限を確認してください。'},503)});
+  s.authenticate();await s.win.connectSessions();assert.match(s.doc.getElementById('connectionNotice').textContent,/バケットの読み取り権限/);
+  assert.equal(s.doc.body.dataset.connection,'error');assert.equal(s.doc.getElementById('newTask').disabled,true);
+  assert.equal(s.calls.length,1);assert.match(s.doc.getElementById('storageHint').textContent,/トークンを再入力しても/);s.dom.window.close();
+});
+test('image upload reuses the normalized owner token from the connection panel',async()=>{
+  const a=record('a','A');
+  const s=setup({sessions:[['a',a]],fetch:async(url)=>{if(url==='/api/upload_image'){a.pending_images=[imageMeta()];a.image_assets={[IMAGE_ID]:imageMeta()};return json(imageReply());}if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});}});
+  s.doc.getElementById('apiToken').value=' Bearer synthetic-owner ';await s.win.connectSessions();assert.equal(s.doc.body.dataset.connection,'online');
+  await s.win.uploadSelectedImage({target:{files:[new s.win.File(['x'],'photo.png',{type:'image/png'})]}});
+  const upload=s.calls.find(c=>c.url==='/api/upload_image');assert.equal(upload.request.headers.Authorization,'Bearer synthetic-owner');
+  assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);assert.equal(s.doc.body.dataset.connection,'online');s.dom.window.close();
+});

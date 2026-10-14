@@ -73,6 +73,12 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 統合検証: Python 456 passed, 2 skipped、DOM 12 passed。元389件＋追加67件。構文・依存・差分・wheel成功。レビュー指摘の旧経路認可、アクセスキーIDマスク、公開outbox復旧、PUT後GET障害と再送ID照合を修正・回帰確認。2026-10-14の本番読み取り確認はconfiguration_valid=false / storage_configuration。新機能の本番マージ・保存・移行・実再起動は未実施。
 統合PR: https://github.com/kek46991-commits/karry-agent/pull/10 。UIと履歴永続化を分割せず保存。今回の画像追加時点でmainマージ済み（62b5f13）。今回、タスク機能のライブ保存や本番設定は再検証していない。
 
+## タスク接続エラーの解消
+
+- [ ] 本番でBearer認証は200、タスク一覧はstorage_unavailableの503、ストレージ設定形式はvalidを確認済み。キー実値を露出させず、実接続の失敗をバケット不足・権限・署名・ネットワーク等に切り分け、必要な設定補正を行う。既存の永続S3/R2設定を維持し、無断でmemoryへ戻したり認証を無効化しない。
+- [ ] スマホで下部に埋もれたAPIトークン入力と接続ボタンを画面上部へ移し、未入力・401・503の案内を見える位置へ表示する。未接続を緑のオンライン表示にせず、失敗時にタスク作成/LLM実行を行わない。
+- [ ] 所有者認証付きの読み取り専用接続診断を追加し、設定形式validと実接続成功を区別する。秘密値・プロバイダーの生例外を出さず、既存経路とUIをテストして本番で接続を確認する。新しい鍵/権限の設定やログインが必要なら利用者に依頼する。
+
 ## タスクへの画像アップロード
 
 - [x] 添付コードのPOST /api/upload_image（session_idとfileのmultipart）を既存FastAPIへ追加する。所有者Bearer認証、既存タスク確認、JPG/PNG/WEBP/GIFの実データ検証、サイズ/画素/件数制限、例外処理とファイルcloseを行い、filename・image_url・session_idを返す。GIFはGemini対応の静止PNGへ正規化する。
@@ -82,3 +88,4 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 
 画像添付の検証: Python 500 passed, 2 skipped（元456件＋追加44件）、DOM20 passed（元12件＋追加8件）。構文・依存・差分・wheel同梱成功。レビュー指摘の古い選択IDをpending検査で拒否し、バイナリ前のCAS予約・同じ画像の予約再利用・再読込復旧を追加して孤立ファイルの無制限増加を防ぐ。memory参照失敗時の新規孤立バイトも回収。向き補正・GIF・保存失敗・旧URL短縮も確認。実R2/S3・実Gemini・本番画像APIは未実行。
 画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。main未マージ・本番未反映。
+最新main（PR #12 タスク接続パネル・保存診断）を統合: 接続パネルのトークン正規化（Bearer接頭辞除去）を画像アップロードにも適用し、送信/失敗表示はsetConnectionStatusで接続状態と連動。Python 512 passed, 2 skipped、DOM 25 passed。

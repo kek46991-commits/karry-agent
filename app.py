@@ -162,7 +162,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(task_persistence.TaskStorageError)
 async def task_storage_error(request: Request, exc: task_persistence.TaskStorageError):
     status = 404 if exc.code == "not_found" else 409 if exc.code in {"session_busy", "storage_conflict", "storage_capacity"} else 503
-    return JSONResponse(status_code=status, content={"detail": str(exc), "error_code": exc.code}, headers={"Cache-Control": "no-store"})
+    content = {"detail": str(exc), "error_code": exc.code}
+    diagnostic = getattr(exc, "diagnostic_code", None)
+    if diagnostic in website_storage.DIAGNOSTIC_HINTS:
+        content.update(diagnostic_code=diagnostic, hint=website_storage.DIAGNOSTIC_HINTS[diagnostic])
+    return JSONResponse(status_code=status, content=content, headers={"Cache-Control": "no-store"})
 
 
 @app.exception_handler(image_attachments.ImageAttachmentError)
@@ -847,6 +851,32 @@ def create_session(data: SessionCreate):
             raise HTTPException(status_code=409, detail="session id collision; retry")
         _allocate_session_locked(session_id, data.title)
     return JSONResponse({"session_id": session_id, "title": data.title, "persistence": "ephemeral"}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/agent/tasks/storage", dependencies=[Depends(require_tool_auth)])
+def task_storage_connection():
+    """Read-only, owner-only: format validity must not imply working credentials."""
+    result = {"configuration_valid": False, "connection_status": "not_checked"}
+    try:
+        mode = task_persistence.mode()
+        result.update(mode=mode, durable=mode == "s3")
+        if mode == "memory":
+            return JSONResponse({**result, "configuration_valid": True, "connection_status": "ephemeral"},
+                                headers={"Cache-Control": "no-store"})
+        repo = task_persistence.repository()
+        from urllib.parse import urlsplit
+        result.update(configuration_valid=True, target={"bucket": repo.config.bucket,
+            "endpoint_host": urlsplit(repo.config.endpoint).hostname if repo.config.endpoint else "aws-s3",
+            "region": repo.config.region, "task_prefix": repo.prefix})
+        rows = repo.list()
+        return JSONResponse({**result, "connection_status": "connected", "tasks_count": len(rows)},
+                            headers={"Cache-Control": "no-store"})
+    except task_persistence.TaskStorageError as exc:
+        diagnostic = getattr(exc, "diagnostic_code", None)
+        safe = diagnostic if diagnostic in website_storage.DIAGNOSTIC_HINTS else "storage_unknown"
+        return JSONResponse(status_code=503, content={**result, "connection_status": "failed",
+            "error_code": exc.code, "diagnostic_code": safe, "hint": website_storage.DIAGNOSTIC_HINTS[safe],
+            "detail": str(exc)}, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
