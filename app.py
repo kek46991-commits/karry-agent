@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form, Query
+from fastapi import Path as Path_
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,6 +39,7 @@ from karry_agent import website_storage
 from karry_agent import task_persistence
 from karry_agent import image_attachments
 from karry_agent import media_repository, media_generation
+from karry_agent import optimus_core
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,12 @@ async def task_storage_error(request: Request, exc: task_persistence.TaskStorage
 @app.exception_handler(image_attachments.ImageAttachmentError)
 async def image_attachment_error(request: Request, exc: image_attachments.ImageAttachmentError):
     return JSONResponse({"detail": str(exc)}, status_code=exc.status_code, headers={"Cache-Control": "no-store"})
+
+
+@app.exception_handler(optimus_core.OptimusError)
+async def optimus_error(request: Request, exc: optimus_core.OptimusError):
+    return JSONResponse({"detail": str(exc), "error_code": exc.code}, status_code=exc.status_code,
+                        headers={"Cache-Control": "no-store"})
 
 
 ImageId = Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
@@ -1169,6 +1177,86 @@ def healing_status() -> dict[str, Any]:
 @app.get("/api/agent/healing/incidents", dependencies=[Depends(require_tool_auth)])
 def healing_incidents() -> dict[str, Any]:
     return {"incidents": healing_engine.error_logs}
+
+
+_OPTIMUS = optimus_core.OptimusCore(Path(__file__).parent)
+
+
+class CloneSpawnRequest(BaseModel):
+    mission: str = Field(..., min_length=1, max_length=2000)
+    specialist: str = Field(default="general", min_length=1, max_length=50)
+
+
+class CloneRunRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=20_000)
+
+
+class EvolutionEdit(BaseModel):
+    path: str = Field(..., min_length=1, max_length=200)
+    old: str = Field(..., min_length=1, max_length=30_000)
+    new: str = Field(..., max_length=30_000)
+
+
+class EvolutionRequest(BaseModel):
+    goal: str = Field(..., min_length=1, max_length=2000)
+    edits: list[EvolutionEdit] | None = Field(default=None, min_length=1, max_length=3)
+    paths: list[str] | None = Field(default=None, min_length=1, max_length=10)
+
+
+class EvolutionConfirmation(BaseModel):
+    approval_id: str = Field(..., pattern=r"^[a-f0-9]{32}$")
+    sha256: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: bool
+
+
+class EvolutionDeploy(BaseModel):
+    confirmed: bool
+
+
+@app.get("/api/optimus/status", dependencies=[Depends(require_tool_auth)])
+def optimus_status() -> dict[str, Any]:
+    return _OPTIMUS.status()
+
+
+@app.get("/api/optimus/clones", dependencies=[Depends(require_tool_auth)])
+def list_clones() -> dict[str, Any]:
+    return {"clones": _OPTIMUS.clones.list(), "max_clones": _OPTIMUS.clones.limit()}
+
+
+@app.post("/api/optimus/clones", status_code=201, dependencies=[Depends(require_tool_auth)])
+def spawn_clone(request: CloneSpawnRequest) -> dict[str, Any]:
+    return _OPTIMUS.clones.spawn(request.mission, request.specialist)
+
+
+@app.post("/api/optimus/clones/{clone_id}/run", dependencies=[Depends(require_tool_auth)])
+def run_clone(clone_id: str, request: CloneRunRequest, agent: AgentCore = Depends(get_agent)) -> dict[str, Any]:
+    return _OPTIMUS.clones.run(clone_id, request.prompt, agent=agent)
+
+
+@app.delete("/api/optimus/clones/{clone_id}", dependencies=[Depends(require_tool_auth)])
+def retire_clone(clone_id: str) -> dict[str, Any]:
+    return _OPTIMUS.clones.retire(clone_id)
+
+
+@app.post("/api/optimus/evolutions", dependencies=[Depends(require_tool_auth)])
+def propose_evolution(request: EvolutionRequest) -> dict[str, Any]:
+    edits = [edit.model_dump() for edit in request.edits] if request.edits else None
+    return _OPTIMUS.propose(request.goal, edits, request.paths)
+
+
+@app.post("/api/optimus/evolutions/confirm", dependencies=[Depends(require_tool_auth)])
+def confirm_evolution(request: EvolutionConfirmation) -> dict[str, Any]:
+    return _OPTIMUS.confirm(request.approval_id, request.sha256, request.confirmed)
+
+
+@app.get("/api/optimus/evolutions/{pr_number}", dependencies=[Depends(require_tool_auth)])
+def evolution_status(pr_number: Annotated[int, Path_(ge=1)]) -> dict[str, Any]:
+    return _OPTIMUS.evolution_status(pr_number)
+
+
+@app.post("/api/optimus/evolutions/{pr_number}/deploy", dependencies=[Depends(require_tool_auth)])
+def deploy_evolution(pr_number: Annotated[int, Path_(ge=1)], request: EvolutionDeploy) -> dict[str, Any]:
+    return _OPTIMUS.deploy(pr_number, request.confirmed)
 
 
 if __name__ == "__main__":
