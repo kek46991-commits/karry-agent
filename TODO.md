@@ -87,7 +87,7 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 - [x] 既存の再送照合・タスク履歴・URL短縮経路を維持し、画像付き依頼、キャンセル、別タスク、サイズ/形式偽装、再起動とUIをモックで検証して画像機能の1つの追加PRへ保存する。PR #10はすでにmainマージ済み（62b5f13）なので、閉じたPRへ追記しない。本番設定・マージ・実画像送信は別途必要。
 
 画像添付の検証: Python 500 passed, 2 skipped（元456件＋追加44件）、DOM20 passed（元12件＋追加8件）。構文・依存・差分・wheel同梱成功。レビュー指摘の古い選択IDをpending検査で拒否し、バイナリ前のCAS予約・同じ画像の予約再利用・再読込復旧を追加して孤立ファイルの無制限増加を防ぐ。memory参照失敗時の新規孤立バイトも回収。向き補正・GIF・保存失敗・旧URL短縮も確認。実R2/S3・実Gemini・本番画像APIは未実行。
-画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。main未マージ・本番未反映。
+画像添付PR: https://github.com/kek46991-commits/karry-agent/pull/11 。今回のDB追加時点でmainマージ済み（32c2e03）。今回、画像の本番アップロード・実モデル入力は再検証していない。
 最新main（PR #12 タスク接続パネル・保存診断）を統合: 接続パネルのトークン正規化（Bearer接頭辞除去）を画像アップロードにも適用し、送信/失敗表示はsetConnectionStatusで接続状態と連動。Python 512 passed, 2 skipped、DOM 25 passed。
 
 ## 成果物・リソース404の安全な処理

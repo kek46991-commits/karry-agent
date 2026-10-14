@@ -38,6 +38,7 @@ from karry_agent import instant_website
 from karry_agent import website_storage
 from karry_agent import task_persistence
 from karry_agent import image_attachments
+from karry_agent import media_repository, media_generation
 from karry_agent import optimus_core
 from karry_agent import resource_errors
 
@@ -50,6 +51,26 @@ app = FastAPI(
 )
 STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
+
+
+class ArtifactNotFound(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, detail=resource_errors.missing('artifact')['detail'], headers={"Cache-Control": "no-store"})
+
+
+ARTIFACT_NOT_FOUND_HINT = resource_errors.missing('artifact')['hint']
+
+
+def _artifact_published(filename: str) -> bool:
+    artifact = instant_website.public_artifact_content(filename)
+    if artifact is None:
+        return False
+    try:
+        if not isinstance(artifact, bytes):
+            instant_website.read_local_artifact(artifact)
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def _artifact_response(filename: str, scope: dict):
@@ -109,7 +130,7 @@ class ImageUploadGuard:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") != "/api/upload_image":
+        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         token = os.getenv("KARRY_API_TOKEN")
@@ -164,6 +185,11 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         "detail": "Internal Agent Error Handled by Self-Healing Core", "healing_status": healing})
 
 
+@app.exception_handler(ArtifactNotFound)
+async def artifact_not_found(request: Request, exc: ArtifactNotFound) -> Response:
+    return resource_errors.respond(request.scope, resource_errors.missing('artifact'), 404)
+
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     if exc.status_code == 404:
@@ -214,6 +240,26 @@ async def optimus_error(request: Request, exc: optimus_core.OptimusError):
 
 
 ImageId = Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+
+
+class GenerateImageRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=2000)
+    request_id: uuid.UUID = Field(default_factory=uuid.uuid4)
+
+    @field_validator("prompt")
+    @classmethod
+    def clean_generation_prompt(cls, value: str) -> str:
+        value = task_persistence.credential_safe(value.strip())
+        if not value:
+            raise ValueError("画像生成のプロンプトを入力してください。")
+        return value
+
+
+@app.exception_handler(media_repository.MediaError)
+async def media_error(request: Request, exc: media_repository.MediaError):
+    return JSONResponse({"detail": str(exc), "error_code": exc.code}, status_code=exc.status_code,
+                        headers={"Cache-Control": "no-store"})
 
 
 class RunRequest(BaseModel):
@@ -939,6 +985,95 @@ def task_session(session_id: str):
     return JSONResponse(details, headers={"Cache-Control": "no-store"})
 
 
+def _media_session(session_id: str) -> None:
+    # Existing task authorization/existence rules; do not silently create tasks.
+    _image_service(session_id).document()
+
+
+def _media_json(value: Any, status_code: int = 200):
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse(jsonable_encoder(value), status_code=status_code, headers={"Cache-Control": "no-store"})
+
+
+def _job_payload(repo, job):
+    from urllib.parse import urlencode
+    state = job["state"]
+    result = {"status": state, "job_id": job["id"], "request_id": job["request_id"],
+              "session_id": job["session_id"], "type": "image_generated", "error_code": job["error_code"]}
+    if state == "succeeded":
+        result["media_id"] = job["id"]
+        result["file_url"] = "/api/media/" + str(job["id"]) + "?" + urlencode({"session_id": job["session_id"]})
+    return result
+
+
+@app.post("/api/media/upload", dependencies=[Depends(require_tool_auth)])
+async def media_upload(session_id: Annotated[str, Form(min_length=1, max_length=100)], file: Annotated[UploadFile, File()]):
+    try:
+        content = await file.read(image_attachments.MAX_UPLOAD_BYTES + 1)
+        def store():
+            _media_session(session_id)
+            image = image_attachments.normalize(content, file.content_type or "")
+            row = media_repository.MediaRepository().insert_upload(session_id, image)
+            return {**row, "status": "success", "filename": task_persistence.credential_safe(file.filename or "image")[:120], "warning": image.warning}
+        return _media_json(await run_in_threadpool(store))
+    finally:
+        await file.close()
+
+
+@app.post("/api/media/generate", dependencies=[Depends(require_tool_auth)])
+def media_generate(request: GenerateImageRequest):
+    _media_session(request.session_id)
+    if os.getenv("KARRY_MEDIA_GENERATION_ENABLED") != "1":
+        raise media_repository.MediaError("画像生成は未有効化です。管理者がキーと利用設定を確認してください。", code="generation_disabled")
+    client = media_generation.ReplicateClient()
+    repo = media_repository.MediaRepository()
+    job, created = repo.begin_job(request.session_id, request.request_id, request.prompt)
+    if created:
+        try:
+            prediction = client.create(request.prompt)
+            job = repo.set_submitted(job["id"], prediction["id"])
+        except media_repository.MediaError as exc:
+            # An ambiguous POST is never replayed or claimed as a completed image.
+            if exc.code == "submission_rejected":
+                repo.reject_submission(job["id"])
+            else:
+                repo.mark_unknown(job["id"])
+            job = repo.job(request.session_id, job["id"])
+            return _media_json(_job_payload(repo, job), 200 if job["state"] == "failed" else 202)
+        job = media_generation.refresh_job(repo, job, client, prediction)
+    payload = _job_payload(repo, job)
+    return _media_json(payload, 200 if job["state"] in {"succeeded", "failed", "canceled"} else 202)
+
+
+@app.get("/api/media/jobs/{job_id}", dependencies=[Depends(require_tool_auth)])
+def media_job(job_id: uuid.UUID, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    _media_session(session_id)
+    repo = media_repository.MediaRepository()
+    job = repo.job(session_id, job_id)
+    if job["state"] == "processing":
+        job = media_generation.refresh_job(repo, job, media_generation.ReplicateClient())
+    return _media_json(_job_payload(repo, job))
+
+
+@app.get("/api/media", dependencies=[Depends(require_tool_auth)])
+def media_list(session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    from urllib.parse import urlencode
+    _media_session(session_id)
+    rows = media_repository.MediaRepository().list_media(session_id)
+    for row in rows:
+        row["file_url"] = "/api/media/" + str(row["id"]) + "?" + urlencode({"session_id": session_id})
+    return _media_json(rows)
+
+
+@app.get("/api/media/{media_id}", dependencies=[Depends(require_tool_auth)])
+def media_file(media_id: uuid.UUID, session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    _media_session(session_id)
+    repo = media_repository.MediaRepository()
+    row = repo.media(session_id, media_id)
+    media_repository.stored_image(row)
+    return _media_json(row)
+
+
 @app.post("/api/upload_image", dependencies=[Depends(require_tool_auth)])
 async def upload_image(session_id: Annotated[str, Form(min_length=1, max_length=100)], file: Annotated[UploadFile, File()]):
     try:
@@ -1070,6 +1205,23 @@ def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
         if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
             _SESSION_APPROVALS.pop(request.approval_id, None)
     return result
+
+
+@app.get("/api/artifacts/{filename}", dependencies=[Depends(require_tool_auth)])
+def artifact_status(filename: str):
+    """Report publication state with 200 so clients can check a link before sharing it."""
+    if not website_storage.FILENAME_RE.fullmatch(filename):
+        return JSONResponse({"filename": filename, "published": False, "error_code": "invalid_filename",
+                             "hint": ARTIFACT_NOT_FOUND_HINT}, headers={"Cache-Control": "no-store"})
+    try:
+        published = _artifact_published(filename)
+    except website_storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from None
+    result = {"filename": filename, "published": published,
+              "public_url": instant_website.public_base_url() + "/static/instant/" + filename if published else None}
+    if not published:
+        result.update(error_code="artifact_not_found", hint=ARTIFACT_NOT_FOUND_HINT)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/agent/websites/storage", dependencies=[Depends(require_tool_auth)])

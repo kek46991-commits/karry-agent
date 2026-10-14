@@ -2,12 +2,20 @@
   "name": "karry-agent-ui-tests",
   "private": true,
   "scripts": {
-    "test:ui": "node --test tests/task_chat_ui.test.cjs"
+    "test:ui": "node --test tests/task_chat_ui.test.cjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:typecheck": "tsc --noEmit -p tsconfig.media.json"
   },
-  "engines": {
-    "node": ">=22"
-  },
+  "engines": { "node": ">=22" },
   "devDependencies": {
-    "jsdom": "^27.0.0"
+    "@types/pg": "^8.0.0",
+    "dotenv": "^16.0.0",
+    "drizzle-kit": "^0.31.0",
+    "drizzle-orm": "^0.44.0",
+    "jsdom": "^27.0.0",
+    "pg": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   }
 }
