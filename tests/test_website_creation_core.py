@@ -24,8 +24,9 @@ def function_part(name="deploy_instant_website"):
     return SimpleNamespace(text=None, thought=False, function_call=SimpleNamespace(name=name, args={}))
 
 
-def model_response(*parts):
-    return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(role="model", parts=list(parts)))])
+def model_response(*parts, finish_reason=None):
+    return SimpleNamespace(candidates=[SimpleNamespace(
+        content=SimpleNamespace(role="model", parts=list(parts)), finish_reason=finish_reason)])
 
 
 def fake_client(*responses):
@@ -66,7 +67,7 @@ def test_explicit_creation_generates_once_and_prepares_once_without_announcing_u
 
 
 @pytest.mark.parametrize("response", [
-    model_response(text_part("<!doctype html><html><body>unfinished")),
+    model_response(text_part("HTMLは作れませんでした")),
     model_response(text_part(HTML), function_part()),
 ])
 def test_invalid_or_tool_call_html_fails_without_prepare(response):
@@ -156,3 +157,73 @@ def test_conservative_website_creation_classification_accepts_explicit_requests(
 ])
 def test_conservative_website_creation_classification_rejects_non_creation_requests(creation_prompt):
     assert not _is_website_creation_request(creation_prompt)
+
+
+def test_creation_uses_large_output_budget_and_long_timeout():
+    registry, _ = registry_with_prepare()
+    client, generator = fake_client(model_response(text_part(HTML)))
+
+    AgentCore(client=client, registry=registry).run("ホームページを作成して")
+
+    config = generator.call_args.kwargs["config"]
+    assert config.max_output_tokens == 65_536
+    assert config.http_options.timeout == 300_000
+
+
+def test_prose_around_html_is_stripped():
+    registry, prepare = registry_with_prepare()
+    client, _ = fake_client(model_response(text_part("こちらが完成版です。\n```html\n" + HTML + "\n```\n以上です。")))
+
+    result = AgentCore(client=client, registry=registry).run("ホームページを作成して")
+
+    assert result.status == "needs_user_action"
+    assert prepare.call_args.kwargs == {"html_content": HTML}
+
+
+def test_truncated_html_is_continued_once():
+    registry, prepare = registry_with_prepare()
+    head = "<!doctype html><html lang='ja'><head><title>シェルティー</title></head><body><h1>ブリーダー"
+    client, generator = fake_client(
+        model_response(text_part(head), finish_reason="MAX_TOKENS"),
+        model_response(text_part("のご案内</h1></body></html>")),
+    )
+
+    result = AgentCore(client=client, registry=registry).run("シェルティーブリーダーのホームページを作成して、公開まで持っていって")
+
+    assert result.status == "needs_user_action" and generator.call_count == 2
+    assert prepare.call_args.kwargs["html_content"] == head + "のご案内</h1></body></html>"
+    assert result.metrics.api_calls == 2
+    assert generator.call_args_list[1].kwargs["contents"][1].parts[0].text == head
+
+
+def test_unfinished_html_gets_closing_tags_and_preview():
+    registry, prepare = registry_with_prepare()
+    client, generator = fake_client(model_response(text_part(
+        "<!doctype html><html><head><style>h1{color:red}</style></head><body><main><h1>犬舎</h1><p>子犬情報<a href=\"#x")))
+
+    result = AgentCore(client=client, registry=registry).run("HTMLを生成して")
+
+    assert result.status == "needs_user_action" and generator.call_count == 1
+    assert "閉じタグを自動で補いました" in result.text
+    html = prepare.call_args.kwargs["html_content"]
+    assert html.endswith("<p>子犬情報</p></main></body>\n</html>")
+
+
+def test_timeout_reports_timeout_without_prepare():
+    registry, prepare = registry_with_prepare()
+    client, _ = fake_client(TimeoutError("read timed out"))
+
+    result = AgentCore(client=client, registry=registry).run("ホームページを作成して")
+
+    assert result.status == "failed" and prepare.call_count == 0
+    assert "時間内に終わりませんでした" in result.text
+
+
+def test_prepare_error_reason_is_shown_without_urls():
+    registry, _ = registry_with_prepare({"status": "error", "error": "HTML容量は512 KiB以内にしてください。"})
+    client, _ = fake_client(model_response(text_part(HTML)))
+
+    result = AgentCore(client=client, registry=registry).run("ホームページを作成して")
+
+    assert result.status == "failed"
+    assert result.text == "HTMLの準備に失敗しました（HTML容量は512 KiB以内にしてください。）。公開されていません。"
