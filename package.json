@@ -1,0 +1,13 @@
+{
+  "name": "karry-agent-ui-tests",
+  "private": true,
+  "scripts": {
+    "test:ui": "node --test tests/task_chat_ui.test.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}

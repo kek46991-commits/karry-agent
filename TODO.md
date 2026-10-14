@@ -52,3 +52,10 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 
 インスタント公開検証: 348 passed, 2 skipped。既存304件＋追加44件。Python/JavaScript構文、依存、差分、wheel成功。読み取り専用レビューの経路統一と原子的保存を修正。ライブ公開・GitHub成果物アップロード・外部API・本番ツール呼出しなし。
 インスタント公開PR: https://github.com/kek46991-commits/karry-agent/pull/8 。main未マージ・本番未反映。
+
+## タスク別セッション・チャットUI
+
+- [ ] 提供セッションAPIを既存FastAPIに統合し、POST/GET /api/sessions、GET /api/sessions/{id}、POST /api/chatを実装する。title、messages、latest_urlをセッションごとに保持し、一覧・作成・切替でLLMを呼ばない。送信は既存エージェントに接続しダミー返答には置き換えない。
+- [ ] 添付サイドバー仕様を既存HTML UIへ統合し、新規タスク・一覧・選択状態・履歴復元・最新公開URLを表示する。タスク切替時に別タスクのメッセージが残らず、通信・送信・認証エラーを扱う。音声、SSE、実行モニター、公開承認を維持する。
+- [ ] Bearer認証・入力/履歴/件数上限・タスク間の文脈分離・同時送信抑止を維持する。公開URLは実際の公開成功にだけ結び付ける。インメモリなので再起動で消えることを説明する。
+- [ ] 本番LLMを呼ばずモック・既存回帰・UIの振る舞いを検証し、独立PRへ保存する。未マージPR #9の永続化を混ぜず、本番マージ・デプロイは別途確認する。

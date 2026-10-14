@@ -8,6 +8,7 @@ import os
 import re
 import logging
 import secrets
+import time
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult
@@ -117,6 +118,31 @@ class AgentTaskRequest(BaseModel):
     session_id: str | None = Field(default=None, max_length=100)
 
 
+class SessionCreate(BaseModel):
+    title: str = Field(default="新しいタスク", min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(ord(c) < 32 for c in value):
+            raise ValueError("タスク名は空白・制御文字を含まない文字列にしてください")
+        return value
+
+
+class MessageRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=20_000)
+    stream: bool = False
+
+    @field_validator("prompt")
+    @classmethod
+    def nonempty_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("メッセージを入力してください")
+        return value
+
+
 class InstantWebsitePayload(BaseModel):
     html_content: str = Field(..., min_length=1, max_length=instant_website.MAX_HTML_BYTES)
     filename: str | None = Field(default=None, max_length=200)
@@ -165,6 +191,9 @@ _RUNS: dict[str, dict[str, Any]] = {}
 _SESSIONS: dict[str, ConversationMemory] = {}
 _PRIVATE_SESSIONS: dict[str, PrivateModeSession] = {}
 _PENDING_CALENDAR: dict[str, dict[str, Any]] = {}
+_SESSION_META: dict[str, dict[str, str]] = {}
+_SESSION_LOCKS: dict[str, threading.Lock] = {}
+_SESSION_APPROVALS: dict[str, tuple[str, float]] = {}
 _STATE_LOCK = threading.Lock()
 _MAX_RUNS = 100
 _MAX_SESSIONS = 100
@@ -192,6 +221,7 @@ def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None
 class ToolRequest(BaseModel):
     tool_name: str = Field(min_length=1, max_length=100)
     arguments: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 def get_agent() -> AgentCore:
@@ -237,12 +267,64 @@ def _session(session_id: str | None) -> tuple[str | None, ConversationMemory | N
     if not session_id:
         return None, None
     with _STATE_LOCK:
-        if session_id not in _SESSIONS:
-            if len(_SESSIONS) >= _MAX_SESSIONS:
-                oldest = next(iter(_SESSIONS))
-                _SESSIONS.pop(oldest, None)
-            _SESSIONS[session_id] = ConversationMemory(max_history=10)
-        return session_id, _SESSIONS[session_id]
+        return session_id, _allocate_session_locked(session_id)
+
+
+def _drop_session_locked(session_id: str) -> None:
+    for store in (_SESSIONS, _SESSION_META, _SESSION_LOCKS, _PRIVATE_SESSIONS, _PENDING_CALENDAR):
+        store.pop(session_id, None)
+    for approval, (owner, _) in list(_SESSION_APPROVALS.items()):
+        if owner == session_id:
+            _SESSION_APPROVALS.pop(approval, None)
+
+
+def _allocate_session_locked(session_id: str, title: str = "新しいタスク") -> ConversationMemory:
+    if session_id not in _SESSIONS:
+        if len(_SESSIONS) >= _MAX_SESSIONS:
+            # Preserve legacy bounded eviction, but never evict an active run.
+            oldest = next((sid for sid in _SESSIONS if not _SESSION_LOCKS.get(sid, threading.Lock()).locked()), None)
+            if oldest is None:
+                raise HTTPException(status_code=409, detail="all sessions are busy")
+            _drop_session_locked(oldest)
+        _SESSIONS[session_id] = ConversationMemory(max_history=10)
+    _SESSION_META.setdefault(session_id, {"title": title, "latest_url": "", "latest_run_id": ""})
+    _SESSION_LOCKS.setdefault(session_id, threading.Lock())
+    return _SESSIONS[session_id]
+
+
+def _session_detail_locked(session_id: str) -> dict[str, Any]:
+    memory = _SESSIONS.get(session_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    meta = _SESSION_META.get(session_id, {"title": "新しいタスク", "latest_url": "", "latest_run_id": ""})
+    messages = [{"role": "assistant" if item["role"] == "model" else item["role"], "content": item["content"]}
+                for item in memory.get_history()]
+    run = _RUNS.get(meta.get("latest_run_id", ""))
+    return {"session_id": session_id, "title": meta["title"], "messages": messages, "latest_url": meta["latest_url"],
+            "last_run": dict(run) if run and run.get("status") != "running" else None}
+
+
+def _remember_website_previews(session_id: str, result: AgentResult) -> None:
+    with _STATE_LOCK:
+        now = time.monotonic()
+        for key, (sid, expiry) in list(_SESSION_APPROVALS.items()):
+            if expiry <= now or sid not in _SESSIONS:
+                _SESSION_APPROVALS.pop(key, None)
+        for event in result.trace:
+            observation = event.observation
+            if event.action != "deploy_instant_website" or not isinstance(observation, dict):
+                continue
+            approval = observation.get("approval_id")
+            if observation.get("confirmation_required") and isinstance(approval, str) and approval in instant_website._PENDING:
+                _SESSION_APPROVALS[approval] = (session_id, now + instant_website.APPROVAL_TTL)
+
+
+def _remember_published_website_locked(session_id: str | None, result: dict[str, Any]) -> None:
+    if session_id not in _SESSIONS or not result.get("success") or result.get("status") != "published":
+        return
+    url = result.get("public_url")
+    if isinstance(url, str) and url.startswith(instant_website.public_base_url() + "/static/instant/"):
+        _SESSION_META[session_id]["latest_url"] = url
 
 
 def _private_mode(session_id: str | None, prompt: str) -> bool:
@@ -342,7 +424,29 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
     return agent.run(prompt)
 
 
-def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
+def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) -> RunResponse | dict[str, Any]:
+    if not request.session_id:
+        request.session_id = uuid.uuid4().hex
+    with _STATE_LOCK:
+        if task_mode and request.session_id not in _SESSIONS:
+            raise HTTPException(status_code=404, detail="Session not found")
+        _allocate_session_locked(request.session_id)
+        lock = _SESSION_LOCKS[request.session_id]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="session is already running")
+    try:
+        response = _execute_locked(request, agent)
+        if task_mode:
+            with _STATE_LOCK:
+                details = _session_detail_locked(request.session_id)
+            details.pop("last_run", None)
+            return {**response.model_dump(), **details, "response": response.text}
+        return response
+    finally:
+        lock.release()
+
+
+def _execute_locked(request: RunRequest, agent: AgentCore) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
@@ -365,9 +469,11 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
             _RUNS[run_id]["status"] = "failed"
         raise HTTPException(status_code=500, detail="agent execution failed") from exc
     _remember_calendar_preview(session_id, result)
+    _remember_website_previews(session_id, result)
     if memory:
-        memory.add_message("user", request.prompt)
-        memory.add_message("model", result.text)
+        with _STATE_LOCK:
+            memory.add_message("user", request.prompt)
+            memory.add_message("model", result.text)
     response = RunResponse(
         run_id=run_id,
         session_id=session_id,
@@ -380,6 +486,8 @@ def _execute(request: RunRequest, agent: AgentCore) -> RunResponse:
         metrics=_metrics(result),
     )
     _finish_run(run_id, response)
+    with _STATE_LOCK:
+        _SESSION_META[session_id]["latest_run_id"] = run_id
     return response
 
 
@@ -387,14 +495,15 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _stream_chat(request: RunRequest, agent: AgentCore):
+def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
         yield _sse("started", {"prompt": request.prompt})
-        response = _execute(request, agent)
-        for index, event in enumerate(response.trace, start=1):
+        response = _execute(request, agent, task_mode=task_mode)
+        payload = response if isinstance(response, dict) else response.model_dump()
+        for index, event in enumerate(payload["trace"], start=1):
             yield _sse("step", {"index": index, **event})
-        yield _sse("completed", response.model_dump())
+        yield _sse("completed", payload)
     except HTTPException as exc:
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
         healing = healing_engine.analyze_and_heal(cause, {"source": "api_stream", "status_code": exc.status_code})
@@ -477,6 +586,46 @@ def get_session(session_id: str) -> SessionResponse:
     return SessionResponse(session_id=session_id, history=memory.get_history())
 
 
+@app.post("/api/sessions", dependencies=[Depends(require_tool_auth)])
+def create_session(data: SessionCreate):
+    with _STATE_LOCK:
+        if len(_SESSIONS) >= _MAX_SESSIONS:
+            raise HTTPException(status_code=409, detail="session capacity reached")
+        session_id = uuid.uuid4().hex
+        if session_id in _SESSIONS:
+            raise HTTPException(status_code=409, detail="session id collision; retry")
+        _allocate_session_locked(session_id, data.title)
+    return JSONResponse({"session_id": session_id, "title": data.title}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
+def list_sessions():
+    with _STATE_LOCK:
+        rows = [{"session_id": sid, "title": _SESSION_META.get(sid, {}).get("title", "新しいタスク")} for sid in _SESSIONS]
+    return JSONResponse(rows, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sessions/{session_id}", dependencies=[Depends(require_tool_auth)])
+def task_session(session_id: str):
+    with _STATE_LOCK:
+        details = _session_detail_locked(session_id)
+    return JSONResponse(details, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
+def task_chat(request: MessageRequest):
+    with _STATE_LOCK:
+        if request.session_id not in _SESSIONS:
+            raise HTTPException(status_code=404, detail="Session not found")
+    # Do not initialize the model for list/create/detail/unknown-session requests.
+    agent_factory = app.dependency_overrides.get(get_agent, get_agent)
+    agent = agent_factory()
+    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream)
+    if request.stream:
+        return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+    return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/runs/{run_id}", dependencies=[Depends(require_api_auth)])
 def get_run(run_id: str) -> dict[str, Any]:
     with _STATE_LOCK:
@@ -497,20 +646,33 @@ def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
     # Direct authenticated owner calls supply the exact final HTML themselves.
     # Model dispatch instead calls the staged registry wrapper and cannot approve.
     if request.tool_name == "deploy_instant_website":
+        if request.session_id:
+            with _STATE_LOCK:
+                if request.session_id not in _SESSIONS:
+                    raise HTTPException(status_code=404, detail="Session not found")
         if set(request.arguments) - {"html_content", "filename"}:
             raise HTTPException(status_code=400, detail="invalid publication arguments")
         try:
             payload = InstantWebsitePayload(**request.arguments)
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid HTML publication payload") from None
-        return {"tool_name": request.tool_name,
-                "result": instant_website.deploy_instant_website(payload.html_content, payload.filename)}
+        result = instant_website.deploy_instant_website(payload.html_content, payload.filename)
+        with _STATE_LOCK:
+            _remember_published_website_locked(request.session_id, result)
+        return {"tool_name": request.tool_name, "result": result}
     return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
 
 
 @app.post("/api/agent/websites/confirm", dependencies=[Depends(require_tool_auth)])
 def confirm_website(request: InstantWebsiteConfirmation) -> dict[str, Any]:
-    return instant_website.confirm_instant_website(request.approval_id, request.sha256, request.confirmed)
+    result = instant_website.confirm_instant_website(request.approval_id, request.sha256, request.confirmed)
+    with _STATE_LOCK:
+        owner = _SESSION_APPROVALS.get(request.approval_id)
+        if owner and owner[1] > time.monotonic():
+            _remember_published_website_locked(owner[0], result)
+        if result.get("status") in {"published", "cancelled"} or request.approval_id not in instant_website._PENDING:
+            _SESSION_APPROVALS.pop(request.approval_id, None)
+    return result
 
 
 @app.get("/api/agent/healing", dependencies=[Depends(require_tool_auth)])
