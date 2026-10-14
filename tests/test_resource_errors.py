@@ -141,3 +141,31 @@ def test_empty_or_malformed_local_artifact_is_unavailable_not_success():
     (sites.INSTANT_DIR / NAME).write_bytes(b'')
     response = TestClient(web.app).get(URL, headers={'Accept': 'application/json'})
     assert response.status_code == 503 and response.json()['status'] == 'unavailable'
+
+
+@pytest.mark.parametrize('status', [400,401,403,409,500,503])
+def test_http_exceptions_keep_status_without_leaking_internal_detail(monkeypatch, status):
+    monkeypatch.setattr(sites, 'public_artifact_content', Mock(side_effect=HTTPException(status, 'provider private endpoint https://secret.example/path', headers={'Retry-After':'10'})))
+    client = TestClient(web.app)
+    for accept in ['text/html', 'application/json']:
+        response = client.get(URL, headers={'Accept':accept})
+        assert response.status_code == status and 'secret.example' not in response.text
+        assert response.headers['retry-after']=='10' and response.headers['cache-control']=='no-store'
+        assert response.headers['content-type'].startswith('text/html' if accept=='text/html' else 'application/json')
+
+
+def test_artifact_status_is_explicit_and_safe_when_storage_is_unavailable(monkeypatch):
+    client=TestClient(web.app)
+    assert client.get('/api/artifacts/'+NAME).status_code==401
+    missing=client.get('/api/artifacts/'+NAME, headers=OWNER)
+    assert missing.status_code==200 and missing.json()['published'] is False
+    monkeypatch.setattr(sites, 'public_artifact_content', Mock(side_effect=storage.StorageError('private-signed-provider-url')))
+    response=client.get('/api/artifacts/'+NAME, headers=OWNER)
+    assert response.status_code==503 and response.json()['status']=='unavailable'
+    assert 'private-signed-provider-url' not in response.text
+
+
+def test_accept_json_preference_or_html_q_zero_is_respected():
+    for accept in ['text/html;q=0,application/json', 'application/json;q=1,text/html;q=0.1']:
+        response=TestClient(web.app).get(URL,headers={'Accept':accept})
+        assert response.status_code==404 and response.headers['content-type'].startswith('application/json')

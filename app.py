@@ -86,8 +86,8 @@ def _artifact_response(filename: str, scope: dict):
         if scope.get('method') == 'HEAD':
             response.body = b''
         return response
-    except StarletteHTTPException:
-        raise
+    except StarletteHTTPException as exc:
+        return resource_errors.http_failure(scope, exc.status_code, exc.headers)
     except FileNotFoundError:
         return resource_errors.respond(scope, resource_errors.missing('artifact'), 404)
     except website_storage.StorageError as exc:
@@ -194,6 +194,9 @@ async def artifact_not_found(request: Request, exc: ArtifactNotFound) -> Respons
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     if exc.status_code == 404:
         return resource_errors.respond(request.scope, resource_errors.missing(resource_errors.kind(request.url.path)), 404)
+    if resource_errors.is_retrieval(request.url.path, request.method) and exc.status_code >= 500:
+        healing_engine.analyze_and_heal(exc, {'source': 'retrieval_http', 'status_code': exc.status_code})
+        return resource_errors.http_failure(request.scope, exc.status_code, exc.headers)
     content = {"detail": redact(exc.detail)}
     if exc.status_code == 401 or exc.status_code >= 500:
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
@@ -258,6 +261,8 @@ class GenerateImageRequest(BaseModel):
 
 @app.exception_handler(media_repository.MediaError)
 async def media_error(request: Request, exc: media_repository.MediaError):
+    if exc.status_code == 404:
+        return resource_errors.respond(request.scope, resource_errors.missing('image', exc.code), 404)
     return JSONResponse({"detail": str(exc), "error_code": exc.code}, status_code=exc.status_code,
                         headers={"Cache-Control": "no-store"})
 
