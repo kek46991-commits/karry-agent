@@ -2,11 +2,13 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from google.genai import errors
 
 import app as web
 from fastapi.testclient import TestClient
-from karry_agent import image_generation
+from karry_agent import image_attachments as attachments, image_generation, task_persistence as tasks
 from karry_agent.core import AgentCore
 from test_image_attachments import HEADERS, create, durable, environment, picture  # noqa: F401
 
@@ -131,3 +133,39 @@ def test_web_ui_auto_renders_generated_images_and_has_no_mock_path():
     html = Path(__file__).resolve().parents[1].joinpath('static', 'index.html').read_text(encoding='utf-8')
     assert 'renderGeneratedImages(el,message.images' in html
     assert 'mock_image_path' not in html
+
+
+def test_metrics_count_image_api_calls(monkeypatch):
+    image_api(monkeypatch, gemini_image(picture()))
+    agent, _ = agent_requesting()
+    web.app.dependency_overrides[web.get_agent] = lambda: agent
+    client = TestClient(web.app)
+    metrics = chat(client, create(client))['metrics']
+    assert metrics['image_api_calls'] == 1 and metrics['api_calls'] == 3
+
+
+def test_durable_replay_keeps_generated_image_ids(monkeypatch, durable):
+    image_api(monkeypatch, gemini_image(picture()))
+    agent, _ = agent_requesting()
+    web.app.dependency_overrides[web.get_agent] = lambda: agent
+    client = TestClient(web.app)
+    sid = create(client)
+    body = {'session_id': sid, 'prompt': '猫の画像', 'request_id': 'req-image-1'}
+    first = client.post('/api/chat', headers=HEADERS, json=body).json()
+    monkeypatch.setattr(web, '_RUNS', {})
+    replay = client.post('/api/chat', headers=HEADERS, json=body).json()
+    assert first['generated_images'] and replay['generated_images'] == first['generated_images']
+
+
+def test_failed_task_update_deletes_unreferenced_blob(durable):
+    deleted = []
+    durable.delete_object = lambda **kw: deleted.append(kw['Key'])
+    service = attachments.AttachmentService('task-x', tasks.repository())
+    service.document = lambda: {'lease': {'id': 'lease-1'}, 'images': {}}
+
+    def fail(_):
+        raise tasks.TaskStorageError('save failed', 'storage_unavailable')
+    service._mutate = fail
+    with pytest.raises(tasks.TaskStorageError):
+        service.store_generated(attachments.normalize(picture(), 'image/png'), 'g.jpg', 'lease-1')
+    assert len(durable.puts) == 1 and len(deleted) == 1

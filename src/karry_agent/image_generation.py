@@ -25,6 +25,7 @@ Store = Callable[[bytes, str, str], dict[str, Any]]
 class GenerationContext:
     store: Store
     image_ids: list[str] = field(default_factory=list)
+    api_calls: int = 0
 
 
 _CONTEXT: contextvars.ContextVar[GenerationContext | None] = contextvars.ContextVar("karry_image_generation", default=None)
@@ -44,6 +45,11 @@ def generation_context(store: Store) -> Iterator[GenerationContext]:
 def generated_ids() -> list[str]:
     context = _CONTEXT.get()
     return list(context.image_ids) if context else []
+
+
+def api_calls() -> int:
+    context = _CONTEXT.get()
+    return context.api_calls if context else 0
 
 
 def _client() -> Any:
@@ -101,7 +107,9 @@ def generate_image(prompt: str) -> dict[str, Any]:
     from google.genai import errors, types
 
     try:
-        response = _client().models.generate_content(
+        client = _client()
+        context.api_calls += 1
+        response = client.models.generate_content(
             model=os.getenv("GEMINI_IMAGE_MODEL", DEFAULT_MODEL),
             contents=text[:MAX_PROMPT_CHARS],
             config=types.GenerateContentConfig(response_modalities=["IMAGE"]),

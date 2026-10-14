@@ -258,6 +258,12 @@ class AttachmentService:
             if self.repo is None:
                 with _MEMORY_LOCK:
                     _MEMORY_BYTES.pop((self.sid, image_id), None)
+            else:
+                # The blob was never referenced by the task; remove it so retries do not leak objects.
+                try:
+                    self.repo.client.delete_object(Bucket=self.repo.config.bucket, Key=self._blob_key(image_id))
+                except (BotoCoreError, ClientError, OSError):
+                    pass
             raise
         return meta
 

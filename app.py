@@ -405,8 +405,12 @@ def get_agent() -> AgentCore:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _metrics(result: AgentResult) -> dict[str, Any]:
-    return asdict(result.metrics)
+def _metrics(result: AgentResult, image_api_calls: int = 0) -> dict[str, Any]:
+    metrics = asdict(result.metrics)
+    if image_api_calls:
+        metrics["api_calls"] = metrics.get("api_calls", 0) + image_api_calls
+        metrics["image_api_calls"] = image_api_calls
+    return metrics
 
 
 def _image_service(session_id: str) -> image_attachments.AttachmentService:
@@ -826,7 +830,7 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         tool_calls=result.tool_calls,
         private_mode=private_mode,
         trace=_trace(result),
-        metrics=_metrics(result),
+        metrics=_metrics(result, image_generation.api_calls()),
         generated_images=generated,
     )
     _finish_run(run_id, response)
