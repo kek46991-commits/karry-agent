@@ -9,7 +9,7 @@
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0,#17264b 0,#0b1020 42%);color:var(--text);font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     .shell{width:min(1500px,100%);margin:auto;padding:28px 18px 48px}header{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.brand{display:flex;gap:12px;align-items:center}.logo{width:42px;height:42px;display:grid;place-items:center;border:1px solid #4378c7;border-radius:13px;background:#172b53;color:#8fc3ff;font-weight:800;font-size:20px}h1{margin:0;font-size:22px;letter-spacing:.02em}.subtitle{color:var(--muted);margin:2px 0 0;font-size:13px}
     .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--good)}.grid{display:grid;grid-template-columns:245px minmax(0,1fr) 290px;gap:18px}.panel{background:rgba(18,26,45,.9);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0003}
-    .tasks{padding:18px}.tasks h2,aside h2{font-size:15px;margin:0 0 15px}.tasks input{width:100%;margin-bottom:9px}.tasks button{width:100%;padding:10px}.task-list{max-height:480px;overflow:auto;margin-top:15px}.task-item{display:block;margin:7px 0;text-align:left;color:var(--text);background:#172239;overflow-wrap:anywhere;font-weight:500}.task-item[aria-current="true"]{background:#254d80;outline:1px solid #65a8ff;font-weight:700}
+    .tasks{padding:18px}.tasks h2,aside h2{font-size:15px;margin:0 0 15px}.tasks input{width:100%;margin-bottom:9px}.tasks button{width:100%;padding:10px}.task-list{max-height:480px;overflow:auto;margin-top:15px}.task-item{display:block;margin:7px 0;text-align:left;color:var(--text);background:#172239;overflow-wrap:anywhere;font-weight:500}.task-item[aria-current="true"]{background:#254d80;outline:1px solid #65a8ff;font-weight:700}.task-row{display:flex;gap:6px;margin:7px 0}.tasks .task-row .task-item{flex:1;width:auto;min-width:0;margin:0}.tasks .task-delete{flex:none;width:40px;padding:0;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df}
     .chat{min-height:650px;min-width:0;display:flex;flex-direction:column}.task-heading{padding:14px 20px;border-bottom:1px solid var(--line)}.task-heading h2{font-size:16px;margin:0}.latest{font-size:12px;margin-top:5px}.messages{flex:1;padding:20px;overflow:auto;max-height:590px}.message{max-width:90%;padding:12px 15px;border-radius:14px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}.message.user{margin-left:auto;background:#1e477d}.message.agent{background:#182238;border:1px solid #283858}.message .label{display:block;color:#9ec9ff;font-size:11px;margin-bottom:4px;font-weight:700}.empty{color:var(--muted);text-align:center;padding:95px 20px}
     form{border-top:1px solid var(--line);padding:15px;display:flex;gap:10px;align-items:stretch}textarea{flex:1;resize:vertical;min-height:52px;max-height:220px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0c1426;color:var(--text);font:inherit}input[type="text"],input[type="password"]{padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit}button{border:0;border-radius:11px;padding:0 18px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid #9ec9ff;outline-offset:3px}.icon-button{min-width:42px;padding:0 10px;background:#263c61;color:var(--text);font-size:18px}.icon-button.active{background:#a34b67}.voice-options{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:0 15px 12px}.voice-options input{accent-color:var(--accent)}
     aside{padding:18px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted)}.metric strong{color:var(--text);font-variant-numeric:tabular-nums}.trace{margin-top:22px}.trace-list{max-height:280px;overflow:auto}.event{border-left:2px solid var(--accent);padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px}.event .kind{color:var(--accent);font-weight:800}.event pre{margin:4px 0 0;white-space:pre-wrap;color:#bdc9df;overflow-wrap:anywhere}.session{color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}.hint{color:var(--muted);font-size:12px;margin-top:14px}a{color:#8fc3ff}.auth{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}.auth input{width:min(100%,360px)}.auth button{padding:10px 16px}.auth label{width:100%}[hidden]{display:none!important}
@@ -116,7 +116,12 @@
   }
   function renderTasks(){
     $('taskList').replaceChildren();
-    for(const session of sessions){const button=document.createElement('button');button.type='button';button.className='task-item';button.textContent=session.title;button.dataset.sessionId=session.session_id;button.setAttribute('aria-current',String(session.session_id===sessionId));button.disabled=busy;button.onclick=()=>selectSession(session.session_id);$('taskList').appendChild(button);}
+    for(const session of sessions){
+      const row=document.createElement('div');row.className='task-row';
+      const button=document.createElement('button');button.type='button';button.className='task-item';button.textContent=session.title;button.dataset.sessionId=session.session_id;button.setAttribute('aria-current',String(session.session_id===sessionId));button.disabled=busy;button.onclick=()=>selectSession(session.session_id);
+      const remove=document.createElement('button');remove.type='button';remove.className='task-delete';remove.textContent='🗑';remove.title='このタスクを削除';remove.setAttribute('aria-label',`タスク「${session.title}」を削除`);remove.dataset.deleteId=session.session_id;remove.disabled=busy;remove.onclick=()=>deleteSession(session.session_id);
+      row.append(button,remove);$('taskList').appendChild(row);
+    }
   }
   function renderSession(data){
     clearView();$('currentTask').textContent=data.title;$('session').textContent=data.session_id;
@@ -153,6 +158,27 @@
     try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});setConnectionStatus('オンライン');}
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
     finally{setBusy(false);}
+  }
+  async function deleteSession(id){
+    if(busy||!connected)return;
+    const index=sessions.findIndex(s=>s.session_id===id);if(index<0)return;
+    if(!window.confirm(`このタスクを削除しますか？\n「${sessions[index].title}」の会話履歴・画像・未公開プレビューが完全に削除されます。元に戻せません。`))return;
+    const wasCurrent=id===sessionId,version=++viewVersion;setBusy(true);setConnectionStatus('タスクを削除中…');
+    try{
+      try{await requestJson('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});}
+      catch(error){if(error.status!==404){addMessage('agent',`タスク削除エラー: ${error.message}`);setConnectionStatus('タスクを削除できませんでした');return;}}
+      sessions=sessions.filter(s=>s.session_id!==id);
+      if(!wasCurrent){renderTasks();setConnectionStatus('オンライン');return;}
+      const next=sessions[Math.min(index,sessions.length-1)];
+      clearView();sessionId=next?next.session_id:null;saveSelection();renderTasks();
+      if(!next){$('currentTask').textContent='タスクがありません';$('session').textContent='未選択';addMessage('agent','タスクを削除しました。「＋ 新しいタスクを作る」から始めてください。');setConnectionStatus('オンライン');return;}
+      $('currentTask').textContent='履歴を読み込み中…';
+      try{const data=await requestJson('/api/sessions/'+encodeURIComponent(next.session_id));if(version!==viewVersion||sessionId!==next.session_id)return;renderSession(data);renderTasks();setConnectionStatus('オンライン');}
+      catch(error){$('currentTask').textContent=next.title;addMessage('agent',`タスクは削除しました。次のタスクの読み込みエラー: ${error.message}`);setConnectionStatus('タスクを読み込み直してください');}
+    }finally{
+      setBusy(false);
+      for(const button of $('taskList').querySelectorAll('.task-item'))if(button.dataset.sessionId===sessionId)button.focus();
+    }
   }
   async function clearHistory(){
     if(busy||!connected||!sessionId)return;

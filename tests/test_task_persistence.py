@@ -43,6 +43,11 @@ class FakeS3:
             self.puts.append(copy.deepcopy(kw));tag='"'+hashlib.md5(kw['Body']).hexdigest()+'"'
             self.objects[kw['Key']]={**copy.deepcopy(kw),'ETag':tag}
             return {'ETag':tag}
+    def delete_object(self,**kw):
+        if self.fail:raise error('AccessDenied')
+        with self.lock:
+            self.objects.pop(kw['Key'],None)
+            return {}
 
 
 @pytest.fixture
@@ -440,3 +445,46 @@ def test_clear_history_refuses_active_lease_from_another_instance(env):
     response=TestClient(web.app).delete('/api/sessions/task-1/messages',headers=HEADERS)
     assert response.status_code==409 and response.json()['error_code']=='session_busy'
     assert r.load('task-1')['lease']['id']=='worker-a'
+
+
+def test_delete_task_removes_document_index_and_restored_context(env):
+    web.app.dependency_overrides[web.get_agent]=lambda:SimpleAgent()
+    client=TestClient(web.app)
+    sid=client.post('/api/sessions',headers=HEADERS,json={'title':'Gone'}).json()['session_id']
+    other=client.post('/api/sessions',headers=HEADERS,json={'title':'Kept'}).json()['session_id']
+    run_id=client.post('/api/chat',headers=HEADERS,json={'session_id':sid,'prompt':'Secret topic'}).json()['run_id']
+    response=client.delete('/api/sessions/'+sid,headers=HEADERS)
+    assert response.status_code==200 and response.json()=={'session_id':sid,'deleted':True}
+    assert repo(env)._key(sid) not in env[1].objects
+    assert sid not in web._SESSIONS and run_id not in web._RUNS
+    for name in ['_SESSIONS','_SESSION_META','_SESSION_LOCKS','_RUNS']:
+        getattr(web,name).clear()
+    assert client.get('/api/sessions',headers=HEADERS).json()==[{'session_id':other,'title':'Kept'}]
+    assert client.get('/api/sessions/'+sid,headers=HEADERS).status_code==404
+    assert client.delete('/api/sessions/'+sid,headers=HEADERS).status_code==404
+
+
+def test_delete_task_refuses_active_lease_from_another_instance(env):
+    r=repo(env);r.create('task-1','Title');r.begin('task-1','worker-a')
+    response=TestClient(web.app).delete('/api/sessions/task-1',headers=HEADERS)
+    assert response.status_code==409 and response.json()['error_code']=='session_busy'
+    assert r.load('task-1')['lease']['id']=='worker-a' and r.list()==[{'session_id':'task-1','title':'Title'}]
+
+
+def test_delete_task_failure_is_reported_and_retry_finishes(env,monkeypatch):
+    r=repo(env);r.create('task-1','Title')
+    original=env[1].delete_object
+    monkeypatch.setattr(env[1],'delete_object',lambda **kw:(_ for _ in ()).throw(error('AccessDenied')))
+    client=TestClient(web.app)
+    assert client.delete('/api/sessions/task-1',headers=HEADERS).status_code==503
+    assert r.list()==[{'session_id':'task-1','title':'Title'}]
+    monkeypatch.setattr(env[1],'delete_object',original)
+    assert client.delete('/api/sessions/task-1',headers=HEADERS).status_code==200
+    assert r.list()==[] and r._key('task-1') not in env[1].objects
+    # An index row left without its document is still removable.
+    r.create('task-2','Orphan');env[1].objects.pop(r._key('task-2'))
+    assert client.delete('/api/sessions/task-2',headers=HEADERS).status_code==200 and r.list()==[]
+
+
+class SimpleAgent:
+    def run(self,prompt,**kw):return AgentResult('Answer '+prompt,1,0)

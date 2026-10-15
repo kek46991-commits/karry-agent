@@ -24,6 +24,10 @@ function setup(options={}){
         const sid=decodeURIComponent(url.split('/').at(-2));if(!data.has(sid))return json({detail:'Session not found'},404);
         const cleared={...data.get(sid),messages:[],last_run:null,artifacts:[]};data.set(sid,cleared);return json(cleared);
       }
+      if(url.startsWith('/api/sessions/')&&request.method==='DELETE'){
+        const sid=decodeURIComponent(url.split('/').at(-1));if(!data.has(sid))return json({detail:'Session not found'},404);
+        data.delete(sid);return json({session_id:sid,deleted:true});
+      }
       if(url.startsWith('/api/sessions/')){const sid=decodeURIComponent(url.split('/').at(-1));return data.has(sid)?json(data.get(sid)):json({detail:'Session not found'},404);}
       if(url==='/api/chat'){
         const record=data.get(body.session_id);const reply='Answer for '+record.title;
@@ -360,4 +364,58 @@ test('failed clear keeps the conversation and explains the error',async()=>{
   s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;await s.win.clearHistory();
   const content=s.doc.getElementById('messages').textContent;
   assert.match(content,/Still here/);assert.match(content,/履歴の消去エラー/);s.dom.window.close();
+});
+
+test('deleting a task asks first and cancelling keeps it',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Keep A')],['b',record('b','B','B')]]});
+  s.authenticate();await s.win.connectSessions();
+  const asked=[];s.win.confirm=message=>{asked.push(message);return false;};
+  s.doc.querySelector('[data-delete-id="a"]').click();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.match(asked[0],/このタスクを削除しますか？/);assert.match(asked[0],/「A」/);
+  assert.equal(s.calls.filter(c=>c.request.method==='DELETE').length,0);
+  assert.equal(s.doc.querySelectorAll('.task-item').length,2);
+  assert.match(s.doc.getElementById('messages').textContent,/Keep A/);s.dom.window.close();
+});
+
+test('deleting the selected task removes it and focuses the next task',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Only A')],['b',record('b','B','Only B')],['c',record('c','C','Only C')]]});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;
+  await s.win.deleteSession('a');
+  const call=s.calls.find(c=>c.request.method==='DELETE');
+  assert.equal(call.url,'/api/sessions/a');assert.equal(call.request.headers.Authorization,'Bearer synthetic-owner');
+  assert.deepEqual([...s.doc.querySelectorAll('.task-item')].map(b=>b.textContent),['B','C']);
+  assert.equal(s.doc.getElementById('currentTask').textContent,'B');
+  const content=s.doc.getElementById('messages').textContent;assert.match(content,/Only B/);assert.doesNotMatch(content,/Only A/);
+  assert.equal(s.win.localStorage.getItem('karry-session'),'b');
+  assert.equal(s.doc.activeElement.dataset.sessionId,'b');
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('deleting another task keeps the current conversation',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Only A')],['b',record('b','B','Only B')]]});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;
+  await s.win.deleteSession('b');
+  assert.deepEqual([...s.doc.querySelectorAll('.task-item')].map(b=>b.textContent),['A']);
+  assert.equal(s.doc.getElementById('currentTask').textContent,'A');
+  assert.match(s.doc.getElementById('messages').textContent,/Only A/);
+  assert.equal(s.calls.filter(c=>c.url==='/api/sessions/b'&&c.request.method!=='DELETE').length,0);s.dom.window.close();
+});
+
+test('deleting the last task leaves an empty state without chatting',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Only A')]]});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;
+  await s.win.deleteSession('a');
+  assert.equal(s.doc.querySelectorAll('.task-item').length,0);
+  assert.equal(s.doc.getElementById('currentTask').textContent,'タスクがありません');
+  assert.equal(s.doc.getElementById('send').disabled,true);assert.equal(s.doc.getElementById('newTask').disabled,false);
+  assert.equal(s.win.localStorage.getItem('karry-session'),null);
+  assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);s.dom.window.close();
+});
+
+test('failed delete keeps the task and explains the error',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Still here')]],fetch:async(url,request)=>{if(request.method==='DELETE')return json({detail:'session is already running'},409);}});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;
+  await s.win.deleteSession('a');
+  assert.equal(s.doc.querySelectorAll('.task-item').length,1);
+  const content=s.doc.getElementById('messages').textContent;assert.match(content,/Still here/);assert.match(content,/タスク削除エラー/);s.dom.window.close();
 });

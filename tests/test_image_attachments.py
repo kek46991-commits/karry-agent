@@ -392,3 +392,11 @@ def test_memory_reference_failure_removes_only_unreferenced_new_bytes(monkeypatc
     monkeypatch.setattr(service,'_mutate',fail)
     with pytest.raises(images.ImageAttachmentError):service.upload(images.normalize(picture(),'image/png'),'photo.png')
     assert not images._MEMORY_BYTES and not images.memory_document(sid)['images']
+
+
+def test_delete_durable_task_removes_image_blobs(durable):
+    client=TestClient(web.app);sid=create(client)
+    assert upload(client,sid).status_code==200
+    assert any('/images/' in key for key in durable.objects)
+    assert client.delete('/api/sessions/'+sid,headers=HEADERS).status_code==200
+    assert not any('/images/' in key for key in durable.objects)
