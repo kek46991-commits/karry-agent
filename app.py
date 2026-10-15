@@ -475,6 +475,17 @@ def _drop_session_locked(session_id: str) -> None:
             _SESSION_APPROVALS.pop(approval, None)
 
 
+def _reset_conversation_locked(session_id: str) -> None:
+    """Clearing history also drops context-bound confirmations and private-mode authorization."""
+    for store in (_PRIVATE_SESSIONS, _PENDING_CALENDAR):
+        store.pop(session_id, None)
+    with website_artifacts.LOCK:
+        website_artifacts.MEMORY.pop(session_id, None)
+    for approval, (owner, _) in list(_SESSION_APPROVALS.items()):
+        if owner == session_id:
+            _SESSION_APPROVALS.pop(approval, None)
+
+
 def _allocate_session_locked(session_id: str, title: str = "新しいタスク") -> ConversationMemory:
     if session_id not in _SESSIONS:
         if len(_SESSIONS) >= _MAX_SESSIONS:
@@ -1038,6 +1049,35 @@ def task_session(session_id: str):
         return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         details = _session_detail_locked(session_id)
+    return JSONResponse(details, headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/sessions/{session_id}/messages", dependencies=[Depends(require_tool_auth)])
+def clear_task_history(session_id: str):
+    """会話履歴とモデルへ渡す文脈を消去する。タスク自体・公開済みURL・次回添付画像は残す。"""
+    if task_persistence.mode() == "s3":
+        with _STATE_LOCK:
+            lock = _SESSION_LOCKS.get(session_id)
+            if lock is not None and lock.locked():
+                raise HTTPException(status_code=409, detail="session is already running")
+        document = task_persistence.repository().clear_history(session_id)
+        with _STATE_LOCK:
+            _reset_conversation_locked(session_id)
+            _restore_task_locked(document)
+        return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
+    with _STATE_LOCK:
+        if session_id not in _SESSIONS:
+            raise HTTPException(status_code=404, detail="Session not found")
+        lock = _SESSION_LOCKS[session_id]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="session is already running")
+        try:
+            _SESSIONS[session_id].clear()
+            _SESSION_META[session_id]["latest_run_id"] = ""
+            _reset_conversation_locked(session_id)
+            details = _session_detail_locked(session_id)
+        finally:
+            lock.release()
     return JSONResponse(details, headers={"Cache-Control": "no-store"})
 
 

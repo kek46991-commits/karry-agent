@@ -23,6 +23,8 @@
     .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
     .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
     body[data-connection="online"] .dot{background:var(--good)}body[data-connection="error"] .dot{background:#f28b8b}
+    .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
+    .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
   </style>
 </head>
@@ -39,7 +41,7 @@
         <p class="hint">一覧・作成・切替ではLLMを呼びません。</p><p class="hint" id="storageHint">保存方式は接続後に確認できます。</p>
       </nav>
       <div class="panel chat">
-        <div class="task-heading"><h2 id="currentTask">タスクを選択してください</h2><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
+        <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
@@ -82,7 +84,7 @@
   function metrics(data){const m=data.metrics||{};$('steps').textContent=data.steps??'—';$('toolCalls').textContent=data.tool_calls??'—';$('apiCalls').textContent=m.api_calls??'—';$('tokens').textContent=m.total_tokens??'—';$('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—';}
   function setBusy(value){
     busy=value;$('loadTasks').disabled=value;$('apiToken').disabled=value;$('taskTitle').disabled=value;
-    $('newTask').disabled=value||!connected;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
+    $('newTask').disabled=value||!connected;$('clearHistory').disabled=value||!connected||!sessionId;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
     $('mic').disabled=value||!connected||!sessionId||!recognition;
     $('imageFile').disabled=value||!connected||!sessionId||selectedImages.length>=4;
     for(const button of $('imagePreviews').querySelectorAll('button'))button.disabled=value;
@@ -150,6 +152,14 @@
     if(busy||!connected)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
     try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});setConnectionStatus('オンライン');}
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
+    finally{setBusy(false);}
+  }
+  async function clearHistory(){
+    if(busy||!connected||!sessionId)return;
+    if(!window.confirm('会話履歴を消去しますか？\nこのタスクの会話と、AIが覚えている文脈がリセットされます。元に戻せません。'))return;
+    const owner=sessionId,version=++viewVersion;setBusy(true);setConnectionStatus('履歴を消去中…');
+    try{const data=await requestJson('/api/sessions/'+encodeURIComponent(owner)+'/messages',{method:'DELETE'});if(version!==viewVersion||sessionId!==owner)return;pendingMessage=null;renderSession(data);setConnectionStatus('オンライン');}
+    catch(error){if(sessionId===owner)addMessage('agent',`履歴の消去エラー: ${error.message}`);setConnectionStatus('履歴を消去できませんでした');}
     finally{setBusy(false);}
   }
   function safeImageUrl(url){return typeof url==='string'&&url.length<3000000&&/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(url);}
@@ -277,6 +287,7 @@
   }
   $('loadTasks').addEventListener('click',connectSessions);
   $('newTask').addEventListener('click',createNewSession);
+  $('clearHistory').addEventListener('click',clearHistory);
   $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});
   $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('mic').addEventListener('click',()=>{if(recognition&&!busy){if($('mic').classList.contains('active'))recognition.stop();else recognition.start();}});

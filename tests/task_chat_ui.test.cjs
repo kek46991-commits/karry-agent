@@ -20,6 +20,10 @@ function setup(options={}){
         return json({session_id:sid,title:record.title,persistence:'durable'});
       }
       if(url==='/api/sessions')return json([...data.values()].map(({session_id,title})=>({session_id,title})));
+      if(url.startsWith('/api/sessions/')&&url.endsWith('/messages')&&request.method==='DELETE'){
+        const sid=decodeURIComponent(url.split('/').at(-2));if(!data.has(sid))return json({detail:'Session not found'},404);
+        const cleared={...data.get(sid),messages:[],last_run:null,artifacts:[]};data.set(sid,cleared);return json(cleared);
+      }
       if(url.startsWith('/api/sessions/')){const sid=decodeURIComponent(url.split('/').at(-1));return data.has(sid)?json(data.get(sid)):json({detail:'Session not found'},404);}
       if(url==='/api/chat'){
         const record=data.get(body.session_id);const reply='Answer for '+record.title;
@@ -325,4 +329,35 @@ test('unavailable public file keeps private HTML preview but never displays a pu
  assert.ok(s.doc.querySelector('iframe'));assert.equal(s.doc.getElementById('latestBox').hidden,true);
  assert.equal(s.doc.querySelector('[data-artifact-id] input[type="checkbox"]'),null);
  assert.match(s.doc.getElementById('messages').textContent,/公開リンクの実体を確認できません/);s.dom.window.close();
+});
+
+test('clear history asks first and cancelling keeps messages without calling the API',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Keep me')]]});
+  assert.equal(s.doc.getElementById('clearHistory').disabled,true);
+  s.authenticate();await s.win.connectSessions();assert.equal(s.doc.getElementById('clearHistory').disabled,false);
+  const asked=[];s.win.confirm=message=>{asked.push(message);return false;};
+  await s.win.clearHistory();
+  assert.match(asked[0],/会話履歴を消去しますか？/);
+  assert.equal(s.calls.filter(c=>c.request.method==='DELETE').length,0);
+  assert.match(s.doc.getElementById('messages').textContent,/Keep me/);s.dom.window.close();
+});
+
+test('confirmed clear resets server history for the selected task and keeps the task',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Old answer')],['b',record('b','B','Other task')]]});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;
+  s.doc.getElementById('clearHistory').click();await new Promise(resolve=>setTimeout(resolve,0));
+  const call=s.calls.find(c=>c.request.method==='DELETE');
+  assert.equal(call.url,'/api/sessions/a/messages');assert.equal(call.request.headers.Authorization,'Bearer synthetic-owner');
+  const content=s.doc.getElementById('messages').textContent;
+  assert.doesNotMatch(content,/Old answer/);assert.ok(s.doc.getElementById('empty'));
+  assert.equal(s.doc.getElementById('currentTask').textContent,'A');assert.equal(s.doc.querySelectorAll('.task-item').length,2);
+  assert.equal(s.data.get('b').messages.length,1);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,0);
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('failed clear keeps the conversation and explains the error',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Still here')]],fetch:async(url,request)=>{if(request.method==='DELETE')return json({detail:'session is already running'},409);}});
+  s.authenticate();await s.win.connectSessions();s.win.confirm=()=>true;await s.win.clearHistory();
+  const content=s.doc.getElementById('messages').textContent;
+  assert.match(content,/Still here/);assert.match(content,/履歴の消去エラー/);s.dom.window.close();
 });
