@@ -269,3 +269,30 @@ def test_model_text_url_is_not_treated_as_real_publication():
     web.app.dependency_overrides[web.get_agent]=lambda:SimpleNamespace(run=lambda prompt:AgentResult('https://example.onrender.com/static/instant/not-real.html',1,0))
     client=TestClient(web.app);sid=create(client)
     assert send(client,sid,'Invented URL').json()['latest_url']==''
+
+
+def test_clear_history_resets_display_and_model_context_without_llm():
+    agent=EchoAgent();web.app.dependency_overrides[web.get_agent]=lambda:agent
+    client=TestClient(web.app);a=create(client,'A');b=create(client,'B')
+    send(client,a,'Remember topic A');send(client,b,'Topic B')
+    web._PRIVATE_SESSIONS[a]=object();web._SESSION_APPROVALS['approval-a']=(a,9e9);web._SESSION_APPROVALS['approval-b']=(b,9e9)
+    calls=len(agent.prompts)
+    cleared=client.delete('/api/sessions/'+a+'/messages',headers=HEADERS)
+    assert cleared.status_code==200 and cleared.headers['cache-control']=='no-store'
+    assert cleared.json()['messages']==[] and cleared.json()['last_run'] is None and cleared.json()['title']=='A'
+    assert len(agent.prompts)==calls and a not in web._PRIVATE_SESSIONS and list(web._SESSION_APPROVALS)==['approval-b']
+    assert client.get('/api/sessions/'+a,headers=HEADERS).json()['messages']==[]
+    assert len(client.get('/api/sessions/'+b,headers=HEADERS).json()['messages'])==2
+    after=send(client,a,'Fresh start').json()
+    assert 'Remember topic A' not in after['response'] and len(after['messages'])==2
+
+
+def test_clear_history_auth_missing_and_busy():
+    client=TestClient(web.app);sid=create(client)
+    assert client.delete('/api/sessions/'+sid+'/messages').status_code==401
+    assert client.delete('/api/sessions/missing/messages',headers=HEADERS).status_code==404
+    web._SESSION_LOCKS[sid].acquire()
+    try:
+        assert client.delete('/api/sessions/'+sid+'/messages',headers=HEADERS).status_code==409
+    finally:
+        web._SESSION_LOCKS[sid].release()

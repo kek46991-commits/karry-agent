@@ -277,6 +277,18 @@ class S3TaskRepository:
             return value
         self._cas(self._key(sid), None, release)
 
+    def clear_history(self, sid: str) -> dict[str, Any]:
+        """会話と最後の実行・未公開プレビューだけを消す。タスク名・公開URL・画像・公開outboxは残す。"""
+        def clear(value):
+            self._validate(value, sid)
+            lease = value.get("lease")
+            if lease and lease["expires"] > time.time():
+                raise TaskStorageError("同じタスクを処理中のため履歴を消去できません。", "session_busy")
+            value.update(messages=[], last_run=None, lease=None)
+            value.pop("website_artifacts", None)
+            return value
+        return self._cas(self._key(sid), None, clear)
+
     def update_url(self, sid: str, url: str) -> dict[str, Any]:
         def update(value):
             self._validate(value, sid)

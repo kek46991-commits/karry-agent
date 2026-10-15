@@ -413,3 +413,30 @@ def test_real_sdk_accepts_conditional_json_put_with_checksum(env):
         stub.add_response('put_object',{'ETag':'"new-tag"'},expected)
         r._write(r._key('task-1'),value,'"old-tag"')
         stub.assert_no_pending_responses()
+
+
+def test_clear_history_persists_and_keeps_task_url_and_images(env):
+    calls=[]
+    class Agent:
+        def run(self,prompt,**kw):calls.append(prompt);return AgentResult('Answer '+prompt,1,0)
+    web.app.dependency_overrides[web.get_agent]=lambda:Agent()
+    client=TestClient(web.app)
+    sid=client.post('/api/sessions',headers=HEADERS,json={'title':'Kept task'}).json()['session_id']
+    client.post('/api/chat',headers=HEADERS,json={'session_id':sid,'prompt':'Remember topic'})
+    repo(env).update_url(sid,'https://example.onrender.com/static/instant/demo.html')
+    cleared=client.delete('/api/sessions/'+sid+'/messages',headers=HEADERS)
+    assert cleared.status_code==200 and cleared.json()['messages']==[] and cleared.json()['persistence']=='durable'
+    stored=repo(env).load(sid)
+    assert stored['messages']==[] and stored['last_run'] is None and stored['title']=='Kept task'
+    assert stored['latest_url'].endswith('demo.html') and client.get('/api/sessions',headers=HEADERS).json()==[{'session_id':sid,'title':'Kept task'}]
+    for name in ['_SESSIONS','_SESSION_META','_SESSION_LOCKS','_RUNS']:
+        getattr(web,name).clear()
+    client.post('/api/chat',headers=HEADERS,json={'session_id':sid,'prompt':'Fresh'})
+    assert 'Remember topic' not in calls[-1] and len(repo(env).load(sid)['messages'])==2
+
+
+def test_clear_history_refuses_active_lease_from_another_instance(env):
+    r=repo(env);r.create('task-1','Title');r.begin('task-1','worker-a')
+    response=TestClient(web.app).delete('/api/sessions/task-1/messages',headers=HEADERS)
+    assert response.status_code==409 and response.json()['error_code']=='session_busy'
+    assert r.load('task-1')['lease']['id']=='worker-a'
