@@ -1052,6 +1052,29 @@ def task_session(session_id: str):
     return JSONResponse(details, headers={"Cache-Control": "no-store"})
 
 
+@app.delete("/api/sessions/{session_id}", dependencies=[Depends(require_tool_auth)])
+def delete_task_session(session_id: str):
+    """タスクと会話・画像・未公開プレビューを完全に削除する。公開済みHTMLは公開先に残る。"""
+    with _STATE_LOCK:
+        lock = _SESSION_LOCKS.get(session_id)
+        if lock is not None and not lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="session is already running")
+    try:
+        if task_persistence.mode() == "s3":
+            task_persistence.repository().delete(session_id)
+        elif session_id not in _SESSIONS:
+            raise HTTPException(status_code=404, detail="Session not found")
+        with _STATE_LOCK:
+            _drop_session_locked(session_id)
+            for run_id, run in list(_RUNS.items()):
+                if run.get("session_id") == session_id:
+                    _RUNS.pop(run_id, None)
+    finally:
+        if lock is not None:
+            lock.release()
+    return JSONResponse({"session_id": session_id, "deleted": True}, headers={"Cache-Control": "no-store"})
+
+
 @app.delete("/api/sessions/{session_id}/messages", dependencies=[Depends(require_tool_auth)])
 def clear_task_history(session_id: str):
     """会話履歴とモデルへ渡す文脈を消去する。タスク自体・公開済みURL・次回添付画像は残す。"""

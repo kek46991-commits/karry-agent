@@ -296,3 +296,31 @@ def test_clear_history_auth_missing_and_busy():
         assert client.delete('/api/sessions/'+sid+'/messages',headers=HEADERS).status_code==409
     finally:
         web._SESSION_LOCKS[sid].release()
+
+
+def test_delete_task_removes_it_and_keeps_other_tasks():
+    web.app.dependency_overrides[web.get_agent]=lambda:EchoAgent()
+    client=TestClient(web.app)
+    a=create(client,'A');b=create(client,'B')
+    run_id=send(client,a,'Topic A').json()['run_id'];send(client,b,'Topic B')
+    web._SESSION_APPROVALS['approval-a']=(a,9e9)
+    deleted=client.delete('/api/sessions/'+a,headers=HEADERS)
+    assert deleted.status_code==200 and deleted.json()=={'session_id':a,'deleted':True}
+    assert client.get('/api/sessions',headers=HEADERS).json()==[{'session_id':b,'title':'B'}]
+    assert client.get('/api/sessions/'+a,headers=HEADERS).status_code==404
+    assert client.get('/runs/'+run_id,headers=HEADERS).status_code==404
+    assert 'approval-a' not in web._SESSION_APPROVALS
+    assert len(client.get('/api/sessions/'+b,headers=HEADERS).json()['messages'])==2
+    assert client.delete('/api/sessions/'+a,headers=HEADERS).status_code==404
+
+
+def test_delete_task_requires_auth_and_refuses_running_task():
+    client=TestClient(web.app)
+    sid=create(client,'Running')
+    assert client.delete('/api/sessions/'+sid).status_code==401
+    web._SESSION_LOCKS[sid].acquire()
+    try:
+        assert client.delete('/api/sessions/'+sid,headers=HEADERS).status_code==409
+    finally:
+        web._SESSION_LOCKS[sid].release()
+    assert client.get('/api/sessions/'+sid,headers=HEADERS).status_code==200

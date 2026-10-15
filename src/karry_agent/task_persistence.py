@@ -289,6 +289,46 @@ class S3TaskRepository:
             return value
         return self._cas(self._key(sid), None, clear)
 
+    def delete(self, sid: str) -> None:
+        """タスク本体・画像・一覧登録を消す。途中で失敗しても、再実行で残りを消せる順序にする。"""
+        key = self._key(sid)
+        found = self._read(key)[0] is not None
+        if found:
+            def claim(value):
+                self._validate(value, sid)
+                lease = value.get("lease")
+                if lease and lease["expires"] > time.time() and not lease["id"].startswith("delete-"):
+                    raise TaskStorageError("同じタスクを処理中のため削除できません。", "session_busy")
+                value["lease"] = {"id": "delete-" + uuid.uuid4().hex, "expires": time.time() + LEASE_SECONDS}
+                return value
+            document = self._cas(key, None, claim)
+            images = self.prefix + "images/" + hashlib.sha256(sid.encode()).hexdigest() + "/"
+            for image_id in {**document.get("images", {}), **document.get("image_uploads", {})}:
+                self._delete(images + image_id + ".bin")
+            self._delete(key)
+        def index_update(index):
+            rows = index.get("tasks")
+            if index.get("version") != 1 or not isinstance(rows, list):
+                raise TaskStorageError("タスク一覧の構造が不正です。", "storage_integrity")
+            kept = [row for row in rows if row.get("session_id") != sid]
+            if len(kept) == len(rows) and not found:
+                raise TaskStorageError("Session not found", "not_found")
+            index["tasks"] = kept
+            return index
+        self._cas(self.prefix + "index.json", {"version": 1, "tasks": []}, index_update)
+
+    def _delete(self, key: str) -> None:
+        try:
+            self.client.delete_object(Bucket=self.config.bucket, Key=key)
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code", "")) in {"NoSuchKey", "NotFound", "404"}:
+                return
+            raise TaskStorageError("タスクの削除に失敗しました。もう一度削除してください。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
+        except (BotoCoreError, OSError) as exc:
+            raise TaskStorageError("タスクの削除に失敗しました。もう一度削除してください。", "storage_unavailable",
+                                   diagnostic_code=storage.connection_diagnostic(exc)) from None
+
     def update_url(self, sid: str, url: str) -> dict[str, Any]:
         def update(value):
             self._validate(value, sid)
