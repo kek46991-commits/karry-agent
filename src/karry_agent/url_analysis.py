@@ -27,9 +27,114 @@ _DNS_SLOTS = BoundedSemaphore(4)
 
 
 class URLFetchError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
-        self.code, self.message = code, message
+    def __init__(self, code: str, message: str, http_status: int | None = None) -> None:
+        self.code, self.message, self.http_status = code, message, http_status
         super().__init__(message)
+
+
+# 404・アクセス拒否・存在しないドメインは、再試行せずユーザーにURL確認を促す。
+UNREACHABLE_ERRORS = frozenset({"url_not_found", "url_access_denied", "dns_error"})
+UNREACHABLE_MESSAGE = "指定されたURLが存在しないかアクセスできません。URLを確認してください。"
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
+_URL_RE = re.compile(r"(?<![A-Za-z0-9@./])h?ttps?://[^\s<>\"'`]+", re.I)
+# ひらがな・和文記号・全角記号が来たらURLの終わりとみなす（漢字・カタカナのパスは残す）。
+_URL_STOP_RE = re.compile("[\u3000-\u303f\u3040-\u309f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65…⋯]")
+_CONTINUATION_RE = re.compile(r"[ \t]*\r?\n[ \t]*([A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+)"
+                              "(?=[\\s\u3000-\u303f\u3040-\u309f\uff01-\uff65]|\\Z)")
+_JOIN_MARKS = "/-_.?=&#%~+"
+
+
+def _tidy_url(raw: str) -> tuple[str, int]:
+    """整形後URLと、元の文字列のうちURLとして使った長さ。"""
+    url = raw
+    while True:
+        before = url
+        url = url.rstrip(",;:*'\"")
+        while url.endswith(")") and url.count(")") > url.count("("):
+            url = url[:-1]
+        while url.endswith("]") and url.count("]") > url.count("["):
+            url = url[:-1]
+        if url == before:
+            break
+    used = len(url)
+    if url[:4].lower() in {"ttps", "ttp:"}:
+        url = "h" + url
+    return (url if re.match(r"https?://[^/?#\s]", url, re.I) else ""), used
+
+
+def _url_spans(text: str) -> list[tuple[int, int, str]]:
+    """URLの位置と整形後URL。改行で折り返されたURLは続きの行と結合する。"""
+    spans: list[tuple[int, int, str]] = []
+    for match in _URL_RE.finditer(text):
+        start, raw = match.start(), match.group()
+        if spans and start < spans[-1][1]:
+            continue
+        stop = _URL_STOP_RE.search(raw)
+        if stop:
+            raw = raw[:stop.start()]
+        else:
+            position = match.end()
+            while continuation := _CONTINUATION_RE.match(text, position):
+                token = continuation.group(1)
+                if re.match(r"h?ttps?://", token, re.I) or not (
+                        raw[-1] in _JOIN_MARKS or token[0] in _JOIN_MARKS or any(c in token for c in "/?=&%#")):
+                    break
+                raw += token
+                position = continuation.end()
+            if position != match.end():
+                url, used = _tidy_url(raw)
+                spans.append((start, position - (len(raw) - used), url))
+                continue
+        url, used = _tidy_url(raw)
+        spans.append((start, start + used, url))
+    return [span for span in spans if span[2]]
+
+
+def extract_urls(text: str) -> list[str]:
+    """入力文から有効な形に整えたURLを重複なしで取り出す。"""
+    return list(dict.fromkeys(url for _, _, url in _url_spans(text.translate(_ZERO_WIDTH))))
+
+
+def normalize_urls_in_text(text: str) -> str:
+    """折り返し・前後の余分な文字を除いたURLへ置き換え、直後の文と区切る。"""
+    text = text.translate(_ZERO_WIDTH)
+    for start, end, url in reversed(_url_spans(text)):
+        tail = text[end:]
+        text = text[:start] + url + (" " if tail and not tail[0].isspace() else "") + tail
+    return text
+
+
+def clean_url(value: Any) -> Any:
+    """ツール引数のURLの前後の空白・囲み文字・句読点を除き、www.だけの場合はhttps://を補う。
+
+    途中の空白・改行は結合しない（ヘッダー注入対策として validate_url が拒否する）。
+    """
+    if not isinstance(value, str):
+        return value
+    compact = value.translate(_ZERO_WIDTH).strip().strip("<>\"'`「」『』").strip()
+    if compact.lower().startswith("www."):
+        compact = "https://" + compact
+    if re.search(r"\s", compact):
+        return compact
+    urls = extract_urls(compact)
+    return urls[0] if len(urls) == 1 else compact
+
+
+def _http_failure(status: int) -> URLFetchError:
+    if status in {404, 410}:
+        return URLFetchError("url_not_found", UNREACHABLE_MESSAGE, status)
+    if status in {401, 403, 451}:
+        return URLFetchError("url_access_denied", UNREACHABLE_MESSAGE, status)
+    return URLFetchError("http_error", f"WebページがHTTP {status}を返しました。", status)
+
+
+def _unreachable_result(url: str, exc: URLFetchError) -> dict[str, Any]:
+    reason = {404: "HTTP 404 Not Found", 410: "HTTP 410 Gone", 401: "HTTP 401 認証が必要",
+              403: "HTTP 403 アクセス拒否", 451: "HTTP 451 アクセス制限"}.get(exc.http_status or 0, "ドメインが見つかりません")
+    shown = url if isinstance(url, str) and len(url) <= 300 else "（長いURL）"
+    return {"status": "needs_user_action", "error": exc.code, "url": url, "http_status": exc.http_status,
+            "message": f"{UNREACHABLE_MESSAGE}\n対象: {shown}（{reason}）\n"
+                       "URLを修正して送り直すか、ページ本文やスクリーンショットを貼り付けるなど、別の指示をお願いします。"}
 
 
 def _public_ip(value: str) -> bool:
@@ -127,7 +232,7 @@ def _download_html(url: str) -> tuple[bytes, str, str, int]:
                 current = next_url
                 continue
             if not 200 <= response.status < 300:
-                raise URLFetchError("http_error", f"WebページがHTTP {response.status}を返しました。")
+                raise _http_failure(response.status)
             mime = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             if mime not in {"text/html", "application/xhtml+xml", "text/plain"}:
                 raise URLFetchError("unsupported_content", "HTMLまたはテキストのページだけを解析できます。")
@@ -214,12 +319,14 @@ def extract_page(body: bytes, url: str, content_type: str, redirects: int = 0) -
 def fetch_and_summarize_url(url: str) -> dict[str, Any]:
     """Extract in one logical fetch; summarization/proposals belong to the final LLM call."""
     started = time.monotonic()
+    url = clean_url(url)
     try:
         validate_url(url)
         body, final_url, content_type, redirects = _download_html(url)
         result = extract_page(body, final_url, content_type, redirects)
     except URLFetchError as exc:
-        result = {"status": "error", "error": exc.code, "message": exc.message}
+        result = (_unreachable_result(url, exc) if exc.code in UNREACHABLE_ERRORS
+                  else {"status": "error", "error": exc.code, "message": exc.message, "url": url})
     except (urllib3.exceptions.TimeoutError, socket.timeout):
         result = {"status": "error", "error": "timeout", "message": "URL取得の時間上限に達しました。"}
     except Exception as exc:
@@ -235,19 +342,15 @@ async def fetch_and_summarize_url_async(url: str) -> dict[str, Any]:
 
 def single_analysis_url(prompt: str) -> str | None:
     """Fast path only for a single explicit read/analysis request or a bare URL."""
-    matches = re.findall(r"https?://[^\s<>\"'`]+", prompt)
-    if len(matches) != 1:
+    text = prompt.translate(_ZERO_WIDTH)
+    spans = _url_spans(text)
+    if len({found for _, _, found in spans}) != 1:
         return None
-    raw = matches[0]
-    # Preserve valid URL punctuation (e.g. wiki paths ending in ')', '!').
-    # Only remove unmatched enclosing delimiters and Japanese sentence marks.
-    url = raw.rstrip("。、「」，！？」】")
-    while url.endswith(")") and url.count(")") > url.count("("):
-        url = url[:-1]
-    if url.endswith("]") and url.count("]") > url.count("["):
-        url = url[:-1]
-    url = url.rstrip("）")
-    remainder = prompt.replace(raw, " ").strip()
+    url = spans[0][2]
+    remainder = text
+    for start, end, _ in reversed(spans):
+        remainder = remainder[:start] + " " + remainder[end:]
+    remainder = remainder.strip()
     # Reject unrelated/compound actions rather than replacing their semantics.
     phrases = (r"この|こちらの|こちら|以下の|以下|ページ|サイト|ウェブサイト|Webサイト|URL|内容|改善|提案|生成|"
                r"解析|分析|要約|確認|見て|見てみて|読んで|レビュー|お願い|してください|して下さい|してくださいませ|"
@@ -256,5 +359,5 @@ def single_analysis_url(prompt: str) -> str | None:
                r"analyze|analyse|summarize|summarise|review|suggestions|suggest|improvements|improve|"
                r"this|the|page|website|url|and|please")
     remainder = re.sub(phrases, "", remainder, flags=re.I)
-    remainder = re.sub(r"[\s。、，!！?？:：()（）\[\]【】`]+", "", remainder)
+    remainder = re.sub(r"[\s。、，!！?？:：()（）\[\]【】「」『』`]+", "", remainder)
     return url if not remainder else None
