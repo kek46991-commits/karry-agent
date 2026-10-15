@@ -19,7 +19,7 @@ from .privacy import private_system_instruction
 from .self_healing import SelfHealingEngine, healing_engine, redact
 from .core_memory import load_core_memory, core_memory_instruction
 from .config import max_tool_steps
-from .url_analysis import single_analysis_url
+from .url_analysis import normalize_urls_in_text, single_analysis_url
 from . import html_repair
 
 load_dotenv()
@@ -486,7 +486,8 @@ class AgentCore:
         metrics = AgentMetrics()
         if not prompt.strip():
             raise ValueError("prompt は空にできません")
-        request = current_prompt if current_prompt is not None else prompt
+        prompt = normalize_urls_in_text(prompt)
+        request = normalize_urls_in_text(current_prompt) if current_prompt is not None else prompt
         url = single_analysis_url(request)
         if url and "fetch_and_summarize_url" in self.registry.tools:
             if images:

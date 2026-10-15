@@ -145,7 +145,7 @@ def test_numeric_ip_connection_and_tls_host_verification(monkeypatch):
 
 
 @pytest.mark.parametrize("response,error", [
-    (FakeResponse(404), "http_error"),
+    (FakeResponse(500), "http_error"),
     (FakeResponse(headers={"Content-Type": "application/pdf"}), "unsupported_content"),
     (FakeResponse(headers={"Content-Type": "text/html", "Content-Encoding": "gzip"}), "unsupported_encoding"),
     (FakeResponse(headers={"Content-Type": "text/html", "Content-Length": "9999999"}), "page_too_large"),
@@ -323,3 +323,67 @@ def test_dns_timeout_releases_capacity(monkeypatch):
 def test_transport_timeout_is_normalized(monkeypatch):
     monkeypatch.setattr(urls, "_download_html", Mock(side_effect=urls.urllib3.exceptions.ReadTimeoutError(None, None, "timeout")))
     assert urls.fetch_and_summarize_url("https://example.com")["error"] == "timeout"
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    ("https://example.com/very-long-pa\nth/to/page を解析して", "https://example.com/very-long-path/to/page"),
+    ("https://example.com/foo?x=1&\ny=2", "https://example.com/foo?x=1&y=2"),
+    ("このURLを解析して https://example.comを読んで", "https://example.com"),
+    ("「https://example.com/page」を要約して", "https://example.com/page"),
+    ("ttps://example.com/news", "https://example.com/news"),
+    ("https://exa\u200bmple.com/a", "https://example.com/a"),
+    ("https://ja.wikipedia.org/wiki/東京都を要約", "https://ja.wikipedia.org/wiki/東京都"),
+])
+def test_url_extraction_repairs_breaks_and_extra_characters(prompt, expected):
+    assert urls.extract_urls(prompt) == [expected]
+    assert urls.single_analysis_url(prompt) == expected
+
+
+def test_unrelated_next_line_is_not_joined_and_wrappers_are_kept():
+    assert urls.extract_urls("https://example.com/a\nThanks") == ["https://example.com/a"]
+    assert urls.extract_urls("https://example.com\nhttps://b.example/x") == ["https://example.com", "https://b.example/x"]
+    assert urls.normalize_urls_in_text("[a](https://example.com/x) と **https://b.example/y**,") == \
+        "[a](https://example.com/x ) と **https://b.example/y **,"
+    assert urls.normalize_urls_in_text("参考: https://example.com/a-\nb.html でページを作って") == "参考: https://example.com/a-b.html でページを作って"
+
+
+@pytest.mark.parametrize("raw,expected", [(" <https://example.com/a> ", "https://example.com/a"), ("www.example.com", "https://www.example.com"),
+    ("https://example.com/a。", "https://example.com/a"), ("「https://example.com」", "https://example.com")])
+def test_tool_argument_url_is_cleaned(raw, expected):
+    assert urls.clean_url(raw) == expected
+
+
+@pytest.mark.parametrize("status,error", [(404, "url_not_found"), (410, "url_not_found"), (403, "url_access_denied"), (401, "url_access_denied")])
+def test_missing_or_denied_page_asks_user_to_check_url(monkeypatch, status, error):
+    transport(monkeypatch, [FakeResponse(status)])
+    result = urls.fetch_and_summarize_url("https://example.com/missing")
+    assert result["status"] == "needs_user_action" and result["error"] == error and result["http_status"] == status
+    assert result["message"].startswith("指定されたURLが存在しないかアクセスできません。URLを確認してください。")
+    assert "https://example.com/missing" in result["message"] and "別の指示" in result["message"]
+
+
+def test_unknown_domain_asks_user_to_check_url(monkeypatch):
+    monkeypatch.setattr(urls, "_resolve_public", Mock(side_effect=urls.URLFetchError("dns_error", "公開ホストの名前解決に失敗しました。")))
+    result = urls.fetch_and_summarize_url("https://no-such-host.example")
+    assert result["status"] == "needs_user_action" and result["error"] == "dns_error"
+    assert "ドメインが見つかりません" in result["message"]
+
+
+def test_broken_url_in_chat_is_joined_and_404_is_reported_without_model_call():
+    missing = {"status": "needs_user_action", "error": "url_not_found", "message": urls.UNREACHABLE_MESSAGE}
+    agent, fetch, generator = agent_with_fetch(missing)
+    outcome = agent.run("https://example.com/very-long-pa\nth/to/page を解析して")
+    assert fetch.call_args.kwargs == {"url": "https://example.com/very-long-path/to/page"}
+    assert outcome.status == "needs_user_action" and outcome.text == urls.UNREACHABLE_MESSAGE
+    assert generator.call_count == 0
+
+
+def test_page_generation_stops_and_asks_user_when_reference_url_is_missing():
+    missing = {"status": "needs_user_action", "error": "url_not_found", "message": urls.UNREACHABLE_MESSAGE}
+    agent, fetch, generator = agent_with_fetch(missing)
+    call = SimpleNamespace(name="fetch_and_summarize_url", args={"url": "https://example.com/missing"}, id="1")
+    part = SimpleNamespace(text=None, thought=False, function_call=call)
+    generator.return_value = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(role="model", parts=[part]))])
+    outcome = agent.run("https://example.com/missing を参考にLPを作ってください")
+    assert outcome.status == "needs_user_action" and outcome.text == urls.UNREACHABLE_MESSAGE
+    assert fetch.call_count == 1 and generator.call_count == 1
