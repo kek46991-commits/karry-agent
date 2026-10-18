@@ -88,6 +88,12 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 タスクの作成・一覧・切替と会話履歴の復元を、既存チャットUIへ統合しています。`/api/sessions`・`/api/chat` は同じ非公開R2/S3へタスクJSONを永続保存し、再起動後も完了済みの会話と最新公開URLを復元します。HTMLと同じ鍵・バケットを使い、専用prefixだけを分ける構成です。一覧・作成・切替はLLMを呼ばず、送信だけ既存AgentCoreへ接続します。CAS・共有リース・再送ID・公開outboxで競合と重複実行を抑止し、資格情報は保存しません。設定と制約は [docs/task-session-chat.md](docs/task-session-chat.md) を参照してください。
 
+### シークレットチャットとマイク
+
+入力欄のシークレットトグルをONにすると、テキスト会話を通常の履歴・DB/R2・実行記録・診断ログに保存せず、独立した揮発メモリだけで処理します。`is_secret` / `isSecret` をAPIへ渡し、OFFでは従来のタスク保存を維持。ON中の画像保存・成果物公開は無効で、既存の合言葉private_modeとは別機能です。Gemini等の外部サービスの保持までゼロにする設定ではありません。
+
+マイクはクリック時に明示的に権限を要求し、全Trackの停止、認識開始/終了/拒否/未対応、手入力と途中結果の合成、タスク切替後の遅延結果を処理します。API・無保存の範囲・対応条件と検証は [docs/secret-chat-microphone.md](docs/secret-chat-microphone.md) を参照してください。
+
 ### チャットでの画像生成
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。

@@ -117,6 +117,9 @@ class SelfHealingEngine:
                     break
 
     def analyze_and_heal(self, error: Exception, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        from .secret_runtime import is_active
+        if is_active():
+            return {"status": "skipped", "reason": "secret_chat_no_retention"}
         context = context or {}
         if getattr(self._local, "active", False):
             return {"status": "skipped", "reason": "recursive_healing_suppressed"}

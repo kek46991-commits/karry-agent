@@ -23,7 +23,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 from karry_agent.calendar_secrets import calendar_secret_status
@@ -43,6 +43,7 @@ from karry_agent import media_repository, media_generation
 from karry_agent import image_generation
 from karry_agent import optimus_core
 from karry_agent import resource_errors
+from karry_agent import secret_chat, secret_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ app = FastAPI(
     title="karry-agent API",
     version="0.2.0",
     description="Gemini Function Calling agent API with chat and execution tracking",
+    lifespan=secret_chat.lifespan,
 )
 STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
@@ -167,6 +169,7 @@ class ImageUploadGuard:
 
 
 app.add_middleware(ImageUploadGuard)
+app.add_middleware(secret_runtime.SecretChatPrivacyMiddleware)
 
 try:
     _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
@@ -177,6 +180,8 @@ except Exception as exc:
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    if request.scope.get("secret_chat"):
+        return JSONResponse(status_code=500, content={"detail": "シークレットの応答処理に失敗しました。", "isSecret": True}, headers={"Cache-Control": "private, no-store"})
     healing = healing_engine.analyze_and_heal(exc, {"source": "api", "method": request.method,
                                                   "path": request.url.path, "direction": "inbound"})
     if resource_errors.is_retrieval(request.url.path, request.method):
@@ -194,6 +199,9 @@ async def artifact_not_found(request: Request, exc: ArtifactNotFound) -> Respons
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    if request.scope.get("secret_chat"):
+        message = "APIトークンを確認してください。" if exc.status_code == 401 else "シークレット要求を処理できません。入力・実行状態・サーバー設定を確認してください。"
+        return JSONResponse(status_code=exc.status_code, content={"detail": message, "isSecret": True}, headers={**(exc.headers or {}), "Cache-Control": "private, no-store"})
     if exc.status_code == 404:
         return resource_errors.respond(request.scope, resource_errors.missing(resource_errors.kind(request.url.path)), 404)
     if resource_errors.is_retrieval(request.url.path, request.method) and exc.status_code >= 500:
@@ -212,6 +220,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    if request.scope.get("secret_chat"):
+        return JSONResponse(status_code=422, content={"detail": "入力またはシークレット指定の形式が不正です。", "isSecret": True}, headers={"Cache-Control": "private, no-store"})
     healing_engine.analyze_and_heal(ValueError("request validation failed"),
         {"source": "api_validation", "method": request.method, "path": request.url.path})
     errors = [{"loc": list(error["loc"]), "type": error["type"], "msg": error["msg"]}
@@ -269,15 +279,30 @@ async def media_error(request: Request, exc: media_repository.MediaError):
                         headers={"Cache-Control": "no-store"})
 
 
-class RunRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=20_000, description="エージェントへの指示")
-    session_id: str | None = Field(default=None, max_length=100)
+class SecretRequest(BaseModel):
+    is_secret: bool = Field(default=False, strict=True, validation_alias=AliasChoices("is_secret", "isSecret"))
+    secret_session_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_secret_flags(cls, value):
+        if isinstance(value, dict):
+            if "is_secret" in value and "isSecret" in value and value["is_secret"] != value["isSecret"]:
+                raise ValueError("シークレット指定が矛盾しています。")
+            if value.get("secret_session_id") and not (value.get("is_secret") is True or value.get("isSecret") is True):
+                raise ValueError("シークレット会話IDは通常モードでは利用できません。")
+        return value
+
+
+class RunRequest(SecretRequest):
+    prompt: str = Field(..., min_length=1, max_length=20_000, description="エージェントへの指示", validation_alias=AliasChoices("prompt", "message"))
+    session_id: str | None = Field(default=None, max_length=100, validation_alias=AliasChoices("session_id", "taskId"))
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
 
 
-class AgentTaskRequest(BaseModel):
+class AgentTaskRequest(SecretRequest):
     """旧サンプル形式との互換リクエスト。内部では prompt に変換する。"""
 
     task: str = Field(..., min_length=1, max_length=20_000, description="エージェントへのタスク")
@@ -296,9 +321,9 @@ class SessionCreate(BaseModel):
         return value
 
 
-class MessageRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=100)
-    prompt: str = Field(min_length=1, max_length=20_000)
+class MessageRequest(SecretRequest):
+    session_id: str = Field(min_length=1, max_length=100, validation_alias=AliasChoices("session_id", "taskId"))
+    prompt: str = Field(min_length=1, max_length=20_000, validation_alias=AliasChoices("prompt", "message"))
     stream: bool = False
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
@@ -330,6 +355,9 @@ class RunResponse(BaseModel):
     steps: int
     tool_calls: int
     private_mode: bool = False
+    is_secret: bool = False
+    isSecret: bool = False
+    secret_session_id: str | None = None
     trace: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, Any]
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
@@ -346,6 +374,9 @@ class AgentRunResponse(BaseModel):
     run_id: str
     session_id: str | None = None
     private_mode: bool = False
+    is_secret: bool = False
+    isSecret: bool = False
+    secret_session_id: str | None = None
     steps: int
     tool_calls: int
     trace: list[dict[str, Any]] = Field(default_factory=list)
@@ -749,7 +780,47 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
     return agent.run(prompt)
 
 
+def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
+    if not os.getenv("KARRY_API_TOKEN"):
+        raise HTTPException(status_code=503, detail="シークレットには所有者認証の設定が必要です。")
+    if request.image_ids:
+        raise HTTPException(status_code=400, detail="シークレットでは画像保存を行わないため、テキストだけを送信してください。")
+    request.session_id = request.session_id or uuid.uuid4().hex
+    with secret_runtime.scope():
+        try:
+            with secret_chat.store.claim(request.session_id, request.secret_session_id) as (sid, entry):
+                cached = entry.replay(request.request_id, request.prompt)
+                if cached is not None:
+                    return {**cached, "replayed": True} if task_mode else RunResponse.model_validate(cached)
+                prompt = request.prompt
+                if entry.history:
+                    context = "\n".join(f"{row['role']}: {row['content']}" for row in entry.history[-6:])
+                    prompt = f"シークレット内の会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
+                private_mode = entry.private.authenticate(request.prompt)
+                run = getattr(agent, "run_secret", None)
+                if not callable(run):
+                    raise HTTPException(status_code=503, detail="シークレット生成に対応するモデル実装が必要です。")
+                try:
+                    result = run(prompt, private_mode=private_mode)
+                    if result.status != "completed" or not isinstance(result.text, str) or not result.text.strip() or len(result.text) > 100_000:
+                        raise ValueError("invalid secret response")
+                except Exception:
+                    raise HTTPException(status_code=502, detail="シークレットの返答を生成できませんでした。") from None
+                response = RunResponse(run_id=uuid.uuid4().hex, session_id=request.session_id,
+                    status="completed", text=result.text, steps=result.steps, tool_calls=0,
+                    private_mode=private_mode, metrics=_metrics(result), is_secret=True, isSecret=True,
+                    secret_session_id=sid)
+                payload = entry.complete(request.request_id, request.prompt, {**response.model_dump(),
+                    "response": response.text, "title": "シークレットチャット", "persistence": "none",
+                    "latest_url": "", "pending_images": [], "image_assets": {}})
+                return payload if task_mode else response
+        except secret_chat.SecretChatError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
 def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) -> RunResponse | dict[str, Any]:
+    if request.is_secret:
+        return _execute_secret(request, agent, task_mode=task_mode)
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
     repo = task_persistence.repository() if task_persistence.mode() == "s3" else None
@@ -893,7 +964,7 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
-        yield _sse("started", {"prompt": request.prompt})
+        yield _sse("started", {"isSecret": True} if request.is_secret else {"prompt": request.prompt})
         response = _execute(request, agent, task_mode=task_mode)
         payload = response if isinstance(response, dict) else response.model_dump()
         for index, event in enumerate(payload["trace"], start=1):
@@ -906,10 +977,16 @@ def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = Fal
     except image_attachments.ImageAttachmentError as exc:
         yield _sse("error", {"status_code": exc.status_code, "detail": str(exc)})
     except HTTPException as exc:
+        if request.is_secret:
+            yield _sse("error", {"status_code": exc.status_code, "detail": "シークレットの応答を完了できませんでした。", "isSecret": True})
+            return
         cause = exc.__cause__ if isinstance(exc.__cause__, Exception) else exc
         healing = healing_engine.analyze_and_heal(cause, {"source": "api_stream", "status_code": exc.status_code})
         yield _sse("error", {"status_code": exc.status_code, "detail": redact(exc.detail), "healing_status": healing})
     except Exception as exc:
+        if request.is_secret:
+            yield _sse("error", {"status_code": 500, "detail": "シークレットの応答を完了できませんでした。", "isSecret": True})
+            return
         healing = healing_engine.analyze_and_heal(exc, {"source": "api_stream", "operation": "serialize_or_execute"})
         # Never put the failing/cyclic payload or raw exception into the fallback.
         yield _sse("error", {"status_code": 500, "detail": "agent stream failed", "healing_status": healing})
@@ -950,7 +1027,7 @@ def run_agent_compat(
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
     agent = agent_factory()
     response = _execute(
-        RunRequest(prompt=request.task, session_id=request.session_id),
+        RunRequest(prompt=request.task, session_id=request.session_id, is_secret=request.is_secret, secret_session_id=request.secret_session_id),
         agent,
     )
     return AgentRunResponse(
@@ -961,6 +1038,9 @@ def run_agent_compat(
         run_id=response.run_id,
         session_id=response.session_id,
         private_mode=response.private_mode,
+        is_secret=response.is_secret,
+        isSecret=response.isSecret,
+        secret_session_id=response.secret_session_id,
         steps=response.steps,
         tool_calls=response.tool_calls,
         trace=response.trace,
@@ -1235,6 +1315,14 @@ def detach_image(image_id: str, session_id: Annotated[str, Query(min_length=1, m
 
 @app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
 def task_chat(request: MessageRequest):
+    if request.is_secret:
+        agent_factory = app.dependency_overrides.get(get_agent, get_agent)
+        agent = agent_factory()
+        run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream,
+            request_id=request.request_id, image_ids=request.image_ids, is_secret=True, secret_session_id=request.secret_session_id)
+        if request.stream:
+            return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
+        return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "private, no-store"})
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().load(request.session_id)
         if document.get("image_uploads"):
@@ -1265,6 +1353,19 @@ def get_run(run_id: str) -> dict[str, Any]:
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+class SecretForgetRequest(BaseModel):
+    secret_session_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+@app.post("/api/secret/forget", dependencies=[Depends(require_tool_auth)])
+def forget_secret(request: SecretForgetRequest):
+    try:
+        secret_chat.store.forget(request.secret_session_id)
+    except secret_chat.SecretChatError:
+        raise HTTPException(status_code=409, detail="処理中のシークレット会話は消去できません。") from None
+    return JSONResponse({"success": True, "persistence": "none"}, headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/api/agent/tools", dependencies=[Depends(require_tool_auth)])
