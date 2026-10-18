@@ -23,6 +23,7 @@
     .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
     .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
     body[data-connection="online"] .dot{background:var(--good)}body[data-connection="error"] .dot{background:#f28b8b}
+    .secret-controls{display:flex;align-items:center;gap:8px;margin-top:9px;color:#ffd2df;font-size:13px;font-weight:700}.secret-controls input{accent-color:#df6185}.secret-notice{margin:8px 0 0;color:#ffd2df;font-size:12px}.secret-notice[hidden]{display:none}
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
@@ -41,7 +42,7 @@
         <p class="hint">一覧・作成・切替ではLLMを呼びません。</p><p class="hint" id="storageHint">保存方式は接続後に確認できます。</p>
       </nav>
       <div class="panel chat">
-        <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
+        <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" disabled> シークレット会話（保存しない）</label><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
@@ -54,17 +55,71 @@
   const $ = id => document.getElementById(id);
   let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0, pendingMessage=null;
   let selectedImages=[], imageVersion=0;
+  let isSecret=false;
+  const secretConversations=new Map();
   const imageUrls=new Map();
   try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-  const recognition=SpeechRecognition?new SpeechRecognition():null;
+  let recognition=null, micRequestPending=false, micRequestVersion=0, micRun=null;
+  let micUnavailableReason='';
+  if(window.isSecureContext===false)micUnavailableReason='安全なHTTPS接続でのみ音声入力を利用できます';
+  else if(!SpeechRecognition)micUnavailableReason='このブラウザは音声入力に未対応です';
+  else if(!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function')micUnavailableReason='このブラウザはマイク権限の確認に未対応です';
+  else try{recognition=new SpeechRecognition();recognition.lang='ja-JP';recognition.interimResults=true;recognition.continuous=false;}catch(_){micUnavailableReason='このブラウザは音声入力に未対応です';}
+  function currentMicContext(){return {version:viewVersion,sessionId,mode:isSecret};}
+  function sameMicContext(context){return !!context&&context.version===viewVersion&&context.sessionId===sessionId&&context.mode===isSecret;}
+  function micStatusForError(error){
+    const name=String(error?.name||error?.error||'');
+    if(/NotAllowed|Security|not-allowed|service-not-allowed/i.test(name))return 'マイクの権限が拒否されています。ブラウザ設定で許可してください。';
+    if(/NotFound|DevicesNotFound|audio-capture/i.test(name))return 'マイクを利用できません。接続・使用中のアプリを確認してください。';
+    if(/network/i.test(name))return '音声認識のネットワークに接続できません。';
+    if(/aborted/i.test(name))return '音声入力を停止しました。';
+    return '音声入力を開始できませんでした。';
+  }
+  function stopTracks(stream){for(const track of stream?.getTracks?.()||[]){try{track.stop?.();}catch(_){}}}
+  function updateMicButton(){
+    const usable=!!recognition&&!micUnavailableReason;
+    $('mic').disabled=busy||!connected||!sessionId||!usable||micRequestPending;
+    $('mic').title=micUnavailableReason||'音声入力';$('mic').setAttribute('aria-label',micUnavailableReason||'音声入力');
+    if(micUnavailableReason)$('voiceStatus').textContent=micUnavailableReason;
+  }
+  function stopMicrophone(message=''){
+    micRequestVersion++;micRequestPending=false;micRun=null;$('mic').classList.remove('active');
+    if(recognition){try{recognition.abort();}catch(_){try{recognition.stop();}catch(__){}}}
+    if(message)$('voiceStatus').textContent=message;
+    updateMicButton();
+  }
+  async function startMicrophone(){
+    if(!recognition||micUnavailableReason){$('voiceStatus').textContent=micUnavailableReason||'このブラウザは音声入力に未対応です';return;}
+    if(busy||!connected||!sessionId||micRequestPending)return;
+    if(micRun){stopMicrophone('音声入力を停止しました。');return;}
+    const request=++micRequestVersion,context=currentMicContext();micRequestPending=true;updateMicButton();$('voiceStatus').textContent='マイクの許可を確認しています…';
+    let stream;
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(request!==micRequestVersion||!sameMicContext(context)||busy)return;
+      stopTracks(stream);stream=null;
+      micRun={context,baseText:$('prompt').value,lastSpeech:'',lastValue:$('prompt').value};
+      recognition.start();
+    }catch(error){
+      if(request===micRequestVersion)$('voiceStatus').textContent=micStatusForError(error);
+    }finally{
+      stopTracks(stream);
+      if(request===micRequestVersion){micRequestPending=false;updateMicButton();}
+    }
+  }
   if(recognition){
-    recognition.lang='ja-JP';recognition.interimResults=true;recognition.continuous=false;
-    recognition.onstart=()=>{$('mic').classList.add('active');$('voiceStatus').textContent='聞き取り中…';};
-    recognition.onend=()=>{$('mic').classList.remove('active');$('voiceStatus').textContent='音声入力を利用できます';};
-    recognition.onerror=event=>{$('mic').classList.remove('active');$('voiceStatus').textContent=`音声入力エラー: ${event.error}`;};
-    recognition.onresult=event=>{if(!busy)$('prompt').value=Array.from(event.results).map(r=>r[0].transcript).join('');};
-  }else{$('voiceStatus').textContent='このブラウザは音声入力に未対応です';}
+    recognition.onstart=()=>{if(!micRun||!sameMicContext(micRun.context)||busy){stopMicrophone();return;}$('mic').classList.add('active');$('voiceStatus').textContent='聞き取り中…';};
+    recognition.onend=()=>{const active=micRun&&sameMicContext(micRun.context);micRun=null;$('mic').classList.remove('active');if(active&&!busy)$('voiceStatus').textContent='音声入力を利用できます';updateMicButton();};
+    recognition.onerror=event=>{const active=micRun&&sameMicContext(micRun.context);micRun=null;$('mic').classList.remove('active');if(active)$('voiceStatus').textContent=micStatusForError(event);updateMicButton();};
+    recognition.onresult=event=>{
+      if(!micRun||!sameMicContext(micRun.context)||busy)return;
+      const speech=Array.from(event.results||[]).map(result=>result?.[0]?.transcript||'').join('');
+      const current=$('prompt').value;
+      if(current!==micRun.lastValue){micRun.baseText=current.endsWith(micRun.lastSpeech)?current.slice(0,-micRun.lastSpeech.length):current;}
+      micRun.lastSpeech=speech;micRun.lastValue=micRun.baseText+speech;$('prompt').value=micRun.lastValue;
+    };
+  }else{$('voiceStatus').textContent=micUnavailableReason||'このブラウザは音声入力に未対応です';}
   function speak(text){
     if(!('speechSynthesis' in window))return;
     window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='ja-JP';utterance.rate=1;
@@ -82,14 +137,49 @@
   }
   function trace(kind,data){const el=document.createElement('div');el.className='event';el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(JSON.stringify(data,null,2))}</pre>`;$('trace').appendChild(el);}
   function metrics(data){const m=data.metrics||{};$('steps').textContent=data.steps??'—';$('toolCalls').textContent=data.tool_calls??'—';$('apiCalls').textContent=m.api_calls??'—';$('tokens').textContent=m.total_tokens??'—';$('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—';}
+  function secretStateFor(owner,create=false){let state=secretConversations.get(owner);if(!state&&create){state={secretSessionId:window.crypto.randomUUID().replaceAll('-',''),messages:[]};secretConversations.set(owner,state);}return state;}
+  function forgetSecretSession(state){
+    const secretSessionId=state?.secretSessionId;if(!/^[a-f0-9]{32}$/.test(secretSessionId||''))return;
+    try{Promise.resolve(fetch('/api/secret/forget',{method:'POST',headers:headers(),body:JSON.stringify({secret_session_id:secretSessionId}),cache:'no-store',keepalive:true})).catch(()=>{});}catch(_){}
+  }
+  function discardSecretConversations(){for(const state of secretConversations.values())forgetSecretSession(state);secretConversations.clear();isSecret=false;pendingMessage=null;$('secretToggle').checked=false;$('secretNotice').hidden=true;}
+  function updateSecretUi(){
+    $('secretToggle').checked=isSecret;$('secretNotice').hidden=!isSecret;$('latestBox').hidden=isSecret||!$('latestUrl').getAttribute('href');
+    $('clearHistory').textContent=isSecret?'🗑 秘密の履歴を消去':'🗑 履歴をクリア';$('clearHistory').title=isSecret?'このタブだけの秘密会話を消去':'このタスクの会話履歴を消去';$('clearHistory').setAttribute('aria-label',isSecret?'秘密の会話履歴をクリア':'会話履歴をクリア');
+    $('imageStatus').textContent=isSecret?'シークレット会話では画像添付を使えません。テキストのみで会話します。':'JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
+    $('imageFile').disabled=busy||!connected||!sessionId||isSecret||selectedImages.length>=4;
+    for(const button of $('taskList').querySelectorAll('.task-delete'))button.disabled=busy||isSecret;
+  }
+  function renderSecretConversation(){
+    clearView();const state=secretStateFor(sessionId,true);const title=sessions.find(item=>item.session_id===sessionId)?.title||$('currentTask').textContent;
+    $('currentTask').textContent=title;$('session').textContent='秘密の会話（タブ内のみ）';$('storageHint').textContent='シークレット会話はこのタブのメモリだけにあり、保存されません。';
+    for(const message of state.messages)addMessage(message.role==='user'?'user':'agent',message.content);
+    $('trace').replaceChildren();metrics({});showLatest('');updateSecretUi();
+  }
+  async function toggleSecretMode(){
+    const requested=$('secretToggle').checked;
+    if(busy||!connected||!sessionId){$('secretToggle').checked=isSecret;return;}
+    stopMicrophone('音声入力を停止しました。');const version=++viewVersion;pendingMessage=null;
+    if(requested){isSecret=true;renderSecretConversation();setConnectionStatus('オンライン');setBusy(false);return;}
+    const oldSecret=secretStateFor(sessionId);if(oldSecret){forgetSecretSession(oldSecret);secretConversations.delete(sessionId);}
+    isSecret=false;$('secretNotice').hidden=true;setBusy(true);clearView();$('currentTask').textContent='通常の履歴を読み込み中…';setConnectionStatus('通常履歴を復帰中…');
+    try{
+      const owner=sessionId,data=await requestJson('/api/sessions/'+encodeURIComponent(owner));
+      if(version!==viewVersion||sessionId!==owner||isSecret)return;
+      renderSession(data);setConnectionStatus('オンライン');
+    }catch(error){
+      if(version===viewVersion){$('currentTask').textContent='通常履歴を読み込めません';addMessage('agent',`通常履歴の読み込みエラー: ${error.message}`);setConnectionStatus('エラー');}
+    }finally{if(version===viewVersion)setBusy(false);}
+  }
   function setBusy(value){
     busy=value;$('loadTasks').disabled=value;$('apiToken').disabled=value;$('taskTitle').disabled=value;
-    $('newTask').disabled=value||!connected;$('clearHistory').disabled=value||!connected||!sessionId;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
-    $('mic').disabled=value||!connected||!sessionId||!recognition;
-    $('imageFile').disabled=value||!connected||!sessionId||selectedImages.length>=4;
+    $('newTask').disabled=value||!connected||isSecret;$('clearHistory').disabled=value||!connected||!sessionId;$('send').disabled=value||!connected||!sessionId;$('prompt').disabled=value||!connected||!sessionId;
+    $('secretToggle').disabled=value||!connected||!sessionId;
+    $('imageFile').disabled=value||!connected||!sessionId||isSecret||selectedImages.length>=4;
     for(const button of $('imagePreviews').querySelectorAll('button'))button.disabled=value;
-    if(value&&recognition&&$('mic').classList.contains('active'))recognition.stop();
+    if(value)stopMicrophone();else updateMicButton();
     for(const button of $('taskList').querySelectorAll('button'))button.disabled=value;
+    updateSecretUi();
   }
   function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
   function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
@@ -119,7 +209,7 @@
     for(const session of sessions){
       const row=document.createElement('div');row.className='task-row';
       const button=document.createElement('button');button.type='button';button.className='task-item';button.textContent=session.title;button.dataset.sessionId=session.session_id;button.setAttribute('aria-current',String(session.session_id===sessionId));button.disabled=busy;button.onclick=()=>selectSession(session.session_id);
-      const remove=document.createElement('button');remove.type='button';remove.className='task-delete';remove.textContent='🗑';remove.title='このタスクを削除';remove.setAttribute('aria-label',`タスク「${session.title}」を削除`);remove.dataset.deleteId=session.session_id;remove.disabled=busy;remove.onclick=()=>deleteSession(session.session_id);
+      const remove=document.createElement('button');remove.type='button';remove.className='task-delete';remove.textContent='🗑';remove.title='このタスクを削除';remove.setAttribute('aria-label',`タスク「${session.title}」を削除`);remove.dataset.deleteId=session.session_id;remove.disabled=busy||isSecret;remove.onclick=()=>deleteSession(session.session_id);
       row.append(button,remove);$('taskList').appendChild(row);
     }
   }
@@ -134,9 +224,11 @@
     const run=data.last_run||null;if(run){metrics(run);for(const event of run.trace||[])trace(event.action,event);}
     const artifacts=data.artifacts||run?.artifacts||[];
     if(artifacts.length)renderWebsiteArtifacts(artifacts);else if(run)websiteApproval(run,data.latest_url);
+    updateSecretUi();
   }
   async function connectSessions(){
     if(busy)return;
+    stopMicrophone('音声入力を停止しました。');discardSecretConversations();
     if(!ownerToken()){connectionNotice('所有者APIトークンを入力してください。',true);setConnectionStatus('トークン未入力');$('apiToken').focus();return;}
     const version=++viewVersion;let cached=sessionId;try{cached=cached||localStorage.getItem('karry-session');}catch(_){}setBusy(true);connected=false;clearView();$('taskList').replaceChildren();$('currentTask').textContent='タスクを読み込み中…';setConnectionStatus('接続中…');connectionNotice('認証と永続タスク保存への接続を確認しています…');
     try{
@@ -149,18 +241,19 @@
   }
   async function selectSession(id){
     if(busy||!connected)return;const version=++viewVersion;setBusy(true);clearView();$('currentTask').textContent='履歴を読み込み中…';setConnectionStatus('タスク切替中…');
+    stopMicrophone('音声入力を停止しました。');discardSecretConversations();
     try{const data=await requestJson('/api/sessions/'+encodeURIComponent(id));if(version!==viewVersion)return;sessionId=id;saveSelection();renderSession(data);renderTasks();setConnectionStatus('オンライン');}
     catch(error){sessionId=null;saveSelection();renderTasks();$('currentTask').textContent='タスクを選択してください';$('session').textContent='未選択';addMessage('agent',`切替エラー: ${error.message}`);setConnectionStatus('タスクを読み込み直してください');}
     finally{setBusy(false);}
   }
   async function createNewSession(){
-    if(busy||!connected)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
+    if(busy||!connected||isSecret)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
     try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});setConnectionStatus('オンライン');}
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
     finally{setBusy(false);}
   }
   async function deleteSession(id){
-    if(busy||!connected)return;
+    if(busy||!connected||isSecret)return;
     const index=sessions.findIndex(s=>s.session_id===id);if(index<0)return;
     if(!window.confirm(`このタスクを削除しますか？\n「${sessions[index].title}」の会話履歴・画像・未公開プレビューが完全に削除されます。元に戻せません。`))return;
     const wasCurrent=id===sessionId,version=++viewVersion;setBusy(true);setConnectionStatus('タスクを削除中…');
@@ -182,6 +275,7 @@
   }
   async function clearHistory(){
     if(busy||!connected||!sessionId)return;
+    if(isSecret){const state=secretStateFor(sessionId);if(state){forgetSecretSession(state);secretConversations.delete(sessionId);}pendingMessage=null;renderSecretConversation();return;}
     if(!window.confirm('会話履歴を消去しますか？\nこのタスクの会話と、AIが覚えている文脈がリセットされます。元に戻せません。'))return;
     const owner=sessionId,version=++viewVersion;setBusy(true);setConnectionStatus('履歴を消去中…');
     try{const data=await requestJson('/api/sessions/'+encodeURIComponent(owner)+'/messages',{method:'DELETE'});if(version!==viewVersion||sessionId!==owner)return;pendingMessage=null;renderSession(data);setConnectionStatus('オンライン');}
@@ -205,7 +299,7 @@
       card.append(img,label,remove);$('imagePreviews').appendChild(card);
       privateImageUrl(meta.id,owner).then(url=>{if(version===imageVersion&&owner===sessionId&&card.isConnected)img.src=url;}).catch(error=>{if(version===imageVersion&&card.isConnected)label.textContent=meta.filename+'（プレビュー失敗）';});
     }
-    $('imageFile').disabled=busy||!connected||!sessionId||selectedImages.length>=4;
+    $('imageFile').disabled=busy||!connected||!sessionId||isSecret||selectedImages.length>=4;
   }
   function renderHistoryImages(element,ids,assets){
     const owner=sessionId,version=imageVersion;
@@ -221,6 +315,7 @@
   }
   async function uploadSelectedImage(event){
     const file=event.target.files?.[0];if(!file||busy||!connected||!sessionId)return;
+    if(isSecret){$('imageFile').value='';$('imageStatus').textContent='シークレット会話では画像添付を使えません。テキストのみで会話します。';return;}
     if(file.size>4*1024*1024||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){$('imageStatus').textContent='JPG/PNG/WEBP/GIFの4 MiB以内の画像を選んでください。';$('imageFile').value='';return;}
     const owner=sessionId;setBusy(true);$('imageStatus').textContent='アップロード中…';const form=new FormData();form.append('session_id',owner);form.append('file',file);
     try{const response=await fetch('/api/upload_image',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'画像をアップロードできませんでした');if(!safeImageUrl(data.image_url)||!data.image||!/^([a-f0-9]{32})$/.test(data.image.id))throw new Error('画像の応答形式が不正です');if(sessionId===owner){imageUrls.set(data.image.id,data.image_url);selectedImages.push(data.image);renderAttachments();$('imageStatus').textContent=data.warning||'添付しました。送信するまではLLMを呼びません。';}}
@@ -228,7 +323,7 @@
     finally{$('imageFile').value='';setBusy(false);}
   }
   async function removeImage(id){
-    if(busy||!connected||!sessionId)return;const owner=sessionId;setBusy(true);
+    if(busy||!connected||!sessionId||isSecret)return;const owner=sessionId;setBusy(true);
     try{await requestJson('/api/pending_images/'+encodeURIComponent(id)+'?session_id='+encodeURIComponent(owner),{method:'DELETE'});if(sessionId===owner){selectedImages=selectedImages.filter(meta=>meta.id!==id);imageUrls.delete(id);renderAttachments();$('imageStatus').textContent='次回の送信から画像を外しました。';}}
     catch(error){$('imageStatus').textContent='添付取消: '+error.message;}
     finally{setBusy(false);}
@@ -292,33 +387,67 @@
       if(index===artifacts.length-1)load.click();
     }
   }
+  function secretSendError(){return 'シークレット会話を送信できませんでした。もう一度お試しください。';}
+  function isCurrentSend(owner,mode,secretId,version){return version===viewVersion&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
   async function sendMessage(event){
-    event.preventDefault();const prompt=$('prompt').value.trim()||(selectedImages.length?'添付画像を確認してください。':'');if(!prompt||busy||!connected||!sessionId)return;const owner=sessionId;
-    const imageIds=selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds);
-    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt||pendingMessage.imageSignature!==imageSignature)pendingMessage={sessionId:owner,prompt,imageSignature,requestId:window.crypto.randomUUID()};
-    setBusy(true);$('prompt').value='';setConnectionStatus('実行中…');addMessage('user',prompt);addMessage('agent','作成・処理中です。成果物は保存完了後にこのチャット内へ表示します。');$('trace').replaceChildren();trace('started',{prompt});
+    event.preventDefault();const mode=isSecret;
+    const prompt=$('prompt').value.trim()||(mode?'':selectedImages.length?'添付画像を確認してください。':'');
+    if(!prompt||busy||!connected||!sessionId)return;
+    const owner=sessionId,version=viewVersion,secretState=mode?secretStateFor(owner,true):null,secretId=secretState?.secretSessionId||null;
+    const imageIds=mode?[]:selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds);
+    if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt||pendingMessage.imageSignature!==imageSignature||pendingMessage.mode!==mode||pendingMessage.secretSessionId!==secretId){pendingMessage={sessionId:owner,prompt,imageSignature,mode,secretSessionId:secretId,requestId:window.crypto.randomUUID()};}
+    const requestId=pendingMessage.requestId;
+    stopMicrophone('音声入力を停止しました。');setBusy(true);$('prompt').value='';setConnectionStatus(mode?'シークレット会話を処理中…':'実行中…');addMessage('user',prompt);
+    const progress=addMessage('agent',mode?'シークレット会話を処理中です。':'作成・処理中です。成果物は保存完了後にこのチャット内へ表示します。');
+    if(!mode){$('trace').replaceChildren();trace('started',{prompt});}
     try{
-      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify({prompt,session_id:owner,request_id:pendingMessage.requestId,image_ids:imageIds,stream:true})});
-      if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
-      if(!response.body)throw new Error('ストリーミング応答を取得できませんでした');
+      const body={prompt,session_id:owner,request_id:requestId,image_ids:imageIds,stream:true,is_secret:mode,isSecret:mode};
+      if(mode)body.secret_session_id=secretId;
+      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify(body)});
+      if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(mode?secretSendError():response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
+      if(!response.body)throw new Error(mode?secretSendError():'ストリーミング応答を取得できませんでした');
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=null;
-      function parseChunk(chunk){const kind=(chunk.match(/^event: (.*)$/m)||[])[1],raw=(chunk.match(/^data: (.*)$/m)||[])[1];if(!raw)return;const data=JSON.parse(raw);trace(kind,data);if(kind==='completed')completed=data;if(kind==='error')throw new Error(data.detail||'実行に失敗しました');}
+      function parseChunk(chunk){
+        const kind=(chunk.match(/^event: (.*)$/m)||[])[1],raw=(chunk.match(/^data: (.*)$/m)||[])[1];if(!raw)return;
+        let data;try{data=JSON.parse(raw);}catch(_){throw new Error(mode?secretSendError():'ストリーミング応答の形式が不正です');}
+        if(!mode)trace(kind,data);
+        if(kind==='completed')completed=data;
+        if(kind==='error')throw new Error(mode?secretSendError():data.detail||'実行に失敗しました');
+      }
       try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
-      if(!completed||completed.session_id!==owner)throw new Error('タスクの完了応答を確認できませんでした');
-      pendingMessage=null;
-      if(sessionId===owner){renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);}
-      if(completed.status==='failed'){setConnectionStatus('生成に失敗しました');if(sessionId===owner)$('prompt').value=prompt;}else{setConnectionStatus('オンライン');}
-    }catch(error){if(sessionId===owner){addMessage('agent',`送信エラー: ${error.message}`);$('prompt').value=prompt;}setConnectionStatus('エラー');}
-    finally{setBusy(false);$('prompt').focus();}
+      if(!completed||completed.session_id!==owner)throw new Error(mode?secretSendError():'タスクの完了応答を確認できませんでした');
+      if(mode&&((completed.is_secret!==true&&completed.isSecret!==true)||completed.secret_session_id!==secretId||completed.persistence!=='none'))throw new Error(secretSendError());
+      if(!isCurrentSend(owner,mode,secretId,version))return;
+      if(completed.status==='failed'){
+        if(mode)throw new Error(secretSendError());
+        pendingMessage=null;progress.remove();renderSession({...completed,last_run:completed});$('prompt').value=prompt;setConnectionStatus('生成に失敗しました');return;
+      }
+      pendingMessage=null;progress.remove();
+      if(mode){
+        const reply=typeof completed.text==='string'?completed.text:typeof completed.response==='string'?completed.response:'';
+        if(!reply)throw new Error(secretSendError());
+        secretState.messages.push({role:'user',content:prompt},{role:'assistant',content:reply});addMessage('agent',reply);setConnectionStatus('オンライン');
+        if($('autoSpeak').checked)speak(reply);
+      }else{
+        renderSession({...completed,last_run:completed});if($('autoSpeak').checked)speak(completed.text||completed.response);
+        setConnectionStatus('オンライン');
+      }
+    }catch(error){
+      if(isCurrentSend(owner,mode,secretId,version)){
+        progress.remove();const message=mode?secretSendError():error.message;addMessage('agent',`送信エラー: ${message}`);$('prompt').value=prompt;setConnectionStatus('エラー');
+      }
+    }finally{if(version===viewVersion){setBusy(false);$('prompt').focus();}}
   }
   $('loadTasks').addEventListener('click',connectSessions);
   $('newTask').addEventListener('click',createNewSession);
   $('clearHistory').addEventListener('click',clearHistory);
   $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});
-  $('apiToken').addEventListener('input',()=>{if(!busy){connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
-  $('mic').addEventListener('click',()=>{if(recognition&&!busy){if($('mic').classList.contains('active'))recognition.stop();else recognition.start();}});
+  $('apiToken').addEventListener('input',()=>{if(!busy){stopMicrophone('音声入力を停止しました。');discardSecretConversations();viewVersion++;connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
+  $('secretToggle').addEventListener('change',toggleSecretMode);
+  $('mic').addEventListener('click',startMicrophone);
   $('chatForm').addEventListener('submit',sendMessage);
   $('imageFile').addEventListener('change',uploadSelectedImage);
+  window.addEventListener('pagehide',()=>{viewVersion++;stopMicrophone();discardSecretConversations();});
   setBusy(false);
 </script>
 </body>

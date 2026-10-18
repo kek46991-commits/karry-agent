@@ -10,6 +10,21 @@ function setup(options={}){
   let counter=data.size;
   const dom=new JSDOM(html,{url:'https://example.onrender.com/',runScripts:'dangerously',beforeParse(window){
     window.TextDecoder=TextDecoder;
+    if(options.microphone){
+      const microphone=options.microphone===true?{}:options.microphone;
+      microphone.tracks=microphone.tracks||[{stopped:0,stop(){this.stopped++;}}];
+      class MockRecognition{
+        constructor(){this.started=0;this.stopped=0;this.aborted=0;microphone.instance=this;}
+        start(){this.started++;this.onstart?.();}
+        stop(){this.stopped++;this.onend?.();}
+        abort(){this.aborted++;this.onend?.();}
+        emitResult(...transcripts){this.onresult?.({results:transcripts.map(transcript=>[{transcript}])});}
+        emitError(error){this.onerror?.({error});}
+      }
+      window.SpeechRecognition=MockRecognition;
+      Object.defineProperty(window.navigator,'mediaDevices',{configurable:true,value:{getUserMedia:microphone.getUserMedia||(async()=>({getTracks:()=>microphone.tracks}))}});
+      window.__microphone=microphone;
+    }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
       calls.push({url,request});
@@ -29,8 +44,15 @@ function setup(options={}){
         data.delete(sid);return json({session_id:sid,deleted:true});
       }
       if(url.startsWith('/api/sessions/')){const sid=decodeURIComponent(url.split('/').at(-1));return data.has(sid)?json(data.get(sid)):json({detail:'Session not found'},404);}
+      if(url==='/api/secret/forget'){
+        assert.equal(request.method,'POST');assert.match(JSON.parse(request.body).secret_session_id,/^[a-f0-9]{32}$/);return json({status:'forgotten',persistence:'none'});
+      }
       if(url==='/api/chat'){
         const record=data.get(body.session_id);const reply='Answer for '+record.title;
+        if(body.is_secret===true||body.isSecret===true){
+          const result={session_id:body.session_id,status:'completed',is_secret:true,isSecret:true,secret_session_id:body.secret_session_id,persistence:'none',messages:[{role:'user',content:body.prompt},{role:'assistant',content:'Secret answer for '+record.title}],text:'Secret answer for '+record.title,response:'Secret answer for '+record.title,steps:0,tool_calls:0,metrics:{api_calls:0},trace:[]};
+          return new Response('event: started\ndata: {}\n\nevent: completed\ndata: '+JSON.stringify(result)+'\n\n',{headers:{'content-type':'text/event-stream'}});
+        }
         record.messages=[...record.messages,{role:'user',content:body.prompt,...(body.image_ids?.length?{images:body.image_ids}:{})},{role:'assistant',content:reply}];
         record.pending_images=(record.pending_images||[]).filter(meta=>!(body.image_ids||[]).includes(meta.id));
         const result={...record,text:reply,response:reply,status:'completed',steps:1,tool_calls:0,metrics:{api_calls:1},trace:[]};
@@ -418,4 +440,62 @@ test('failed delete keeps the task and explains the error',async()=>{
   await s.win.deleteSession('a');
   assert.equal(s.doc.querySelectorAll('.task-item').length,1);
   const content=s.doc.getElementById('messages').textContent;assert.match(content,/Still here/);assert.match(content,/タスク削除エラー/);s.dom.window.close();
+});
+
+test('secret chat sends an isolated flag and never persists its text, trace, or ID',async()=>{
+  const s=setup({sessions:[['a',record('a','A','Normal history')]]});const consoleCalls=[];
+  s.win.console.log=(...args)=>consoleCalls.push(args);s.authenticate();await s.win.connectSessions();
+  s.doc.getElementById('secretToggle').checked=true;await s.win.toggleSecretMode();
+  assert.match(s.doc.getElementById('secretNotice').textContent,/この会話は保存しません/);
+  assert.equal(s.doc.getElementById('imageFile').disabled,true);
+  assert.equal(s.doc.getElementById('newTask').disabled,true);assert.equal(s.doc.querySelector('.task-delete').disabled,true);
+  s.doc.getElementById('prompt').value='秘匿プロンプト';await s.win.sendMessage({preventDefault(){}});
+  const post=s.calls.filter(call=>call.url==='/api/chat').at(-1),body=JSON.parse(post.request.body);
+  assert.equal(body.is_secret,true);assert.equal(body.isSecret,true);assert.deepEqual(body.image_ids,[]);assert.match(body.secret_session_id,/^[a-f0-9]{32}$/);
+  assert.equal(s.data.get('a').messages.length,1);assert.match(s.doc.getElementById('messages').textContent,/Secret answer/);
+  assert.doesNotMatch(s.doc.getElementById('trace').textContent,/秘匿|Secret answer/);
+  assert.equal(s.win.localStorage.length,1);assert.equal(s.win.sessionStorage.length,0);assert.equal(consoleCalls.length,0);
+  s.doc.getElementById('secretToggle').checked=false;await s.win.toggleSecretMode();
+  const forget=s.calls.find(call=>call.url==='/api/secret/forget');assert.equal(JSON.parse(forget.request.body).secret_session_id,body.secret_session_id);
+  for(const call of s.calls.filter(call=>call.url!=='/api/chat'&&call.url!=='/api/secret/forget'))assert.doesNotMatch(String(call.request.body||''),/秘匿|Secret answer|secret_session_id/);
+  assert.match(s.doc.getElementById('messages').textContent,/Normal history/);assert.doesNotMatch(s.doc.getElementById('messages').textContent,/秘匿|Secret answer/);
+  assert.equal(s.doc.getElementById('secretNotice').hidden,true);
+  s.doc.getElementById('secretToggle').checked=true;await s.win.toggleSecretMode();s.doc.getElementById('prompt').value='別の秘密会話';await s.win.sendMessage({preventDefault(){}});
+  const renewed=JSON.parse(s.calls.filter(call=>call.url==='/api/chat').at(-1).request.body);assert.notEqual(renewed.secret_session_id,body.secret_session_id);s.dom.window.close();
+});
+
+test('secret retry keeps its own ID, busy blocks mode changes, and task switching drops its view',async()=>{
+  let first=true,release;const pending=new Promise(resolve=>release=resolve);
+  const s=setup({sessions:[['a',record('a','A')],['b',record('b','B','Only B')]],fetch:async(url,request)=>{
+    if(url==='/api/chat'&&JSON.parse(request.body).is_secret&&first){first=false;throw new Error('model-private-detail');}
+  }});
+  s.authenticate();await s.win.connectSessions();s.doc.getElementById('secretToggle').checked=true;await s.win.toggleSecretMode();
+  s.doc.getElementById('prompt').value='retry secret';await s.win.sendMessage({preventDefault(){}});
+  assert.match(s.doc.getElementById('messages').textContent,/シークレット会話を送信できません/);assert.doesNotMatch(s.doc.getElementById('messages').textContent,/model-private-detail/);
+  await s.win.sendMessage({preventDefault(){}});const secretPosts=s.calls.filter(call=>call.url==='/api/chat').map(call=>JSON.parse(call.request.body));
+  assert.equal(secretPosts.length,2);assert.equal(secretPosts[0].request_id,secretPosts[1].request_id);assert.equal(secretPosts[0].secret_session_id,secretPosts[1].secret_session_id);
+  s.doc.getElementById('prompt').value='busy secret';
+  const originalFetch=s.win.fetch;s.win.fetch=async(url,request={})=>{if(url==='/api/chat'&&JSON.parse(request.body).is_secret){await pending;}return originalFetch(url,request);};
+  const sending=s.win.sendMessage({preventDefault(){}});assert.equal(s.doc.getElementById('secretToggle').disabled,true);
+  s.doc.getElementById('secretToggle').checked=false;await s.win.toggleSecretMode();assert.equal(s.doc.getElementById('secretToggle').checked,true);
+  release();await sending;await s.win.selectSession('b');
+  assert.equal(s.doc.getElementById('secretToggle').checked,false);assert.match(s.doc.getElementById('messages').textContent,/Only B/);assert.doesNotMatch(s.doc.getElementById('messages').textContent,/retry secret|busy secret/);
+  s.dom.window.close();
+});
+
+test('microphone permission stops every track, preserves typing, and ignores delayed result after task change',async()=>{
+  const microphone={};const s=setup({microphone,sessions:[['a',record('a','A')],['b',record('b','B')]]});s.authenticate();await s.win.connectSessions();
+  s.doc.getElementById('prompt').value='手入力';await s.win.startMicrophone();
+  assert.equal(microphone.tracks[0].stopped,1);assert.equal(microphone.instance.started,1);assert.equal(s.doc.getElementById('mic').classList.contains('active'),true);
+  microphone.instance.emitResult('音声');assert.equal(s.doc.getElementById('prompt').value,'手入力音声');
+  await s.win.selectSession('b');assert.ok(microphone.instance.aborted>=1);microphone.instance.emitResult('遅延結果');
+  assert.doesNotMatch(s.doc.getElementById('prompt').value,/遅延結果/);assert.equal(s.calls.some(call=>call.url==='/api/upload_audio'),false);s.dom.window.close();
+});
+
+test('microphone rejection and unsupported browsers present Japanese reasons without starting recording',async()=>{
+  const denied=new Error('denied');denied.name='NotAllowedError';
+  const s=setup({microphone:{getUserMedia:async()=>{throw denied;}},sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
+  assert.match(s.doc.getElementById('voiceStatus').textContent,/権限が拒否/);assert.equal(s.win.__microphone.instance.started,0);s.dom.window.close();
+  const unsupported=setup({sessions:[['a',record('a','A')]]});unsupported.authenticate();await unsupported.win.connectSessions();
+  assert.equal(unsupported.doc.getElementById('mic').disabled,true);assert.match(unsupported.doc.getElementById('voiceStatus').textContent,/未対応/);unsupported.dom.window.close();
 });

@@ -21,6 +21,7 @@ from .core_memory import load_core_memory, core_memory_instruction
 from .config import max_tool_steps
 from .url_analysis import normalize_urls_in_text, single_analysis_url
 from . import html_repair
+from . import secret_runtime
 
 load_dotenv()
 
@@ -190,11 +191,14 @@ class AgentCore:
     ) -> types.GenerateContentConfig:
         declarations = [tool.declaration for tool in self.registry.tools.values()]
         memory = getattr(self, "core_memory", None) or load_core_memory()
+        instruction = SYSTEM_INSTRUCTION
+        if secret_runtime.is_active():
+            instruction = "あなたはシークレットのテキスト会話アシスタントです。日本語で返答してください。今回の会話を永続保存・公開していません。外部ツール、ファイル保存、画像生成、公開処理はこのモードでは実行できません。実行できないことを実行済みと説明しないでください。外部LLMまでゼロ保持であるとは保証しないでください。"
         return types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION + "\n" + core_memory_instruction(memory)
+            system_instruction=instruction + "\n" + core_memory_instruction(memory)
                 + ("\n" + private_system_instruction() if private_mode else ""),
             temperature=0.2,
-            tools=[] if final_only else [types.Tool(function_declarations=declarations)],
+            tools=[] if final_only or secret_runtime.is_active() else [types.Tool(function_declarations=declarations)],
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             max_output_tokens=max_output_tokens,
             http_options=types.HttpOptions(timeout=timeout_ms) if timeout_ms else None,
@@ -287,6 +291,24 @@ class AgentCore:
         if len(images) > 4 or any(not isinstance(image.get("data"), bytes) or not 0 < len(image["data"]) <= 2 * 1024 * 1024 or image.get("mime_type") not in {"image/jpeg", "image/png", "image/webp"} for image in images):
             raise ValueError("画像入力の形式・容量が不正です。")
         return [types.Part.from_bytes(data=image["data"], mime_type=image["mime_type"]) for image in images]
+
+    def run_secret(self, prompt: str, private_mode: bool = False) -> AgentResult:
+        """One text-only request; no tools, trace, artifacts or persistence callbacks."""
+        started = time.perf_counter()
+        metrics = AgentMetrics()
+        with secret_runtime.scope():
+            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+            response = self._generate_content_with_retry(contents, metrics, private_mode,
+                final_only=True, max_output_tokens=4096, timeout_ms=60000)
+            parts = self._parts(response)
+            if any(getattr(part, "function_call", None) for part in parts):
+                raise ValueError("シークレットでは外部ツールを実行しません。")
+            text = "".join(part.text for part in parts if isinstance(getattr(part, "text", None), str)
+                           and not getattr(part, "thought", False)).strip()
+            if not text or len(text) > 100_000:
+                raise ValueError("シークレットの返答を取得できませんでした。")
+        metrics.elapsed_ms = (time.perf_counter() - started) * 1000
+        return AgentResult(text=text, steps=1, tool_calls=0, metrics=metrics)
 
     @staticmethod
     def _complete_html(response: Any) -> str | None:
