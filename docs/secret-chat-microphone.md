@@ -55,4 +55,6 @@ OFF・タスク切替・接続再設定・ページ終了時はUIの秘密表示
 - 読み取り専用レビューの重複JSONキー・無操作時TTL削除を修正し、回帰試験を追加。
 - 外部の課金生成や本番DB/R2への試験書き込みは行っていない。
 
-GitHub CIの最終結果は実装PRで確認できる。本番マージ・Render反映はこの実装/テスト/ビルド依頼と分け、未実施として扱う。
+実装PR: https://github.com/kek46991-commits/karry-agent/pull/24
+
+実装コミット61e1548のGitHub CI39123103952は成功し、PostgreSQL Migration・Python・DOMを確認した。本番マージ・Render反映はこの実装/テスト/ビルド依頼と分け、未実施。
