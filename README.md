@@ -98,6 +98,10 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
 
+### 自律型知識獲得エンジン
+
+`POST /api/knowledge/sync` が GitHub の人気リポジトリ（指定トピック・★100以上・更新順の上位5件）から README を取得し、Gemini の埋め込みを付けてタスク保存先の R2/S3（`knowledge/index.json`）へ保存します。チャットでは `search_knowledge` ツールで参照します。外部 README は信頼できない参考資料として扱い、指示としては使いません。毎日の同期は `.github/workflows/knowledge-sync.yml` で行います。詳細は [docs/knowledge-engine.md](docs/knowledge-engine.md) を参照してください。
+
 ### タスクへの画像添付
 
 `POST /api/upload_image`（multipartのsession_idとfile）でJPG/PNG/WEBP/GIFを読み込み、既存チャットUIからプレビュー・添付取消・画像付き送信ができます。画像バイトはタスクと同じ非公開R2/S3へ保存し、履歴には参照だけを記録します。送信した画像はGeminiの実画像Partへ渡します。GIFは先頭フレームをPNGへ変換。入力4 MiB・正規化後2 MiB・16 MP・次回4枚までに制限し、画像の実形式・向き・メタデータも検証します。アップロード・プレビュー・取消ではLLMを呼びません。画像の予約参照と再送照合で保存障害・古いUI状態を処理します。設定・API・検証結果は [docs/image-attachments.md](docs/image-attachments.md) を参照してください。
