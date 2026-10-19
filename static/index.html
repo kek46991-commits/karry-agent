@@ -152,7 +152,9 @@
     el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`;
     $('messages').appendChild(el);if(kind==='agent')addSpeakButton(el,text);$('messages').scrollTop=$('messages').scrollHeight;return el;
   }
-  function trace(kind,data){const el=document.createElement('div');el.className='event';el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(JSON.stringify(data,null,2))}</pre>`;$('trace').appendChild(el);}
+  const SECRET_PATTERNS=[/\b(sk-(?:ant-|proj-)?)[A-Za-z0-9_-]{16,}/g,/\b(AIza)[0-9A-Za-z_-]{30,}/g,/\b(github_pat_)[A-Za-z0-9_]{20,}/g,/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g,/\b(xox[abpr]-)[A-Za-z0-9-]{10,}/g,/\b(rnd_)[A-Za-z0-9]{16,}/g,/\b(r8_)[A-Za-z0-9]{16,}/g,/\b(AKIA)[0-9A-Z]{16}\b/g,/\b(ya29\.)[A-Za-z0-9_-]{20,}/g];
+  function maskSecrets(text){let out=String(text);const token=ownerToken();if(token&&token.length>=8)out=out.split(token).join('[REDACTED]');for(const re of SECRET_PATTERNS)out=out.replace(re,(m,p)=>`${p}...${m.slice(-4)}`);return out.replace(/((?:postgres(?:ql)?|mysql|redis|rediss|mongodb(?:\+srv)?):\/\/)[^\s\/@:]+:[^\s\/@]+@/gi,'$1[REDACTED]@').replace(/(bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/gi,'$1[REDACTED]');}
+  function trace(kind,data){const el=document.createElement('div');el.className='event';el.innerHTML=`<span class="kind">${escapeHtml(kind)}</span><pre>${escapeHtml(maskSecrets(JSON.stringify(data,null,2)))}</pre>`;$('trace').appendChild(el);}
   function metrics(data){const m=data.metrics||{};$('steps').textContent=data.steps??'—';$('toolCalls').textContent=data.tool_calls??'—';$('apiCalls').textContent=m.api_calls??'—';$('tokens').textContent=m.total_tokens??'—';$('elapsed').textContent=m.elapsed_ms?`${Number(m.elapsed_ms).toFixed(0)} ms`:'—';}
   function secretStateFor(owner,create=false){let state=secretConversations.get(owner);if(!state&&create){state={secretSessionId:window.crypto.randomUUID().replaceAll('-',''),messages:[]};secretConversations.set(owner,state);}return state;}
   function forgetSecretSession(state){

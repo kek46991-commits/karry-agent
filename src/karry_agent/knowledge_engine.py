@@ -71,12 +71,13 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / norm if norm else 0.0
 
 
-def gemini_embedder(texts: list[str], task_type: str) -> list[list[float]]:
+def gemini_embedder(texts: list[str], task_type: str, client: Any = None) -> list[list[float]]:
     from google.genai import types
 
-    from .core import get_client
-
-    response = get_client().models.embed_content(
+    if client is None:
+        from .core import get_client
+        client = get_client()
+    response = client.models.embed_content(
         model=os.getenv("KARRY_KNOWLEDGE_EMBED_MODEL", "gemini-embedding-001"),
         contents=texts,
         config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=EMBED_DIMENSIONS),

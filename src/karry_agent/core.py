@@ -1,6 +1,7 @@
 """Gemini Function Calling による自律エージェントのコア実装。"""
 from __future__ import annotations
 
+import contextvars
 import os
 import socket
 import time
@@ -22,10 +23,13 @@ from .config import max_tool_steps
 from .url_analysis import normalize_urls_in_text, single_analysis_url
 from . import html_repair
 from . import secret_runtime
+from .knowledge_engine import gemini_embedder
+from .knowledge_sync_service import KnowledgeSyncService
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+_SYNCED_CONTEXT: contextvars.ContextVar[str] = contextvars.ContextVar("karry_synced_context", default="")
 
 SYSTEM_INSTRUCTION = """あなたは karry-agent の自律実行コアです。
 ユーザーの依頼を達成するため、必要なら利用可能なツールを選択して実行してください。
@@ -82,7 +86,7 @@ class AgentResult:
 def get_client() -> Any:
     """GEMINI_API_KEY から Gemini クライアントを作成する。"""
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or api_key == "your-gemini-api-key":
+    if not api_key or api_key in {"your-gemini-api-key", "YOUR_GEMINI_API_KEY"}:
         raise ValueError("GEMINI_API_KEY is not set in environment variables.")
     return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
 
@@ -196,7 +200,8 @@ class AgentCore:
             instruction = "あなたはシークレットのテキスト会話アシスタントです。日本語で返答してください。今回の会話を永続保存・公開していません。外部ツール、ファイル保存、画像生成、公開処理はこのモードでは実行できません。実行できないことを実行済みと説明しないでください。外部LLMまでゼロ保持であるとは保証しないでください。"
         return types.GenerateContentConfig(
             system_instruction=instruction + "\n" + core_memory_instruction(memory)
-                + ("\n" + private_system_instruction() if private_mode else ""),
+                + ("\n" + private_system_instruction() if private_mode else "")
+                + ("\n" + synced if (synced := _SYNCED_CONTEXT.get()) and not secret_runtime.is_active() else ""),
             temperature=0.2,
             tools=[] if final_only or secret_runtime.is_active() else [types.Tool(function_declarations=declarations)],
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
@@ -503,7 +508,24 @@ class AgentCore:
         metrics.elapsed_ms = (time.perf_counter() - started) * 1000
         return AgentResult(text, 2, 1, trace, metrics, status=status)
 
+    def _synced_context(self, query: str) -> str:
+        if secret_runtime.is_active():
+            return ""
+        try:
+            service = KnowledgeSyncService(embedder=lambda texts, task_type: gemini_embedder(texts, task_type, client=self.client))
+            return service.prompt_context(query)
+        except Exception as exc:  # noqa: BLE001 - a sync-store outage must not block the run
+            logger.warning("Synced knowledge context unavailable: %s", type(exc).__name__)
+            return ""
+
     def run(self, prompt: str, private_mode: bool = False, *, current_prompt: str | None = None, images: list[dict[str, Any]] | None = None) -> AgentResult:
+        token = _SYNCED_CONTEXT.set(self._synced_context(current_prompt if current_prompt is not None else prompt))
+        try:
+            return self._run(prompt, private_mode, current_prompt=current_prompt, images=images)
+        finally:
+            _SYNCED_CONTEXT.reset(token)
+
+    def _run(self, prompt: str, private_mode: bool = False, *, current_prompt: str | None = None, images: list[dict[str, Any]] | None = None) -> AgentResult:
         started_at = time.perf_counter()
         metrics = AgentMetrics()
         if not prompt.strip():
