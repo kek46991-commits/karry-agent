@@ -83,7 +83,7 @@ cp .env.example .env
 `.env` の例（秘密値は入力環境だけに保存し、Git にコミットしない）:
 
 ```env
-GEMINI_API_KEY=your-gemini-api-key
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
 GEMINI_MODEL=gemini-3.5-flash
 SECRET_PASSPHRASE=
 KARRY_WORKSPACE=.

@@ -6,6 +6,11 @@
 credentials.json
 token.json
 client_secret*.json
+service-account*.json
+*.pem
+*.p12
+.envrc
+.secrets/
 build/
 dist/
 .venv/
