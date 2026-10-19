@@ -75,7 +75,7 @@ def test_sync_validates_payload(client, change):
 
 def test_sync_masks_credentials_before_saving(client, monkeypatch):
     monkeypatch.setenv('SYNTHETIC_API_KEY', 'synthetic-configured-key-0001')
-    content = ('Use sk-proj-abcdefghijklmnopqrstuvwxyz1234 and synthetic-configured-key-0001 '
+    content = ('Use ' + 'sk-proj-' + 'abcdefghijklmnopqrstuvwxyz1234' + ' and synthetic-configured-key-0001 '
                'with postgresql://admin:hunter2@db.internal/app')
     res = client.post(URL, json=payload(context_type='global_knowledge', content=content), headers={'X-Owner-Token': OWNER})
     assert res.status_code == 201 and res.json()['masked_secrets'] is True

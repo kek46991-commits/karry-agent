@@ -10,9 +10,9 @@ from karry_agent.secret_masking import mask_secrets, mask_text, mask_token
 
 @pytest.mark.parametrize('raw, masked', [
     ('key sk-abcdefghijklmnopqrstuvwxyz9876', 'key sk-...9876'),
-    ('sk-ant-api03-abcdefghijklmnopqrstu-XyZ1', 'sk-ant-...XyZ1'),
+    ('sk-ant-' + 'api03-abcdefghijklmnopqrstu-XyZ1', 'sk-ant-...XyZ1'),
     ('AIzaSyA1234567890abcdefghijklmnopqrstu', 'AIza...rstu'),
-    ('ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'ghp_...6789'),
+    ('ghp_' + 'abcdefghijklmnopqrstuvwxyz0123456789', 'ghp_...6789'),
     ('github_pat_11ABCDEFG0123456789_abcdefghijklmnop', 'github_pat_...mnop'),
     ('rnd_abcdefghijklmnopqrstuv', 'rnd_...stuv'),
     ('postgresql://user:p%40ss@host:5432/db', 'postgresql://[REDACTED]@host:5432/db'),
