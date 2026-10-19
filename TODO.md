@@ -111,3 +111,12 @@ URL高速化PR: https://github.com/kek46991-commits/karry-agent/pull/7 。今回
 
 無保存・マイク検証: Python719 passed/2 skipped（隔離PostgreSQL結合を含む）、DOM46 passed。TypeScript、Python構文、依存、差分、wheelビルド・新規モジュール同梱成功。無保存経路はrepo factory/メディアDBを呼ばず、R2の前後一致・同時通常保存・ログ復帰を確認。レビュー指摘の同名JSONキー重複を拒否し、FastAPI lifespanの定期TTL削除・終了時破棄を接続して無操作時の回帰を追加。実端末音声・課金モデル・本番保存/マージは未実施。
 実装PR: https://github.com/kek46991-commits/karry-agent/pull/24 。実装コミット61e1548のGitHub CI39123103952でPostgreSQL適用・Python・DOM成功。main未マージ・本番未反映。
+
+## マイク・シークレットUIの本番表示修正
+
+- [x] PR #24のmainマージとRenderのliveコミット・ビルド成功を照合する。両機能のソースが本番HTMLに存在する事実と、キャッシュ/表示位置/権限制限の原因候補を区別する。
+- [x] 入力欄付近に「🔒 シークレットモード」のスイッチと状態を明瞭に表示し、未接続でも機能の存在・接続後の利用手順が分かるようにする。秘密の保存分岐・モード隔離は変えない。チャットHTMLのroot/static別名へno-storeを付け、更新UIの表示を検証する。
+- [x] マイクのNotAllowed/Security/service-not-allowed/未対応/iframe権限制限を一括した拒否表示にせず、許可方法・再試行・通常ブラウザで開く案内を表示する。実際の端末権限をコードで迂回せず、ユーザー操作時だけマイクを要求し、取得Trackを停止する。
+- [ ] 既存回帰・DOMとビルド・CI後にmain/Renderへ反映する。本番のPC/スマホでスイッチ位置と許可案内、HTTPキャッシュヘッダー・ヘルスを確認し、実端末の権限解除が別途必要な場合は正確に報告する。
+
+本番表示修正の検証: Python720 passed/2 skipped、DOM50 passed、TypeScript/構文/依存/wheel成功。旧本番e10a64bはlive、Dockerビルド成功。修正の本番反映はCI後に実施する。

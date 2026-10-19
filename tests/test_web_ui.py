@@ -38,3 +38,19 @@ def test_web_ui_contains_browser_speech_controls():
     assert "speechSynthesis" in html
     assert "autoSpeak" in html
     assert "音声入力" in html
+
+
+def test_chat_html_is_fresh_and_microphone_permission_is_explicit():
+    client = TestClient(app)
+    for url in ('/', '/static/index.html'):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert 'no-store' in response.headers['cache-control']
+        assert response.headers['permissions-policy'] == 'microphone=(self)'
+        assert 'mic-secret-20261019' in response.text
+        assert '🔒 シークレットモード' in response.text
+        assert 'マイクの許可方法' in response.text
+    etag = client.get('/static/index.html').headers['etag']
+    revalidate = client.get('/static/index.html', headers={'If-None-Match': etag})
+    assert revalidate.status_code == 304
+    assert 'no-store' in revalidate.headers['cache-control']

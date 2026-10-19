@@ -10,6 +10,8 @@ function setup(options={}){
   let counter=data.size;
   const dom=new JSDOM(html,{url:'https://example.onrender.com/',runScripts:'dangerously',beforeParse(window){
     window.TextDecoder=TextDecoder;
+    if(options.permission)Object.defineProperty(window.navigator,'permissions',{configurable:true,value:{query:async()=>({state:options.permission.state})}});
+    if(options.microphonePolicy!==undefined)Object.defineProperty(window.document,'featurePolicy',{value:{allowsFeature:()=>options.microphonePolicy}});
     if(options.microphone){
       const microphone=options.microphone===true?{}:options.microphone;
       microphone.tracks=microphone.tracks||[{stopped:0,stop(){this.stopped++;}}];
@@ -495,7 +497,42 @@ test('microphone permission stops every track, preserves typing, and ignores del
 test('microphone rejection and unsupported browsers present Japanese reasons without starting recording',async()=>{
   const denied=new Error('denied');denied.name='NotAllowedError';
   const s=setup({microphone:{getUserMedia:async()=>{throw denied;}},sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
-  assert.match(s.doc.getElementById('voiceStatus').textContent,/権限が拒否/);assert.equal(s.win.__microphone.instance.started,0);s.dom.window.close();
+  assert.match(s.doc.getElementById('voiceStatus').textContent,/未許可・ブラウザ制限/);assert.equal(s.doc.getElementById('micHelp').open,true);assert.equal(s.win.__microphone.instance.started,0);s.dom.window.close();
   const unsupported=setup({sessions:[['a',record('a','A')]]});unsupported.authenticate();await unsupported.win.connectSessions();
   assert.equal(unsupported.doc.getElementById('mic').disabled,true);assert.match(unsupported.doc.getElementById('voiceStatus').textContent,/未対応/);unsupported.dom.window.close();
+});
+
+test('secret switch is beside composer with visible setup guidance before connection',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]]});
+  assert.equal(s.doc.querySelectorAll('#secretToggle').length,1);
+  assert.ok(s.doc.getElementById('chatTools').contains(s.doc.getElementById('secretToggle')));
+  assert.equal(s.doc.getElementById('secretToggle').getAttribute('role'),'switch');
+  assert.match(s.doc.getElementById('chatTools').textContent,/🔒 シークレットモード/);
+  assert.equal(s.doc.getElementById('secretSetupHint').hidden,false);
+  assert.equal(s.doc.querySelector('.feature-jump a').getAttribute('href'),'#chatTools');
+  s.authenticate();await s.win.connectSessions();
+  assert.equal(s.doc.getElementById('secretSetupHint').hidden,true);
+  s.doc.getElementById('secretToggle').checked=true;await s.win.toggleSecretMode();
+  assert.match(s.doc.getElementById('secretModeStatus').textContent,/ON・保存しない/);s.dom.window.close();
+});
+
+test('stored microphone denial shows permission steps and retries only after user changes permission',async()=>{
+  let mediaCalls=0;const permission={state:'denied'};const microphone={getUserMedia:async()=>{mediaCalls++;return {getTracks:()=>microphone.tracks};}};
+  const s=setup({permission,microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
+  assert.equal(mediaCalls,0);assert.equal(s.doc.getElementById('micHelp').open,true);assert.match(s.doc.getElementById('voiceStatus').textContent,/未許可/);
+  assert.match(s.doc.getElementById('openBrowser').href,/^https:\/\/karry-agent-1\.onrender\.com\//);
+  assert.equal(s.doc.getElementById('micRetry').disabled,false);permission.state='granted';s.doc.getElementById('micRetry').click();await new Promise(r=>setTimeout(r,0));
+  assert.equal(mediaCalls,1);assert.equal(microphone.tracks[0].stopped,1);assert.equal(microphone.instance.started,1);s.dom.window.close();
+});
+
+test('iframe microphone policy block is not misreported as user permission refusal',async()=>{
+  let calls=0;const s=setup({microphonePolicy:false,microphone:{getUserMedia:async()=>{calls++;throw Error('must not call');}},sessions:[['a',record('a','A')]]});
+  s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
+  assert.equal(calls,0);assert.equal(s.doc.getElementById('micHelp').open,true);assert.match(s.doc.getElementById('voiceStatus').textContent,/埋め込み画面/);assert.doesNotMatch(s.doc.getElementById('voiceStatus').textContent,/権限が拒否/);s.dom.window.close();
+});
+
+test('speech service refusal and device busy have distinct actionable reasons',async()=>{
+  const microphone={};const s=setup({microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
+  microphone.instance.emitError('service-not-allowed');assert.match(s.doc.getElementById('voiceStatus').textContent,/音声認識サービス/);assert.doesNotMatch(s.doc.getElementById('voiceStatus').textContent,/権限が拒否/);assert.equal(s.doc.getElementById('micHelp').open,true);
+  assert.match(s.win.micStatusForError({name:'NotReadableError'}),/他のアプリ/);s.dom.window.close();
 });

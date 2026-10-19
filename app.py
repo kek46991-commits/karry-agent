@@ -55,6 +55,8 @@ app = FastAPI(
 )
 STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
+CHAT_HTML_HEADERS = {"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache",
+                     "Permissions-Policy": "microphone=(self)"}
 
 
 class ArtifactNotFound(HTTPException):
@@ -123,6 +125,8 @@ class ArtifactStaticFiles(StaticFiles):
         target = getattr(response, "path", None)
         if target is not None and Path(target).resolve().is_relative_to(instant_website.INSTANT_DIR.resolve()):
             return await run_in_threadpool(_artifact_response, Path(target).resolve().name, scope)
+        if parts == ("index.html",) or (target is not None and Path(target).resolve() == (STATIC_DIR / "index.html").resolve()):
+            response.headers.update(CHAT_HTML_HEADERS)
         return response
 
 
@@ -1008,7 +1012,7 @@ def calendar_health() -> dict[str, Any]:
 def index():
     from fastapi.responses import FileResponse
 
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=CHAT_HTML_HEADERS)
 
 
 @app.post("/run", response_model=RunResponse, dependencies=[Depends(require_api_auth)])
