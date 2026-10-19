@@ -27,6 +27,10 @@ function setup(options={}){
       Object.defineProperty(window.navigator,'mediaDevices',{configurable:true,value:{getUserMedia:microphone.getUserMedia||(async()=>({getTracks:()=>microphone.tracks}))}});
       window.__microphone=microphone;
     }
+    if(options.speech){
+      window.speechSynthesis={spoken:[],cancelled:0,getVoices:()=>options.speech.voices||[],speak(utterance){this.spoken.push(utterance);},cancel(){this.cancelled++;},addEventListener(){}};
+      window.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
+    }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
       calls.push({url,request});
@@ -117,14 +121,69 @@ test('SSE request targets the selected task and restores server messages',async(
   assert.equal(s.doc.getElementById('apiCalls').textContent,'1');s.dom.window.close();
 });
 
-test('task switching is disabled while a message is in flight',async()=>{
+test('task switching, typing, new sends and the microphone stay usable while a message is in flight',async()=>{
   let finish;
   const pending=new Promise(resolve=>{finish=resolve;});
+  const microphone={};
+  const s=setup({microphone,sessions:[['a',record('a','A')],['b',record('b','B','Only B')]],fetch:async(url,request)=>{if(url==='/api/chat'&&JSON.parse(request.body).session_id==='a')await pending;}});
+  s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Wait';
+  const sending=s.win.sendMessage({preventDefault(){}});
+  assert.equal(s.doc.getElementById('send').disabled,true);assert.equal(s.doc.getElementById('prompt').disabled,false);
+  assert.equal(s.doc.getElementById('mic').disabled,false);assert.equal(s.doc.querySelector('[data-session-id="b"]').disabled,false);
+  assert.equal(s.doc.querySelector('[data-delete-id="a"]').disabled,true);
+  await s.win.startMicrophone();assert.equal(microphone.instance.started,1);microphone.instance.emitResult('次の指示');
+  assert.equal(s.doc.getElementById('prompt').value,'次の指示');
+  await s.win.selectSession('b');assert.equal(s.doc.getElementById('session').textContent,'b');assert.match(s.doc.getElementById('messages').textContent,/Only B/);
+  assert.equal(s.doc.getElementById('send').disabled,false);
+  s.doc.getElementById('prompt').value='B task';await s.win.sendMessage({preventDefault(){}});assert.match(s.doc.getElementById('messages').textContent,/Answer for B/);
+  finish();await sending;
+  assert.equal(s.doc.getElementById('session').textContent,'b');assert.doesNotMatch(s.doc.getElementById('messages').textContent,/Answer for A/);
+  await s.win.selectSession('a');assert.match(s.doc.getElementById('messages').textContent,/Answer for A/);
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('a reply for a task the user returned to is shown without wiping the next draft',async()=>{
+  let finish;const pending=new Promise(resolve=>{finish=resolve;});
   const s=setup({sessions:[['a',record('a','A')],['b',record('b','B')]],fetch:async(url)=>{if(url==='/api/chat')await pending;}});
   s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Wait';
-  const sending=s.win.sendMessage({preventDefault(){}});const before=s.calls.length;await s.win.selectSession('b');
-  assert.equal(s.calls.length,before);assert.equal(s.doc.querySelector('[data-session-id="b"]').disabled,true);
-  finish();await sending;assert.equal(s.doc.getElementById('session').textContent,'a');s.dom.window.close();
+  const sending=s.win.sendMessage({preventDefault(){}});await s.win.selectSession('b');await s.win.selectSession('a');
+  assert.match(s.doc.getElementById('messages').textContent,/処理中/);assert.equal(s.doc.getElementById('send').disabled,true);
+  s.doc.getElementById('prompt').value='下書き';finish();await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/Answer for A/);assert.equal(s.doc.getElementById('prompt').value,'下書き');
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('pressing the microphone again cancels a stuck permission request',async()=>{
+  let resolveMedia;const microphone={getUserMedia:()=>new Promise(resolve=>{resolveMedia=resolve;})};
+  const s=setup({microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();
+  const starting=s.win.startMicrophone();await new Promise(r=>setTimeout(r,0));
+  assert.equal(s.doc.getElementById('mic').disabled,false);await s.win.startMicrophone();
+  assert.match(s.doc.getElementById('voiceStatus').textContent,/停止/);
+  resolveMedia({getTracks:()=>microphone.tracks});await starting;assert.equal(microphone.instance.started,0);
+  assert.equal(microphone.tracks[0].stopped,1);s.dom.window.close();
+});
+
+test('speech strips markdown, prefers a low male Japanese voice and speaks faster',async()=>{
+  const voices=[{name:'Kyoko',voiceURI:'com.apple.voice.Kyoko',lang:'ja-JP'},{name:'Otoya',voiceURI:'com.apple.voice.Otoya',lang:'ja-JP'},{name:'Samantha',voiceURI:'en',lang:'en-US'}];
+  const s=setup({speech:{voices},sessions:[['a',record('a','A')]]});
+  const clean=s.win.speechText('# 見出し\n**太字**と*斜体*と`code`\n- 項目1\n1. 手順\n> 引用\n[リンク先](https://example.com) と https://example.com/x\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n```js\nconst a=1;\n```\n---\nsnake_case_name ~~取消~~');
+  assert.doesNotMatch(clean,/[*#`>~]|\]\(|https?:|---|\|/);
+  assert.match(clean,/見出し/);assert.match(clean,/太字と斜体とcode/);assert.match(clean,/項目1/);assert.match(clean,/リンク先/);
+  assert.match(clean,/コードは画面で確認してください/);assert.match(clean,/snake_case_name/);assert.doesNotMatch(clean,/const a/);
+  s.win.speak('**こんにちは** ジミーやで');const spoken=s.win.speechSynthesis.spoken.at(-1);
+  assert.equal(spoken.text,'こんにちは ジミーやで');assert.equal(spoken.voice.name,'Otoya');assert.equal(spoken.pitch,0.85);assert.equal(spoken.rate,1.5);
+  assert.equal(s.doc.getElementById('speechRateValue').textContent,'1.5倍');
+  const options=[...s.doc.getElementById('voiceSelect').options].map(o=>o.textContent);assert.deepEqual(options,['自動（男性の低い声を優先）','Kyoko','Otoya（男性）']);
+  s.doc.getElementById('speechRate').value='2';s.doc.getElementById('speechRate').dispatchEvent(new s.win.Event('input'));s.win.speak('速く');
+  assert.equal(s.win.speechSynthesis.spoken.at(-1).rate,2);assert.equal(s.win.localStorage.getItem('karry-speech-rate'),'2');
+  s.dom.window.close();
+});
+
+test('without a male voice speech lowers the pitch, and the microphone interrupts reading aloud',async()=>{
+  const microphone={};const s=setup({microphone,speech:{voices:[{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'}]},sessions:[['a',record('a','A')]]});
+  s.authenticate();await s.win.connectSessions();s.win.speak('テスト');
+  const spoken=s.win.speechSynthesis.spoken.at(-1);assert.equal(spoken.voice,undefined);assert.equal(spoken.pitch,0.7);
+  const before=s.win.speechSynthesis.cancelled;await s.win.startMicrophone();assert.ok(s.win.speechSynthesis.cancelled>before);s.dom.window.close();
 });
 
 test('authentication errors do not create tasks or reveal old messages',async()=>{
