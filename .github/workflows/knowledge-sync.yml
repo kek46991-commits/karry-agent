@@ -1,0 +1,32 @@
+name: Knowledge sync
+
+on:
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+    inputs:
+      topics:
+        description: "Space-separated topics"
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      KARRY_API_TOKEN: ${{ secrets.KARRY_API_TOKEN }}
+      KARRY_URL: ${{ vars.KARRY_URL || 'https://karry-agent-1.onrender.com' }}
+      TOPICS: ${{ inputs.topics || vars.KARRY_KNOWLEDGE_TOPICS || 'agentic-ai typescript-agent fastapi' }}
+    steps:
+      - name: Trigger knowledge acquisition
+        run: |
+          if [ -z "$KARRY_API_TOKEN" ]; then
+            echo "::notice::KARRY_API_TOKEN secret is not set; skipping knowledge sync"
+            exit 0
+          fi
+          for topic in $TOPICS; do
+            curl --fail-with-body --silent --show-error --retry 2 --retry-delay 20 --max-time 120 \
+              -X POST "$KARRY_URL/api/knowledge/sync" \
+              -H "Authorization: Bearer $KARRY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"topic\": \"$topic\"}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["topic"], d["ingested_count"], "embedded" if d["embedded"] else "keyword-only")'
+          done

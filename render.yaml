@@ -61,6 +61,8 @@ services:
         value: s3
       - key: KARRY_TASK_S3_PREFIX
         value: karry-tasks/
+      - key: KARRY_KNOWLEDGE_GITHUB_TOKEN
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: REPLICATE_API_TOKEN
