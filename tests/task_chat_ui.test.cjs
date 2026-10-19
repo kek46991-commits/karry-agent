@@ -191,6 +191,7 @@ test('automatic voice never picks a known female voice and recognises male voice
   assert.deepEqual(pick([{name:'ja-JP-Wavenet-B',voiceURI:'b',lang:'ja-JP'},{name:'ja-JP-Wavenet-C',voiceURI:'c',lang:'ja-JP'}]),{voice:'ja-JP-Wavenet-C',pitch:0.8,hint:true});
   assert.deepEqual(pick([{name:'Google 日本語',voiceURI:'Google 日本語',lang:'ja-JP'}]),{voice:undefined,pitch:0.6,hint:false});
   assert.deepEqual(pick([{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'},{name:'Japanese Voice',voiceURI:'generic',lang:'ja-JP'}]),{voice:'Japanese Voice',pitch:0.7,hint:false});
+  assert.deepEqual(pick([]),{voice:undefined,pitch:0.6,hint:false});
 });
 
 test('long replies are spoken in short chunks and the stop button ends playback immediately',async()=>{

@@ -167,10 +167,10 @@
     select.replaceChildren(new Option('自動（男性の低い声を優先）',''));
     for(const voice of japaneseVoices())select.appendChild(new Option(`${voice.name}${isMaleVoice(voice)?'（男性）':''}`,voice.voiceURI));
     if(saved&&[...select.options].some(option=>option.value===saved))select.value=saved;
-    const voices=japaneseVoices(),hint=$('voiceHint');
-    hint.hidden=!voices.length||voices.some(isMaleVoice);
-    hint.textContent=hint.hidden?'':'この端末には日本語の男性音声がないため、声を低くして読み上げます（端末の音声合成設定で男性音声を追加できます）。';
+    const voices=japaneseVoices();
+    showVoiceHint(!!voices.length&&!voices.some(isMaleVoice));
   }
+  function showVoiceHint(show){const hint=$('voiceHint');hint.hidden=!show;hint.textContent=show?'この端末には日本語の男性音声がないため、声を低くして読み上げます（端末の音声合成設定で男性音声を追加できます）。':'';}
   function speechText(text){
     return String(text||'')
       .replace(/```[\s\S]*?(?:```|$)/g,'\nコードは画面で確認してください。\n')
@@ -209,6 +209,7 @@
     if(!('speechSynthesis' in window))return;
     const clean=speechText(text);stopSpeaking();if(!clean)return;
     const run=speechRun,chunks=speechChunks(clean),{voice,pitch}=chosenVoice(),rate=speechRate();
+    if(!voice)showVoiceHint(true);
     const next=index=>{
       if(run!==speechRun)return;
       if(index>=chunks.length){setSpeaking(false);return;}
