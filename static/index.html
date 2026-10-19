@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="karry-ui-version" content="mic-secret-20261019">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -26,12 +27,13 @@
     .secret-controls{display:flex;align-items:center;gap:8px;margin-top:9px;color:#ffd2df;font-size:13px;font-weight:700}.secret-controls input{accent-color:#df6185}.secret-notice{margin:8px 0 0;color:#ffd2df;font-size:12px}.secret-notice[hidden]{display:none}
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
+    .composer-tools{padding:12px 15px;border-top:1px solid var(--line);background:#172239;scroll-margin-top:16px}.secret-controls{margin:0;flex-wrap:wrap;font-size:14px}.secret-controls input{appearance:none;position:relative;width:44px;height:26px;margin:0;background:#536078;border-radius:20px;cursor:pointer;flex:none}.secret-controls input::after{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:white;border-radius:50%;transition:transform .15s}.secret-controls input:checked{background:#bd416a}.secret-controls input:checked::after{transform:translateX(18px)}.secret-controls input:disabled{cursor:not-allowed;opacity:.7}.mode-status{padding:1px 8px;border-radius:20px;background:#263451;font-size:12px}.feature-jump{font-size:12px;margin-top:7px}.voice-options{flex-wrap:wrap}#voiceStatus{flex-basis:100%;overflow-wrap:anywhere}.mic-help{padding:0 15px 14px;color:var(--muted);font-size:13px}.mic-help summary{cursor:pointer;color:#a5cdff;font-weight:700}.mic-help ol{padding-left:20px}.mic-help button{padding:7px 12px;margin-top:5px}.mic-help a{display:inline-block;margin:8px 0}.ui-version{font-size:11px;color:var(--muted)}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
   </style>
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
+    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
     <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
@@ -42,11 +44,13 @@
         <p class="hint">一覧・作成・切替ではLLMを呼びません。</p><p class="hint" id="storageHint">保存方式は接続後に確認できます。</p>
       </nav>
       <div class="panel chat">
-        <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" disabled> シークレット会話（保存しない）</label><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
+        <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
+        <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
         <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span id="voiceStatus">音声機能を確認中…</span></div>
+        <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
     </section>
@@ -63,15 +67,22 @@
   let recognition=null, micRequestPending=false, micRequestVersion=0, micRun=null;
   let micUnavailableReason='';
   if(window.isSecureContext===false)micUnavailableReason='安全なHTTPS接続でのみ音声入力を利用できます';
+  else if(!microphonePolicyAllowed())micUnavailableReason='この埋め込み画面ではマイクが制限されています。通常ブラウザで開いてください。';
   else if(!SpeechRecognition)micUnavailableReason='このブラウザは音声入力に未対応です';
   else if(!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function')micUnavailableReason='このブラウザはマイク権限の確認に未対応です';
   else try{recognition=new SpeechRecognition();recognition.lang='ja-JP';recognition.interimResults=true;recognition.continuous=false;}catch(_){micUnavailableReason='このブラウザは音声入力に未対応です';}
   function currentMicContext(){return {version:viewVersion,sessionId,mode:isSecret};}
   function sameMicContext(context){return !!context&&context.version===viewVersion&&context.sessionId===sessionId&&context.mode===isSecret;}
+  function microphonePolicyAllowed(){try{const policy=document.permissionsPolicy||document.featurePolicy;return !policy?.allowsFeature||policy.allowsFeature('microphone');}catch(_){return true;}}
+  function showMicProblem(message){$('voiceStatus').textContent=message;$('micHelp').open=true;}
+  async function microphonePermission(){try{if(navigator.permissions?.query)return (await navigator.permissions.query({name:'microphone'})).state;}catch(_){}return 'unknown';}
   function micStatusForError(error){
     const name=String(error?.name||error?.error||'');
-    if(/NotAllowed|Security|not-allowed|service-not-allowed/i.test(name))return 'マイクの権限が拒否されています。ブラウザ設定で許可してください。';
+    if(/service-not-allowed/i.test(name))return '音声認識サービスを利用できません。通常ブラウザで開くか、手入力をご利用ください。';
+    if(/Security/i.test(name))return 'ブラウザの安全設定でマイクが制限されています。通常ブラウザで開き、許可方法を確認してください。';
+    if(/NotAllowed|not-allowed/i.test(name))return 'マイクを使用できません。未許可・ブラウザ制限が考えられます。下の許可方法を確認してください。';
     if(/NotFound|DevicesNotFound|audio-capture/i.test(name))return 'マイクを利用できません。接続・使用中のアプリを確認してください。';
+    if(/NotReadable|TrackStart/i.test(name))return 'マイクを開始できません。他のアプリの使用や端末設定を確認してください。';
     if(/network/i.test(name))return '音声認識のネットワークに接続できません。';
     if(/aborted/i.test(name))return '音声入力を停止しました。';
     return '音声入力を開始できませんでした。';
@@ -81,7 +92,8 @@
     const usable=!!recognition&&!micUnavailableReason;
     $('mic').disabled=busy||!connected||!sessionId||!usable||micRequestPending;
     $('mic').title=micUnavailableReason||'音声入力';$('mic').setAttribute('aria-label',micUnavailableReason||'音声入力');
-    if(micUnavailableReason)$('voiceStatus').textContent=micUnavailableReason;
+    $('micRetry').disabled=$('mic').disabled;
+    if(micUnavailableReason)showMicProblem(micUnavailableReason);
   }
   function stopMicrophone(message=''){
     micRequestVersion++;micRequestPending=false;micRun=null;$('mic').classList.remove('active');
@@ -96,13 +108,18 @@
     const request=++micRequestVersion,context=currentMicContext();micRequestPending=true;updateMicButton();$('voiceStatus').textContent='マイクの許可を確認しています…';
     let stream;
     try{
+      if(!microphonePolicyAllowed()){showMicProblem('この埋め込み画面ではマイクが制限されています。通常ブラウザで開いてください。');return;}
+      const permission=await microphonePermission();
+      if(request!==micRequestVersion||!sameMicContext(context)||busy)return;
+      if(permission==='denied'){showMicProblem('マイクは未許可です。ブラウザ・端末設定で許可し、下の再試行を押してください。');return;}
+      $('voiceStatus').textContent='許可確認が表示されたら「許可」を選んでください…';
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
       if(request!==micRequestVersion||!sameMicContext(context)||busy)return;
       stopTracks(stream);stream=null;
       micRun={context,baseText:$('prompt').value,lastSpeech:'',lastValue:$('prompt').value};
       recognition.start();
     }catch(error){
-      if(request===micRequestVersion)$('voiceStatus').textContent=micStatusForError(error);
+      if(request===micRequestVersion){micRun=null;showMicProblem(micStatusForError(error));}
     }finally{
       stopTracks(stream);
       if(request===micRequestVersion){micRequestPending=false;updateMicButton();}
@@ -111,7 +128,7 @@
   if(recognition){
     recognition.onstart=()=>{if(!micRun||!sameMicContext(micRun.context)||busy){stopMicrophone();return;}$('mic').classList.add('active');$('voiceStatus').textContent='聞き取り中…';};
     recognition.onend=()=>{const active=micRun&&sameMicContext(micRun.context);micRun=null;$('mic').classList.remove('active');if(active&&!busy)$('voiceStatus').textContent='音声入力を利用できます';updateMicButton();};
-    recognition.onerror=event=>{const active=micRun&&sameMicContext(micRun.context);micRun=null;$('mic').classList.remove('active');if(active)$('voiceStatus').textContent=micStatusForError(event);updateMicButton();};
+    recognition.onerror=event=>{const active=micRun&&sameMicContext(micRun.context);micRun=null;$('mic').classList.remove('active');if(active)showMicProblem(micStatusForError(event));updateMicButton();};
     recognition.onresult=event=>{
       if(!micRun||!sameMicContext(micRun.context)||busy)return;
       const speech=Array.from(event.results||[]).map(result=>result?.[0]?.transcript||'').join('');
@@ -145,6 +162,7 @@
   function discardSecretConversations(){for(const state of secretConversations.values())forgetSecretSession(state);secretConversations.clear();isSecret=false;pendingMessage=null;$('secretToggle').checked=false;$('secretNotice').hidden=true;}
   function updateSecretUi(){
     $('secretToggle').checked=isSecret;$('secretNotice').hidden=!isSecret;$('latestBox').hidden=isSecret||!$('latestUrl').getAttribute('href');
+    $('secretToggle').setAttribute('aria-checked',String(isSecret));$('secretModeStatus').textContent=isSecret?'ON・保存しない':'OFF・通常保存';$('secretSetupHint').hidden=connected&&!!sessionId;
     $('clearHistory').textContent=isSecret?'🗑 秘密の履歴を消去':'🗑 履歴をクリア';$('clearHistory').title=isSecret?'このタブだけの秘密会話を消去':'このタスクの会話履歴を消去';$('clearHistory').setAttribute('aria-label',isSecret?'秘密の会話履歴をクリア':'会話履歴をクリア');
     $('imageStatus').textContent=isSecret?'シークレット会話では画像添付を使えません。テキストのみで会話します。':'JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
     $('imageFile').disabled=busy||!connected||!sessionId||isSecret||selectedImages.length>=4;
@@ -445,6 +463,7 @@
   $('apiToken').addEventListener('input',()=>{if(!busy){stopMicrophone('音声入力を停止しました。');discardSecretConversations();viewVersion++;connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('secretToggle').addEventListener('change',toggleSecretMode);
   $('mic').addEventListener('click',startMicrophone);
+  $('micRetry').addEventListener('click',startMicrophone);
   $('chatForm').addEventListener('submit',sendMessage);
   $('imageFile').addEventListener('change',uploadSelectedImage);
   window.addEventListener('pagehide',()=>{viewVersion++;stopMicrophone();discardSecretConversations();});
