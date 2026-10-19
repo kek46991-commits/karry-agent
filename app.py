@@ -44,6 +44,8 @@ from karry_agent import image_generation
 from karry_agent import optimus_core
 from karry_agent import resource_errors
 from karry_agent import knowledge_engine
+from karry_agent import knowledge_sync_api
+from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
 logger = logging.getLogger(__name__)
@@ -470,7 +472,7 @@ def _image_mutation_lock(session_id: str):
 
 
 def _trace(result: AgentResult) -> list[dict[str, Any]]:
-    return [asdict(event) for event in result.trace]
+    return [mask_secrets(asdict(event)) for event in result.trace]
 
 
 def _new_run() -> str:
@@ -812,7 +814,7 @@ def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = 
                 except Exception:
                     raise HTTPException(status_code=502, detail="シークレットの返答を生成できませんでした。") from None
                 response = RunResponse(run_id=uuid.uuid4().hex, session_id=request.session_id,
-                    status="completed", text=result.text, steps=result.steps, tool_calls=0,
+                    status="completed", text=mask_text(result.text), steps=result.steps, tool_calls=0,
                     private_mode=private_mode, metrics=_metrics(result), is_secret=True, isSecret=True,
                     secret_session_id=sid)
                 payload = entry.complete(request.request_id, request.prompt, {**response.model_dump(),
@@ -947,7 +949,7 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         run_id=run_id,
         session_id=session_id,
         status=getattr(result, "status", "completed"),
-        text=result.text,
+        text=mask_text(result.text),
         steps=result.steps,
         tool_calls=result.tool_calls,
         private_mode=private_mode,
@@ -969,7 +971,7 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
-        yield _sse("started", {"isSecret": True} if request.is_secret else {"prompt": request.prompt})
+        yield _sse("started", {"isSecret": True} if request.is_secret else {"prompt": mask_text(request.prompt)})
         response = _execute(request, agent, task_mode=task_mode)
         payload = response if isinstance(response, dict) else response.model_dump()
         for index, event in enumerate(payload["trace"], start=1):
@@ -1150,6 +1152,9 @@ def search_knowledge_api(q: Annotated[str, Query(min_length=1, max_length=500)],
     results = knowledge_engine.KnowledgeAcquisitionEngine().search(q, limit)
     return JSONResponse({"notice": knowledge_engine.UNTRUSTED_NOTICE, "results": results},
                         headers={"Cache-Control": "no-store"})
+
+
+app.include_router(knowledge_sync_api.router)
 
 
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
@@ -1445,7 +1450,7 @@ def execute_agent_tool(request: ToolRequest) -> dict[str, Any]:
             result = instant_website.deploy_instant_website(payload.html_content, payload.filename)
         _remember_published_website(request.session_id, result)
         return {"tool_name": request.tool_name, "result": result}
-    return {"tool_name": request.tool_name, "result": dispatch_tool(request.tool_name, request.arguments)}
+    return {"tool_name": request.tool_name, "result": mask_secrets(dispatch_tool(request.tool_name, request.arguments))}
 
 
 @app.post("/api/agent/websites/confirm", dependencies=[Depends(require_tool_auth)])
