@@ -1,9 +1,65 @@
-# karry-agent
+# karry-agent — Autonomous Agent with Knowledge Synchronization Pipeline
 
-Gemini APIを活用した自律型AIエージェントのコアエンジンです。
-Function Calling (ツール連携) 機能に対応しており、外部ツールの実行や最新情報の取得が可能です。
+[![CI/CD Pipeline](https://github.com/kek46991-commits/karry-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/kek46991-commits/karry-agent/actions/workflows/ci.yml)
 
-## 🚀 機能 (Features)
+**自律型エージェント＆ナレッジ同期パイプライン。** Gemini Function Calling による ReAct 型の自律実行エンジンに、
+オーナーが外部セッションから最新の設計ルール・会話文脈・ナレッジを即時反映できる **Knowledge Sync API**、
+オープンソース（GitHub）からの **自律的な知識獲得**、それらを実行ごとに取り出す **RAG** を組み合わせた FastAPI サービスです。
+公開リポジトリ・公開デモで運用する前提で、**Security-first Design**（fail-closed 認証・秘密情報マスキング・自動検証）を採用しています。
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Owner["Owner / 外部開発セッション<br/>(Gemini-Master-Session)"] -- "X-Owner-Token" --> Sync["POST /api/knowledge/sync-context"]
+    GH["GitHub 人気リポジトリ README"] -- "daily (Actions)" --> Acq["Knowledge Acquisition Engine"]
+    Sync --> Mask["Secret Masking"]
+    Acq --> Mask
+    Mask --> Embed["Gemini Embedding (256d)"]
+    Embed --> Store[("Vector Store<br/>R2/S3 knowledge/*.json<br/>ETag CAS")]
+    User["User (Web UI / API)"] --> Core["AgentCore<br/>ReAct: Thought → Action → Observation"]
+    Store -- "system_instruction / conversation_context / RAG top-k" --> Core
+    Core <--> Tools["ToolRegistry<br/>Web・Calendar・Files・Image・Website"]
+    Core --> Trace["Trace / Metrics (masked)"] --> UI["実行モニター / SSE"]
+    PG[("PostgreSQL<br/>media_files (Drizzle)")] <--> API["FastAPI app.py"]
+    API --> Core
+```
+
+## Core Capabilities
+
+| 領域 | 内容 | 主な実装 |
+| --- | --- | --- |
+| Autonomous Agent | Gemini Function Calling の ReAct ループ、再試行・指数バックオフ、トレース/メトリクス、マルチエージェント委譲 | `src/karry_agent/core.py`, `orchestrator.py` |
+| Knowledge Sync Pipeline | 所有者認証付き API で `system_instruction` / `conversation_context` / `global_knowledge` を同期し、次の実行から即時反映 | `knowledge_sync_api.py`, `knowledge_sync_service.py` — [docs/knowledge-sync.md](docs/knowledge-sync.md) |
+| RAG | 依頼文の埋め込みとコサイン類似度で上位 k 件を取得（埋め込み不可時はキーワード検索）。文字数予算付きでシステムプロンプトへ注入 | `knowledge_sync_service.py`, `knowledge_engine.py` |
+| Open Source Knowledge Acquisition | GitHub の人気リポジトリ README を毎日取得し、信頼しない参考資料として索引化 | `knowledge_engine.py` — [docs/knowledge-engine.md](docs/knowledge-engine.md) |
+| Security-first Design | fail-closed 所有者認証、応答・トレース・SSE の秘密情報マスキング（`sk-...xxxx`）、公開前の人手確認、CI での秘密情報スキャン | `secret_masking.py`, `tests/test_secret_hygiene.py` — [docs/security.md](docs/security.md) |
+| Durable State | タスク履歴・成果物を非公開 R2/S3 へ CAS で保存、メディアは PostgreSQL（Drizzle Migration） | `task_persistence.py`, `media_repository.py` |
+
+## Tech Stack
+
+Python 3.11 / FastAPI / Pydantic v2 / google-genai（Gemini・Embedding）/ boto3（Cloudflare R2・S3）/ PostgreSQL（psycopg・Drizzle ORM）/ Vanilla JS SPA / pytest・node:test（jsdom）/ GitHub Actions / Docker / Render
+
+## Repository Layout
+
+```text
+app.py                     FastAPI エントリポイント（チャット・SSE・タスク・成果物・各 API）
+src/karry_agent/           エージェント本体（core / tools / knowledge_* / secret_masking / persistence ...）
+static/index.html          Web UI（タスク管理・チャット・実行モニター）
+tests/                     pytest（750+ ケース）と UI DOM テスト
+docs/                      機能別の設計ドキュメント
+schema.ts, drizzle/        PostgreSQL スキーマと Migration
+render.yaml, Dockerfile    デプロイ定義（秘密値はキー名のみ）
+```
+
+## Security
+
+- 秘密値は Render の環境変数またはローカル `.env`（Git 管理外）だけに置きます。コミットするのはダミー値の `.env.example` のみです。
+- 所有者 API は `KARRY_API_TOKEN` 未設定時に 503 で拒否します。Knowledge Sync API は `X-Owner-Token` / `Bearer` の両方に対応します。
+- 応答本文・実行トレース・SSE・ツール結果は API キー、トークン、DB 接続文字列をマスクしてから返します。
+- 詳細と自動テストは [docs/security.md](docs/security.md) を参照してください。
+
+## 開発フェーズ履歴
 
 - Gemini API (`gemini-2.5-flash`) 統合
 - 堅牢なエラーハンドリング & 指数バックオフ再試行
@@ -37,7 +93,7 @@ python3 -m pytest -q
 ### 3. Docker で実行
 
 ```bash
-export GEMINI_API_KEY="your-gemini-api-key"
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 docker compose build
 docker compose run --rm karry-agent
 ```
