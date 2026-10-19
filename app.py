@@ -43,6 +43,7 @@ from karry_agent import media_repository, media_generation
 from karry_agent import image_generation
 from karry_agent import optimus_core
 from karry_agent import resource_errors
+from karry_agent import knowledge_engine
 from karry_agent import secret_chat, secret_runtime
 
 logger = logging.getLogger(__name__)
@@ -1114,6 +1115,41 @@ def task_storage_connection():
         return JSONResponse(status_code=503, content={**result, "connection_status": "failed",
             "error_code": exc.code, "diagnostic_code": safe, "hint": website_storage.DIAGNOSTIC_HINTS[safe],
             "detail": str(exc)}, headers={"Cache-Control": "no-store"})
+
+
+class KnowledgeSyncRequest(BaseModel):
+    topic: str = Field(default="typescript-agent", max_length=60)
+
+
+def _knowledge_error(exc: knowledge_engine.KnowledgeError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc), "error_code": exc.code},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/knowledge/sync", dependencies=[Depends(require_tool_auth)])
+def sync_knowledge(body: KnowledgeSyncRequest | None = None):
+    """GitHubの人気リポジトリからREADMEを取得し、知識として保存する。LLMの生成は呼ばない。"""
+    try:
+        result = knowledge_engine.KnowledgeAcquisitionEngine().ingest((body or KnowledgeSyncRequest()).topic)
+    except knowledge_engine.KnowledgeError as exc:
+        return _knowledge_error(exc)
+    return JSONResponse({"message": "Autonomous knowledge acquisition process completed.", **result},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/knowledge", dependencies=[Depends(require_tool_auth)])
+def list_knowledge():
+    rows = knowledge_engine.KnowledgeStore().entries()
+    return JSONResponse({"entries": [knowledge_engine.summary(row) for row in rows]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/knowledge/search", dependencies=[Depends(require_tool_auth)])
+def search_knowledge_api(q: Annotated[str, Query(min_length=1, max_length=500)],
+                     limit: Annotated[int, Query(ge=1, le=5)] = 3):
+    results = knowledge_engine.KnowledgeAcquisitionEngine().search(q, limit)
+    return JSONResponse({"notice": knowledge_engine.UNTRUSTED_NOTICE, "results": results},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
