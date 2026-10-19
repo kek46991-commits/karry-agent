@@ -47,7 +47,7 @@ def test_chat_html_is_fresh_and_microphone_permission_is_explicit():
         assert response.status_code == 200
         assert 'no-store' in response.headers['cache-control']
         assert response.headers['permissions-policy'] == 'microphone=(self)'
-        assert 'voice-ux-20261019' in response.text
+        assert 'voice-interrupt-20261019' in response.text
         assert '🔒 シークレットモード' in response.text
         assert 'マイクの許可方法' in response.text
     etag = client.get('/static/index.html').headers['etag']

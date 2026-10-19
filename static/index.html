@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="voice-ux-20261019">
+  <meta name="karry-ui-version" content="voice-interrupt-20261019">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -12,6 +12,7 @@
     .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--good)}.grid{display:grid;grid-template-columns:245px minmax(0,1fr) 290px;gap:18px}.panel{background:rgba(18,26,45,.9);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0003}
     .tasks{padding:18px}.tasks h2,aside h2{font-size:15px;margin:0 0 15px}.tasks input{width:100%;margin-bottom:9px}.tasks button{width:100%;padding:10px}.task-list{max-height:480px;overflow:auto;margin-top:15px}.task-item{display:block;margin:7px 0;text-align:left;color:var(--text);background:#172239;overflow-wrap:anywhere;font-weight:500}.task-item[aria-current="true"]{background:#254d80;outline:1px solid #65a8ff;font-weight:700}.task-row{display:flex;gap:6px;margin:7px 0}.tasks .task-row .task-item{flex:1;width:auto;min-width:0;margin:0}.tasks .task-delete{flex:none;width:40px;padding:0;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df}
     .chat{min-height:650px;min-width:0;display:flex;flex-direction:column}.task-heading{padding:14px 20px;border-bottom:1px solid var(--line)}.task-heading h2{font-size:16px;margin:0}.latest{font-size:12px;margin-top:5px}.messages{flex:1;padding:20px;overflow:auto;max-height:590px}.message{max-width:90%;padding:12px 15px;border-radius:14px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}.message.user{margin-left:auto;background:#1e477d}.message.agent{background:#182238;border:1px solid #283858}.message .label{display:block;color:#9ec9ff;font-size:11px;margin-bottom:4px;font-weight:700}.empty{color:var(--muted);text-align:center;padding:95px 20px}
+    .stop-speech{border:1px solid #c0566a;background:#3a1622;color:#ffd7de;border-radius:999px;padding:4px 12px;font:inherit;cursor:pointer}.voice-hint{color:#f2c46d;font-size:12px}
     form{border-top:1px solid var(--line);padding:15px;display:flex;gap:10px;align-items:stretch}textarea{flex:1;resize:vertical;min-height:52px;max-height:220px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0c1426;color:var(--text);font:inherit}input[type="text"],input[type="password"]{padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit}button{border:0;border-radius:11px;padding:0 18px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid #9ec9ff;outline-offset:3px}.icon-button{min-width:42px;padding:0 10px;background:#263c61;color:var(--text);font-size:18px}.icon-button.active{background:#a34b67}.voice-options{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:0 15px 12px}.voice-options input{accent-color:var(--accent)}.speech-settings{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}.speech-settings select{max-width:190px;background:#0c1426;color:var(--text);border:1px solid #344766;border-radius:8px;padding:3px 6px;font:inherit}.speech-settings input[type=range]{width:90px}
     aside{padding:18px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted)}.metric strong{color:var(--text);font-variant-numeric:tabular-nums}.trace{margin-top:22px}.trace-list{max-height:280px;overflow:auto}.event{border-left:2px solid var(--accent);padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px}.event .kind{color:var(--accent);font-weight:800}.event pre{margin:4px 0 0;white-space:pre-wrap;color:#bdc9df;overflow-wrap:anywhere}.session{color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}.hint{color:var(--muted);font-size:12px;margin-top:14px}a{color:#8fc3ff}.auth{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}.auth input{width:min(100%,360px)}.auth button{padding:10px 16px}.auth label{width:100%}[hidden]{display:none!important}
     .attachments{padding:12px 15px 0;border-top:1px solid var(--line)}.attachments label{display:inline-block;padding:6px 12px;border:1px solid #4378c7;border-radius:8px;color:#a5cdff;cursor:pointer}.attachments input{max-width:230px;font-size:12px}.image-previews{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.image-card{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.image-card img{width:64px;height:64px;object-fit:contain;background:#0b1020;border-radius:5px}.image-card button{padding:4px 8px}.history-image{display:block;max-width:100%;max-height:240px;object-fit:contain;margin:8px 0}.image-link{padding:4px 8px;margin-top:8px;font-size:11px}
@@ -49,7 +50,7 @@
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
         <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
-        <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><span id="voiceStatus">音声機能を確認中…</span></div>
+        <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
@@ -104,10 +105,10 @@
     updateMicButton();
   }
   async function startMicrophone(){
+    const wasSpeaking=stopSpeaking();
     if(!recognition||micUnavailableReason){$('voiceStatus').textContent=micUnavailableReason||'このブラウザは音声入力に未対応です';return;}
     if(busy||!connected||!sessionId)return;
     if(micRun||micRequestPending){stopMicrophone('音声入力を停止しました。');return;}
-    stopSpeaking();
     const request=++micRequestVersion,context=currentMicContext();micRequestPending=true;updateMicButton();$('voiceStatus').textContent='マイクの許可を確認しています…';
     let stream;
     try{
@@ -119,6 +120,7 @@
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
       if(request!==micRequestVersion||!sameMicContext(context)||busy)return;
       stopTracks(stream);stream=null;
+      if(wasSpeaking){await new Promise(resolve=>setTimeout(resolve,150));if(request!==micRequestVersion||!sameMicContext(context)||busy)return;}
       micRun={context,baseText:$('prompt').value,lastSpeech:'',lastValue:$('prompt').value};
       recognition.start();
     }catch(error){
@@ -140,20 +142,23 @@
       micRun.lastSpeech=speech;micRun.lastValue=micRun.baseText+speech;$('prompt').value=micRun.lastValue;
     };
   }else{$('voiceStatus').textContent=micUnavailableReason||'このブラウザは音声入力に未対応です';}
-  const MALE_VOICE=/otoya|hattori|ichiro|keita|daichi|naoki|takumi|kenji|male|男性|ja-jp-x-ja[cd]/i;
-  const FEMALE_VOICE=/kyoko|o-ren|haruka|ayumi|sayaka|nanami|mizuki|female|女性|ja-jp-x-(?:htm|jab)/i;
+  const MALE_VOICE=/otoya|hattori|ichiro|keita|daichi|naoki|takumi|kenji|\bmale\b|男性|ja-jp-x-ja[cd]|ja-jp-(?:standard|wavenet|neural2|chirp\S*)-[cd]\b/i;
+  const FEMALE_VOICE=/kyoko|o-ren|haruka|ayumi|sayaka|nanami|mizuki|aoi|mayu|shiori|female|女性|google\s*日本語|ja-jp-x-(?:htm|jab)|ja-jp-(?:standard|wavenet|neural2|chirp\S*)-[ab]\b/i;
+  const SPEECH_PITCH={male:0.8,neutral:0.7,fallback:0.6};
   const DEFAULT_SPEECH_RATE=1.5;
   function readSetting(key){try{return localStorage.getItem(key)||'';}catch(_){return '';}}
   function writeSetting(key,value){try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key);}catch(_){}}
   function voiceLabel(voice){return `${voice.name||''} ${voice.voiceURI||''}`;}
   function isMaleVoice(voice){const label=voiceLabel(voice);return MALE_VOICE.test(label)&&!FEMALE_VOICE.test(label);}
+  function isFemaleVoice(voice){return FEMALE_VOICE.test(voiceLabel(voice))&&!isMaleVoice(voice);}
   function japaneseVoices(){try{return (window.speechSynthesis.getVoices()||[]).filter(voice=>/^ja(?:[-_]|$)/i.test(voice.lang||''));}catch(_){return [];}}
   function chosenVoice(){
     const voices=japaneseVoices(),saved=$('voiceSelect').value||readSetting('karry-voice');
     const picked=saved&&voices.find(voice=>voice.voiceURI===saved);
-    if(picked)return {voice:picked,male:true};
-    const male=voices.find(isMaleVoice);
-    return male?{voice:male,male:true}:{voice:null,male:false};
+    if(picked)return {voice:picked,pitch:isMaleVoice(picked)?SPEECH_PITCH.male:SPEECH_PITCH.neutral};
+    const male=voices.find(isMaleVoice);if(male)return {voice:male,pitch:SPEECH_PITCH.male};
+    const neutral=voices.find(voice=>!isFemaleVoice(voice));if(neutral)return {voice:neutral,pitch:SPEECH_PITCH.neutral};
+    return {voice:null,pitch:SPEECH_PITCH.fallback};
   }
   function speechRate(){const rate=Number($('speechRate').value);return Number.isFinite(rate)&&rate>=1&&rate<=2?rate:DEFAULT_SPEECH_RATE;}
   function loadVoices(){
@@ -162,6 +167,9 @@
     select.replaceChildren(new Option('自動（男性の低い声を優先）',''));
     for(const voice of japaneseVoices())select.appendChild(new Option(`${voice.name}${isMaleVoice(voice)?'（男性）':''}`,voice.voiceURI));
     if(saved&&[...select.options].some(option=>option.value===saved))select.value=saved;
+    const voices=japaneseVoices(),hint=$('voiceHint');
+    hint.hidden=!voices.length||voices.some(isMaleVoice);
+    hint.textContent=hint.hidden?'':'この端末には日本語の男性音声がないため、声を低くして読み上げます（端末の音声合成設定で男性音声を追加できます）。';
   }
   function speechText(text){
     return String(text||'')
@@ -182,14 +190,37 @@
       .replace(/[*#~`]+/g,'')
       .replace(/[ \t]+/g,' ').replace(/ *\n */g,'\n').replace(/\n{2,}/g,'\n').trim();
   }
-  function stopSpeaking(){try{if('speechSynthesis' in window)window.speechSynthesis.cancel();}catch(_){}}
+  let speechRun=0,speaking=false;
+  function speechChunks(text,limit=120){
+    const chunks=[];
+    for(const sentence of text.match(/[^。！？!?\n]+[。！？!?]*|\n/g)||[]){
+      const part=sentence.trim();if(!part)continue;
+      for(let i=0;i<part.length;i+=limit){const piece=part.slice(i,i+limit);const last=chunks.length-1;if(last>=0&&chunks[last].length+piece.length<=limit&&i===0)chunks[last]+=piece;else chunks.push(piece);}
+    }
+    return chunks;
+  }
+  function setSpeaking(value){speaking=value;$('stopSpeech').hidden=!value;}
+  function stopSpeaking(){
+    speechRun++;const was=speaking;setSpeaking(false);
+    try{if('speechSynthesis' in window)window.speechSynthesis.cancel();}catch(_){}
+    return was;
+  }
   function speak(text){
     if(!('speechSynthesis' in window))return;
-    const clean=speechText(text);if(!clean)return;
-    window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(clean);utterance.lang='ja-JP';
-    const {voice,male}=chosenVoice();if(voice){utterance.voice=voice;utterance.lang=voice.lang||'ja-JP';}
-    utterance.rate=speechRate();utterance.pitch=male?0.85:0.7;
-    window.speechSynthesis.speak(utterance);
+    const clean=speechText(text);stopSpeaking();if(!clean)return;
+    const run=speechRun,chunks=speechChunks(clean),{voice,pitch}=chosenVoice(),rate=speechRate();
+    const next=index=>{
+      if(run!==speechRun)return;
+      if(index>=chunks.length){setSpeaking(false);return;}
+      const utterance=new SpeechSynthesisUtterance(chunks[index]);utterance.lang=voice?.lang||'ja-JP';
+      if(voice)utterance.voice=voice;
+      utterance.rate=rate;utterance.pitch=pitch;
+      utterance.onend=()=>next(index+1);
+      utterance.onerror=()=>{if(run===speechRun)setSpeaking(false);};
+      try{window.speechSynthesis.resume?.();}catch(_){}
+      window.speechSynthesis.speak(utterance);
+    };
+    setSpeaking(true);next(0);
   }
   if('speechSynthesis' in window){
     loadVoices();
@@ -197,6 +228,7 @@
     const savedRate=Number(readSetting('karry-speech-rate'));if(savedRate>=1&&savedRate<=2)$('speechRate').value=String(savedRate);
     $('speechRateValue').textContent=`${speechRate().toFixed(1)}倍`;
     $('voiceSelect').addEventListener('change',()=>writeSetting('karry-voice',$('voiceSelect').value));
+    $('stopSpeech').addEventListener('click',()=>{stopSpeaking();$('voiceStatus').textContent='読み上げを止めました。';});
     $('speechRate').addEventListener('input',()=>{$('speechRateValue').textContent=`${speechRate().toFixed(1)}倍`;writeSetting('karry-speech-rate',$('speechRate').value);});
   }else $('speechSettings').hidden=true;
   function addSpeakButton(element,text){
@@ -321,6 +353,7 @@
     finally{setBusy(false);}
   }
   async function selectSession(id){
+    stopSpeaking();
     if(busy||!connected)return;const version=++viewVersion;setBusy(true);clearView();$('currentTask').textContent='履歴を読み込み中…';setConnectionStatus('タスク切替中…');
     stopMicrophone('音声入力を停止しました。');stopSpeaking();discardSecretConversations();
     try{const data=await requestJson('/api/sessions/'+encodeURIComponent(id));if(version!==viewVersion)return;sessionId=id;saveSelection();renderSession(data);renderTasks();setConnectionStatus('オンライン');}
@@ -328,6 +361,7 @@
     finally{setBusy(false);}
   }
   async function createNewSession(){
+    stopSpeaking();
     if(busy||!connected||isSecret)return;setBusy(true);const title=$('taskTitle').value.trim()||`タスク ${sessions.length+1}`;
     try{const created=await requestJson('/api/sessions',{method:'POST',body:JSON.stringify({title})});sessions.push(created);sessionId=created.session_id;saveSelection();$('taskTitle').value='';renderTasks();renderSession({...created,messages:[],latest_url:''});setConnectionStatus('オンライン');}
     catch(error){addMessage('agent',`タスク作成エラー: ${error.message}`);}
@@ -526,6 +560,7 @@
   $('apiToken').addEventListener('input',()=>{if(!busy&&!inFlight.size){stopMicrophone('音声入力を停止しました。');discardSecretConversations();viewVersion++;connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('secretToggle').addEventListener('change',toggleSecretMode);
   $('mic').addEventListener('click',startMicrophone);
+  for(const type of ['input','keydown','pointerdown'])$('prompt').addEventListener(type,()=>{if(speaking)stopSpeaking();});
   $('micRetry').addEventListener('click',startMicrophone);
   $('chatForm').addEventListener('submit',sendMessage);
   $('imageFile').addEventListener('change',uploadSelectedImage);

@@ -28,7 +28,11 @@ function setup(options={}){
       window.__microphone=microphone;
     }
     if(options.speech){
-      window.speechSynthesis={spoken:[],cancelled:0,getVoices:()=>options.speech.voices||[],speak(utterance){this.spoken.push(utterance);},cancel(){this.cancelled++;},addEventListener(){}};
+      window.speechSynthesis={spoken:[],cancelled:0,current:null,getVoices:()=>options.speech.voices||[],
+        speak(utterance){this.spoken.push(utterance);this.current=utterance;},
+        finish(){const utterance=this.current;this.current=null;utterance?.onend?.();},
+        cancel(){this.cancelled++;const utterance=this.current;this.current=null;utterance?.onerror?.({error:'interrupted'});utterance?.onend?.();},
+        addEventListener(){}};
       window.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
     }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
@@ -172,19 +176,68 @@ test('speech strips markdown, prefers a low male Japanese voice and speaks faste
   assert.match(clean,/見出し/);assert.match(clean,/太字と斜体とcode/);assert.match(clean,/項目1/);assert.match(clean,/リンク先/);
   assert.match(clean,/コードは画面で確認してください/);assert.match(clean,/snake_case_name/);assert.doesNotMatch(clean,/const a/);
   s.win.speak('**こんにちは** ジミーやで');const spoken=s.win.speechSynthesis.spoken.at(-1);
-  assert.equal(spoken.text,'こんにちは ジミーやで');assert.equal(spoken.voice.name,'Otoya');assert.equal(spoken.pitch,0.85);assert.equal(spoken.rate,1.5);
-  assert.equal(s.doc.getElementById('speechRateValue').textContent,'1.5倍');
+  assert.equal(spoken.text,'こんにちは ジミーやで');assert.equal(spoken.voice.name,'Otoya');assert.equal(spoken.pitch,0.8);assert.equal(spoken.rate,1.5);
+  assert.equal(s.doc.getElementById('speechRateValue').textContent,'1.5倍');assert.equal(s.doc.getElementById('voiceHint').hidden,true);
   const options=[...s.doc.getElementById('voiceSelect').options].map(o=>o.textContent);assert.deepEqual(options,['自動（男性の低い声を優先）','Kyoko','Otoya（男性）']);
   s.doc.getElementById('speechRate').value='2';s.doc.getElementById('speechRate').dispatchEvent(new s.win.Event('input'));s.win.speak('速く');
   assert.equal(s.win.speechSynthesis.spoken.at(-1).rate,2);assert.equal(s.win.localStorage.getItem('karry-speech-rate'),'2');
   s.dom.window.close();
 });
 
-test('without a male voice speech lowers the pitch, and the microphone interrupts reading aloud',async()=>{
+test('automatic voice never picks a known female voice and recognises male voices across platforms',()=>{
+  const pick=voices=>{const s=setup({speech:{voices}});s.win.speak('テスト');const spoken=s.win.speechSynthesis.spoken.at(-1);const result={voice:spoken.voice?.name,pitch:spoken.pitch,hint:s.doc.getElementById('voiceHint').hidden};s.dom.window.close();return result;};
+  assert.deepEqual(pick([{name:'Microsoft Nanami Online (Natural) - Japanese (Japan)',voiceURI:'nanami',lang:'ja-JP'},{name:'Microsoft Keita Online (Natural) - Japanese (Japan)',voiceURI:'keita',lang:'ja-JP'}]),{voice:'Microsoft Keita Online (Natural) - Japanese (Japan)',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'日本語 日本',voiceURI:'ja-jp-x-jab-local',lang:'ja-JP'},{name:'日本語 日本 3',voiceURI:'ja-jp-x-jac-local',lang:'ja_JP'}]),{voice:'日本語 日本 3',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'ja-JP-Wavenet-B',voiceURI:'b',lang:'ja-JP'},{name:'ja-JP-Wavenet-C',voiceURI:'c',lang:'ja-JP'}]),{voice:'ja-JP-Wavenet-C',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'Google 日本語',voiceURI:'Google 日本語',lang:'ja-JP'}]),{voice:undefined,pitch:0.6,hint:false});
+  assert.deepEqual(pick([{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'},{name:'Japanese Voice',voiceURI:'generic',lang:'ja-JP'}]),{voice:'Japanese Voice',pitch:0.7,hint:false});
+});
+
+test('long replies are spoken in short chunks and the stop button ends playback immediately',async()=>{
+  const s=setup({speech:{voices:[{name:'Otoya',voiceURI:'otoya',lang:'ja-JP'}]},sessions:[['a',record('a','A')]]});
+  const synth=s.win.speechSynthesis,stop=s.doc.getElementById('stopSpeech');
+  assert.equal(stop.hidden,true);
+  s.win.speak(Array.from({length:6},(_,i)=>`これは${i+1}番目の長めの文章で、読み上げを途中で止められるか確認するためのテキストです。`).join(''));
+  assert.equal(stop.hidden,false);assert.equal(synth.spoken.length,1);assert.ok(synth.spoken[0].text.length<=120);
+  synth.finish();assert.equal(synth.spoken.length,2);
+  const stale=synth.current;stop.click();
+  assert.equal(stop.hidden,true);assert.match(s.doc.getElementById('voiceStatus').textContent,/止めました/);
+  stale.onend();assert.equal(synth.spoken.length,2);
+  s.win.speak('短い');while(synth.current)synth.finish();assert.equal(stop.hidden,true);
+  s.dom.window.close();
+});
+
+test('typing, tapping the prompt, switching or creating tasks and the microphone all interrupt speech without locking the UI',async()=>{
+  const microphone={};
+  const s=setup({microphone,speech:{voices:[{name:'Otoya',voiceURI:'otoya',lang:'ja-JP'}]},sessions:[['a',record('a','A')],['b',record('b','B')]]});
+  s.authenticate();await s.win.connectSessions();
+  const synth=s.win.speechSynthesis,long='一文目です。二文目です。三文目です。';
+  const interrupts={
+    input:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.Event('input')),
+    keydown:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.KeyboardEvent('keydown',{key:'a'})),
+    pointerdown:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.Event('pointerdown')),
+    switchTask:()=>s.win.selectSession(s.doc.getElementById('session').textContent==='a'?'b':'a'),
+    newTask:()=>s.win.createNewSession(),
+    mic:async()=>{s.doc.getElementById('mic').click();await new Promise(r=>setTimeout(r,200));s.win.stopMicrophone();},
+  };
+  for(const [name,interrupt] of Object.entries(interrupts)){
+    s.win.speak(long);const stale=synth.current,count=synth.spoken.length,cancelled=synth.cancelled;
+    for(const id of ['prompt','send','mic'])assert.equal(s.doc.getElementById(id).disabled,false,`${name}: ${id} locked while speaking`);
+    for(const item of s.doc.querySelectorAll('.task-item'))assert.equal(item.disabled,false,`${name}: task locked while speaking`);
+    await interrupt();
+    assert.ok(synth.cancelled>cancelled,`${name} did not cancel speech`);
+    assert.equal(s.doc.getElementById('stopSpeech').hidden,true,name);
+    stale.onend?.();assert.equal(synth.spoken.length,count,`${name}: stale speech continued`);
+  }
+  s.dom.window.close();
+});
+
+test('the microphone still starts after interrupting speech',async()=>{
   const microphone={};const s=setup({microphone,speech:{voices:[{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'}]},sessions:[['a',record('a','A')]]});
-  s.authenticate();await s.win.connectSessions();s.win.speak('テスト');
-  const spoken=s.win.speechSynthesis.spoken.at(-1);assert.equal(spoken.voice,undefined);assert.equal(spoken.pitch,0.7);
-  const before=s.win.speechSynthesis.cancelled;await s.win.startMicrophone();assert.ok(s.win.speechSynthesis.cancelled>before);s.dom.window.close();
+  s.authenticate();await s.win.connectSessions();s.win.speak('テストです。もう一文。');
+  const before=s.win.speechSynthesis.cancelled;await s.win.startMicrophone();
+  assert.ok(s.win.speechSynthesis.cancelled>before);assert.equal(microphone.instance.started,1);
+  microphone.instance.emitResult('割り込み');assert.equal(s.doc.getElementById('prompt').value,'割り込み');s.dom.window.close();
 });
 
 test('authentication errors do not create tasks or reveal old messages',async()=>{
