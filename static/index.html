@@ -491,7 +491,7 @@
       function parseChunk(chunk){
         const kind=(chunk.match(/^event: (.*)$/m)||[])[1],raw=(chunk.match(/^data: (.*)$/m)||[])[1];if(!raw)return;
         let data;try{data=JSON.parse(raw);}catch(_){throw new Error(mode?secretSendError():'ストリーミング応答の形式が不正です');}
-        if(!mode)trace(kind,data);
+        if(!mode&&sessionId===owner&&!isSecret)trace(kind,data);
         if(kind==='completed')completed=data;
         if(kind==='error')throw new Error(mode?secretSendError():data.detail||'実行に失敗しました');
       }

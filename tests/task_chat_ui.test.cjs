@@ -138,6 +138,7 @@ test('task switching, typing, new sends and the microphone stay usable while a m
   s.doc.getElementById('prompt').value='B task';await s.win.sendMessage({preventDefault(){}});assert.match(s.doc.getElementById('messages').textContent,/Answer for B/);
   finish();await sending;
   assert.equal(s.doc.getElementById('session').textContent,'b');assert.doesNotMatch(s.doc.getElementById('messages').textContent,/Answer for A/);
+  assert.doesNotMatch(s.doc.getElementById('trace').textContent,/Answer for A/);
   await s.win.selectSession('a');assert.match(s.doc.getElementById('messages').textContent,/Answer for A/);
   assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
 });
