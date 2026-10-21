@@ -21,7 +21,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
 import requests
@@ -375,6 +375,8 @@ def adapter_from_env() -> VideoAdapter | LocalVideoRenderer:
 class GeminiNarrator:
     """Gemini TTS via the documented Interactions REST API (returns WAV for unary requests)."""
 
+    name = "gemini"
+
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
     def __init__(self, api_key: str | None = None, model: str | None = None, session: Any | None = None):
@@ -405,6 +407,88 @@ class GeminiNarrator:
             return wav
         except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
             raise VideoError("ナレーション音声を作れませんでした。", 502, "tts_failed") from None
+
+
+class FreeNarrator:
+    """Key-free Japanese TTS (gTTS), converted to WAV with the bundled ffmpeg. Used when Gemini is unavailable."""
+
+    name = "free"
+
+    def __init__(self, ffmpeg: str | None = None, tts_factory: Callable[..., Any] | None = None):
+        self.ffmpeg = ffmpeg if ffmpeg is not None else ffmpeg_exe()
+        self.tts_factory = tts_factory
+        if tts_factory is None and os.getenv("KARRY_FREE_TTS", "1") != "0":
+            try:
+                from gtts import gTTS
+                self.tts_factory = gTTS
+            except ImportError:
+                self.tts_factory = None
+
+    @property
+    def available(self) -> bool:
+        return bool(self.ffmpeg and self.tts_factory)
+
+    def synthesize(self, text: str, voice: str) -> bytes:
+        if not self.available:
+            raise VideoError("無料の音声合成を使えません。", 503, "tts_configuration")
+        try:
+            mp3 = io.BytesIO()
+            self.tts_factory(text, lang="ja", timeout=20).write_to_fp(mp3)
+            result = subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "mp3", "-i", "pipe:0",
+                                     "-af", "atempo=1.2", "-ac", "1", "-ar", "24000", "-f", "wav", "pipe:1"],
+                                    input=mp3.getvalue(), capture_output=True, check=True, timeout=120)
+            wav = result.stdout
+            if not wav.startswith(b"RIFF") or len(wav) > MAX_AUDIO_BYTES:
+                raise ValueError
+            return wav
+        except Exception:
+            raise VideoError("無料の音声合成サービスに接続できませんでした。", 502, "tts_failed") from None
+
+
+class NarratorChain:
+    """Tries each narrator in order (Gemini → free TTS) and remembers which one spoke."""
+
+    def __init__(self, narrators: list[Any]):
+        self.narrators = narrators
+        self.last_engine: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return any(n.available for n in self.narrators)
+
+    def synthesize(self, text: str, voice: str) -> bytes:
+        error = VideoError("ナレーション音声のキーが未設定で、無料の音声合成も使えません。", 503, "tts_configuration")
+        for narrator in self.narrators:
+            if not narrator.available:
+                continue
+            try:
+                wav = narrator.synthesize(text, voice)
+                self.last_engine = narrator.name
+                return wav
+            except VideoError as exc:
+                error = exc
+        raise error
+
+
+def narrator_from_env() -> NarratorChain:
+    return NarratorChain([GeminiNarrator(), FreeNarrator()])
+
+
+def placeholder_wav(rate: int = 24000) -> bytes:
+    """Two soft beeps: an audible marker that narration could not be synthesized (never a silent 'success')."""
+    import math
+    import struct
+    import wave
+    beep, gap = int(rate * 0.18), int(rate * 0.12)
+    tone = [int(6000 * math.sin(2 * math.pi * 880 * i / rate)) for i in range(beep)]
+    samples = tone + [0] * gap + tone + [0] * int(rate * 0.5)
+    out = io.BytesIO()
+    with wave.open(out, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(struct.pack(f"<{len(samples)}h", *samples))
+    return out.getvalue()
 
 
 _MEMORY_DOCS: dict[str, dict[str, Any]] = {}
@@ -476,7 +560,8 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             "aspect_ratio": job["aspect_ratio"], "duration_seconds": job["duration_seconds"], "provider": job["provider"],
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
-                                                     "muxed": bool(narration.get("muxed")),
+                                                     "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
+                                                     **({"error": narration["error"]} if narration.get("error") else {}),
                                                      **({"url": f"/api/video/jobs/{job['id']}/narration{q}"} if narration["status"] == "succeeded" else {})}}
 
 

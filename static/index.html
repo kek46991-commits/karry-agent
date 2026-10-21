@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="video-local-20261019">
+  <meta name="karry-ui-version" content="video-tts-20261019">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -610,15 +610,20 @@
     try{const jobs=await requestJson('/api/video/jobs?session_id='+encodeURIComponent(owner));for(const job of jobs){video.jobs.set(job.id,{...job,owner});if(job.status==='processing')scheduleVideoPoll(job.id);}renderVideoJobs();}catch(error){$('videoStatus').textContent=error.message;}
   }
   function videoLabel(status){return {processing:'生成中…',succeeded:'完成',partial:'一部失敗',failed:'失敗'}[status]||status;}
+  function videoNarrationLabel(n){
+    if(n.status==='succeeded')return 'ナレーション: 音声入り（'+(n.engine==='gemini'?'ジミーの声 / Gemini':n.engine==='free'?'無料の音声合成':'音声合成')+'）';
+    if(n.status==='placeholder')return '⚠ ナレーション音声を作れませんでした（'+(n.error==='tts_configuration'?'音声のキーが未設定で、無料の音声合成も使えません':'音声合成サービスに接続できませんでした')+'）。動画には仮の合図音を入れ、再生時は端末の声で読み上げます。';
+    return 'ナレーション: 端末の声で再生';
+  }
   function renderVideoJobs(){
     const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>b.created_at-a.created_at);
     $('videoJobs').replaceChildren(...list.map(job=>{
       const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;
       const done=job.segments.filter(s=>s.status==='succeeded').length;
       const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${job.segments.length}カット｜${job.prompt}`;card.append(text);
-      if(job.narration){const n=document.createElement('div');n.className='hint';n.textContent='ナレーション: '+(job.narration.status==='succeeded'?'音声あり':'端末の声で再生');card.append(n);}
+      if(job.narration){const n=document.createElement('div');n.className='hint video-narration';n.textContent=videoNarrationLabel(job.narration);card.append(n);}
       if(done){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
-      if(job.provider==='local'&&job.status==='succeeded'){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
+      if(job.provider==='local'&&done){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
       return card;}));
   }
   function scheduleVideoPoll(jobId){
@@ -636,7 +641,7 @@
     const player=$('videoPlayer');player.dataset.aspect=job.aspect_ratio;player.hidden=false;$('videoStatus').textContent='動画を読み込み中…';
     try{
       const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){player.pause?.();$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);let advanced=false;const next=()=>{if(advanced||video.play!==run)return;advanced=true;player.ontimeupdate=null;player.onended=null;run.index++;playClip();};player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds)next();};player.onended=next;await player.play?.()?.catch?.(()=>{});};
-      if(job.narration?.muxed){/* narration is already inside the MP4 */}
+      if(job.narration?.muxed&&job.narration.status==='succeeded'){/* narration is already inside the MP4 */}
       else if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}
       else if(job.narration?.text&&typeof speak==='function')speak(job.narration.text);
       $('videoStatus').textContent=`${job.segments.length}カットを順に再生します。`;await playClip();

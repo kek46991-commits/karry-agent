@@ -704,7 +704,14 @@ test('local free mode explains 0-yen synthesis, plays muxed narration from the M
   const save=s.doc.querySelector('.video-save');assert.ok(save,'download button for local MP4');
   await s.win.playVideoJob('j');assert.equal(audios.length,0,'narration is already inside the MP4');
   let clicked=0;s.win.HTMLAnchorElement.prototype.click=function(){clicked++;assert.match(this.download,/karry-video-16x9-45s\.mp4/);};
-  save.click();await new Promise(r=>setTimeout(r,5));assert.equal(clicked,1);s.dom.window.close();
+  save.click();await new Promise(r=>setTimeout(r,5));assert.equal(clicked,1);
+  assert.match(s.doc.querySelector('.video-narration').textContent,/音声入り（ジミーの声|音声入り（音声合成/);
+  const spoken=[];s.win.speak=t=>spoken.push(t);
+  s.win.eval(`video.jobs.set('j',${JSON.stringify({...job,status:'partial',narration:{text:'やあ',voice:'jimmy',status:'placeholder',muxed:true,engine:null,error:'tts_configuration'}})});renderVideoJobs()`);
+  assert.match(s.doc.querySelector('.video-narration').textContent,/⚠ ナレーション音声を作れませんでした（音声のキーが未設定/);assert.match(s.doc.getElementById('videoJobs').textContent,/一部失敗/);
+  assert.ok(s.doc.querySelector('.video-save'),'partial local MP4 can still be saved');
+  s.win.eval(`video.jobs.set('k',${JSON.stringify({...job,id:'k',narration:{text:'やあ',voice:'jimmy',status:'succeeded',muxed:true,engine:'free'}})});renderVideoJobs()`);
+  assert.match(s.doc.getElementById('videoJobs').textContent,/音声入り（無料の音声合成）/);s.dom.window.close();
 });
 
 test('video playback advances exactly one cut when timeupdate and ended both fire',async()=>{

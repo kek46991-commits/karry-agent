@@ -20,7 +20,7 @@ no `402 Insufficient credit`. ffmpeg comes from the `imageio-ffmpeg` wheel (stat
 step on Render); `KARRY_FFMPEG` overrides the path. Output is 1280×720 or 720×1280 at 15 fps,
 `libx264 -preset ultrafast`, `+faststart`; renders run one at a time to fit Render's free instance.
 Without a photo the frame is a gradient title card with the prompt (CJK font if installed).
-If TTS is unavailable the MP4 is silent and the UI reads the narration with the device voice.
+Narration is never silently dropped. Engines are tried in order: Gemini TTS (`GEMINI_API_KEY`) → key-free gTTS (`KARRY_FREE_TTS=1`, default), converted to WAV and muxed as an AAC track. `narration.engine` reports `gemini` or `free`. If both fail, a short audible placeholder (two beeps) is muxed, `narration.status` becomes `placeholder` with an `error` code, the job ends as `partial`, and the UI shows the reason and reads the text with the device voice.
 A render killed by a restart is marked `failed` after `LOCAL_RENDER_TIMEOUT` + 5 min.
 
 ## Endpoints (all require `Authorization: Bearer $KARRY_API_TOKEN`)

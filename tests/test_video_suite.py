@@ -303,6 +303,8 @@ def test_local_renderer_rejects_bad_input_and_missing_ffmpeg(monkeypatch):
 
 
 class WavNarrator(FakeNarrator):
+    name = 'fake'
+
     def synthesize(self, text, voice):
         super().synthesize(text, voice)
         return wav_bytes(0.5)
@@ -328,6 +330,7 @@ def test_local_job_completes_free_with_narration_inside_mp4(local_env):
     queued.pop()()
     done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
     assert done['status'] == 'succeeded' and done['narration']['status'] == 'succeeded' and done['narration']['muxed'] is True
+    assert done['narration']['engine'] == 'fake'
     clip = client.get(done['segments'][0]['url'], headers=AUTH)
     assert clip.status_code == 200 and clip.headers['content-type'] == 'video/mp4'
     duration, size, has_audio = probe(clip.content)
@@ -337,14 +340,82 @@ def test_local_job_completes_free_with_narration_inside_mp4(local_env):
     assert config['enabled'] is True and config['provider'] == 'local' and config['clip_lengths'] == [120]
 
 
-def test_local_job_without_tts_still_succeeds_silently(local_env):
+def test_local_job_without_any_tts_is_not_a_silent_success(local_env):
     client, narrator, queued = local_env
     narrator.fail = True
     job = create(client, duration_seconds='1', narration_text='テスト').json()
     queued.pop()()
     done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
-    assert done['status'] == 'succeeded' and done['narration'] == {'text': 'テスト', 'voice': 'jimmy', 'status': 'failed', 'muxed': False}
-    assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2] is False
+    assert done['status'] == 'partial'
+    assert done['narration'] == {'text': 'テスト', 'voice': 'jimmy', 'status': 'placeholder', 'muxed': True, 'engine': None, 'error': 'tts_failed'}
+    assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2] is True
+
+
+def test_local_job_without_narration_text_is_a_plain_success(local_env):
+    client, narrator, queued = local_env
+    job = create(client, duration_seconds='1').json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['narration'] is None and narrator.calls == []
+
+
+def mp3_bytes():
+    return subprocess.run([vs.ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-f', 'wav', '-i', 'pipe:0', '-f', 'mp3', 'pipe:1'],
+                          input=wav_bytes(1.0), capture_output=True, check=True).stdout
+
+
+class FakeGTTS:
+    calls = []
+
+    def __init__(self, text, lang, timeout):
+        FakeGTTS.calls.append((text, lang))
+
+    def write_to_fp(self, fp):
+        fp.write(mp3_bytes())
+
+
+def test_free_narrator_converts_key_free_tts_to_wav():
+    FakeGTTS.calls = []
+    wav = vs.FreeNarrator(tts_factory=FakeGTTS).synthesize('まいど', 'jimmy')
+    assert wav.startswith(b'RIFF') and FakeGTTS.calls == [('まいど', 'ja')]
+    with wave.open(io.BytesIO(wav)) as w:
+        assert w.getnframes() / w.getframerate() > 0.5
+
+
+def test_free_narrator_errors_are_masked():
+    class Down(FakeGTTS):
+        def write_to_fp(self, fp):
+            raise OSError('connection refused to translate.google.com token=' + 'abc')
+    with pytest.raises(vs.VideoError) as exc:
+        vs.FreeNarrator(tts_factory=Down).synthesize('x', 'jimmy')
+    assert exc.value.code == 'tts_failed' and 'token' not in str(exc.value)
+    assert vs.FreeNarrator(tts_factory=None, ffmpeg='').available is False
+
+
+def test_narrator_chain_prefers_gemini_then_falls_back_to_free():
+    class Named(FakeNarrator):
+        def __init__(self, name, fail=False, available=True):
+            super().__init__(fail)
+            self.name, self.available = name, available
+    gemini, free = Named('gemini', available=False), Named('free')
+    chain = vs.NarratorChain([gemini, free])
+    assert chain.available and chain.synthesize('a', 'jimmy').startswith(b'RIFF') and chain.last_engine == 'free'
+    gemini.available, gemini.fail = True, True
+    chain.synthesize('b', 'jimmy')
+    assert chain.last_engine == 'free' and gemini.calls == [('b', 'jimmy')]
+    free.fail = True
+    with pytest.raises(vs.VideoError):
+        chain.synthesize('c', 'jimmy')
+    none = vs.NarratorChain([Named('gemini', available=False)])
+    with pytest.raises(vs.VideoError) as exc:
+        none.synthesize('d', 'jimmy')
+    assert exc.value.code == 'tts_configuration' and none.available is False
+
+
+def test_placeholder_is_audible_wav():
+    with wave.open(io.BytesIO(vs.placeholder_wav())) as w:
+        frames = w.readframes(w.getnframes())
+    assert max(abs(int.from_bytes(frames[i:i + 2], 'little', signed=True)) for i in range(0, 8000, 2)) > 1000
 
 
 def test_interrupted_local_render_is_marked_failed(local_env, monkeypatch):

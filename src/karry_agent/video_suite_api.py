@@ -26,22 +26,26 @@ def _error(exc: vs.VideoError) -> JSONResponse:
 
 def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                  adapter_factory: Callable[[], vs.VideoAdapter] | None = None,
-                 narrator_factory: Callable[[], vs.GeminiNarrator] | None = None,
+                 narrator_factory: Callable[[], Any] | None = None,
                  runner: Callable[[Callable[[], None]], None] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
-    narrators = narrator_factory or vs.GeminiNarrator
+    narrators = narrator_factory or vs.narrator_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
 
     def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str) -> None:
         wav = None
         if text:
+            narrator = narrators()
             try:
-                wav = narrators().synthesize(text, voice)
+                wav = narrator.synthesize(text, voice)
                 store.put_blob(f"{job['id']}/narration.wav", wav, "audio/wav")
-                job["narration"] |= {"status": "succeeded", "muxed": True}
-            except vs.VideoError:
-                wav = None  # silent video; the UI reads the text with the device voice
+                engine = getattr(narrator, "last_engine", None) or getattr(narrator, "name", "tts")
+                job["narration"] |= {"status": "succeeded", "muxed": True, "engine": engine}
+            except vs.VideoError as exc:
+                # Never report a silent narration as success: mux an audible placeholder and mark the job partial.
+                wav = vs.placeholder_wav()
+                job["narration"] |= {"status": "placeholder", "muxed": True, "error": exc.code}
         segment = job["segments"][0]
         try:
             try:
@@ -58,6 +62,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         except Exception:
             segment |= {"status": "failed", "error": "render_failed"}
         job["status"] = vs.overall_status(job["segments"])
+        if job["status"] == "succeeded" and (job["narration"] or {}).get("status") not in (None, "succeeded"):
+            job["status"] = "partial"
         job["updated_at"] = time.time()
         store.save(job)
 
