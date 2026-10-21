@@ -634,7 +634,7 @@
     const clips=job.segments.filter(s=>s.status==='succeeded');const run={job,clips,index:0};video.play=run;
     const player=$('videoPlayer');player.dataset.aspect=job.aspect_ratio;player.hidden=false;$('videoStatus').textContent='動画を読み込み中…';
     try{
-      const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds){player.ontimeupdate=null;run.index++;playClip();}};player.onended=()=>{player.ontimeupdate=null;run.index++;playClip();};await player.play?.()?.catch?.(()=>{});};
+      const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);let advanced=false;const next=()=>{if(advanced||video.play!==run)return;advanced=true;player.ontimeupdate=null;player.onended=null;run.index++;playClip();};player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds)next();};player.onended=next;await player.play?.()?.catch?.(()=>{});};
       if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}
       else if(job.narration?.text&&typeof speak==='function')speak(job.narration.text);
       $('videoStatus').textContent=`${job.segments.length}カットを順に再生します。`;await playClip();

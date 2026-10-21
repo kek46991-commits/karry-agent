@@ -689,3 +689,23 @@ test('video suite posts image, aspect, duration and narration with owner auth an
   assert.match($('videoJobs').textContent,/生成中…｜9:16・23秒・0\/3カット｜海辺のジミー/);
   assert.equal($('send').disabled,false);s.dom.window.close();
 });
+
+test('video playback advances exactly one cut when timeupdate and ended both fire',async()=>{
+  const s=setup();const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  const sid=s.doc.getElementById('session').textContent;const sources=[];
+  s.win.URL.createObjectURL=blob=>'blob:'+sources.length;
+  const origFetch=s.win.fetch;s.win.fetch=async(url,request)=>String(url).includes('/clips/')?{ok:true,blob:async()=>({url})}:origFetch(url,request);
+  const player=$('videoPlayer');player.play=async()=>{sources.push(player.src);};player.pause=()=>{};
+  const segments=[{index:0,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/c0'},{index:1,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/clips/1'},{index:2,status:'succeeded',clip_seconds:5,play_seconds:3,url:'/clips/2'}];
+  segments[0].url='/clips/0';
+  s.win.eval(`video.jobs.set('j',${JSON.stringify({id:'j',owner:sid,status:'succeeded',aspect_ratio:'9:16',duration_seconds:23,prompt:'p',created_at:1,segments,narration:null})})`);
+  await s.win.playVideoJob('j');assert.equal(sources.length,1);
+  Object.defineProperty(player,'currentTime',{configurable:true,writable:true,value:10});
+  player.ontimeupdate();player.onended?.();await new Promise(r=>setTimeout(r,5));
+  assert.equal(sources.length,2,'second cut must start once');
+  player.currentTime=10;player.ontimeupdate();player.onended?.();await new Promise(r=>setTimeout(r,5));
+  assert.equal(sources.length,3);
+  player.currentTime=3;player.ontimeupdate();await new Promise(r=>setTimeout(r,5));
+  assert.match($('videoStatus').textContent,/再生が終わりました/);s.dom.window.close();
+});
