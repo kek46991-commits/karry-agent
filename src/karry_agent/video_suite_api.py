@@ -1,6 +1,8 @@
 """FastAPI router for the Creative Video Suite (owner-authenticated)."""
 from __future__ import annotations
 
+import asyncio
+import base64
 import threading
 import time
 import uuid
@@ -27,17 +29,23 @@ def _error(exc: vs.VideoError) -> JSONResponse:
 def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                  adapter_factory: Callable[[], vs.VideoAdapter] | None = None,
                  narrator_factory: Callable[[], Any] | None = None,
-                 runner: Callable[[Callable[[], None]], None] | None = None) -> APIRouter:
+                 runner: Callable[[Callable[[], None]], None] | None = None,
+                 lip_sync_factory: Callable[[], Any] | None = None,
+                 lip_sync_normalizer: Callable[..., bytes] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
     narrators = narrator_factory or vs.narrator_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
 
+    def lipsync_adapter():
+        from .sadtalker import adapter_from_env
+        return (lip_sync_factory or adapter_from_env)()
+
     def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str) -> None:
         wav = None
         if text:
-            narrator = narrators()
             try:
+                narrator = narrators()
                 wav = narrator.synthesize(text, voice)
                 store.put_blob(f"{job['id']}/narration.wav", wav, "audio/wav")
                 engine = getattr(narrator, "last_engine", None) or getattr(narrator, "name", "tts")
@@ -46,15 +54,33 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 # Never report a silent narration as success: mux an audible placeholder and mark the job partial.
                 wav = vs.placeholder_wav()
                 job["narration"] |= {"status": "placeholder", "muxed": True, "error": exc.code}
+            except Exception:
+                wav = vs.placeholder_wav()
+                job["narration"] |= {"status": "placeholder", "muxed": True, "error": "tts_failed"}
         segment = job["segments"][0]
         try:
-            try:
-                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
-            except vs.VideoError:
-                if wav is None:
-                    raise
-                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, None)
-                job["narration"]["muxed"] = False
+            clip = None
+            if job.get("lip_sync", {}).get("requested"):
+                job["lip_sync"] |= {"status": "fallback", "engine": "local", "fallback_reason": "audio_unavailable"}
+                if image and wav and job["narration"]["status"] == "succeeded":
+                    try:
+                        from .sadtalker import SadTalkerError
+                        animated = asyncio.run(lipsync_adapter().generate(image, wav))
+                        clip = (lip_sync_normalizer or vs.normalize_lipsync_video)(
+                            animated, wav, job["aspect_ratio"], job["duration_seconds"])
+                        job["lip_sync"] = {"requested": True, "status": "succeeded", "engine": "sadtalker"}
+                    except Exception as exc:
+                        from .sadtalker import SadTalkerError
+                        code = exc.code if isinstance(exc, SadTalkerError) else "sadtalker_output" if isinstance(exc, vs.VideoError) else "sadtalker_failed"
+                        job["lip_sync"]["fallback_reason"] = code
+            if clip is None:
+                try:
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
+                except vs.VideoError:
+                    if wav is None:
+                        raise
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, None)
+                    job["narration"]["muxed"] = False
             store.put_blob(f"{job['id']}/0.mp4", clip, "video/mp4")
             segment["status"] = "succeeded"
         except vs.VideoError as exc:
@@ -105,8 +131,12 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             provider, lengths, enabled, reason = adapter.name, list(adapter.clip_lengths), True, None
         except vs.VideoError as exc:
             provider, lengths, enabled, reason = None, [], False, exc.message
+        from .sadtalker import configuration_from_env
+        sadtalker_config = configuration_from_env()
+        sadtalker_config["local_fallback_available"] = bool(vs.ffmpeg_exe())
         return _json({"enabled": enabled, "reason": reason, "provider": provider, "clip_lengths": lengths,
                       "aspect_ratios": list(vs.ASPECT_RATIOS), "min_seconds": vs.MIN_SECONDS, "max_seconds": vs.MAX_SECONDS,
+                      "sadtalker": sadtalker_config,
                       "narration_available": narrators().available,
                       "voices": [{"id": k, "label": vs.VOICE_LABELS[k]} for k in vs.VOICES]})
 
@@ -117,6 +147,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                      duration_seconds: Annotated[int, Form()] = 5,
                      narration_text: Annotated[str, Form(max_length=1000)] = "",
                      voice: Annotated[str, Form()] = "jimmy",
+                     lip_sync: Annotated[bool, Form()] = False,
                      request_id: Annotated[uuid.UUID | None, Form()] = None,
                      image: Annotated[UploadFile | None, File()] = None):
         try:
@@ -127,6 +158,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             body = await image.read(MAX_UPLOAD_BYTES + 1) if image is not None and image.filename else b""
             if len(body) > MAX_UPLOAD_BYTES:
                 raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
+            if lip_sync and (not body or not narration_text.strip()):
+                raise vs.VideoError("人物を喋らせるには人物画像と読み上げる文章が必要です。", 422, "lipsync_input_required")
             rid = str(request_id or uuid.uuid4())
 
             def work():
@@ -135,16 +168,19 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 existing = next((j for j in store.jobs().values() if j["request_id"] == rid), None)
                 if existing:
                     return existing, 200
-                adapter = adapters()
+                adapter = vs.LocalVideoRenderer() if lip_sync else adapters()
                 if getattr(adapter, "local", False):
                     vs.plan_segments(duration_seconds, adapter.clip_lengths)
-                    image_bytes = vs.compose_frame(aspect_ratio, prompt.strip(), body) if body else None
+                    image_bytes = (base64.b64decode(vs.image_data_uri(body).split(",", 1)[1]) if lip_sync
+                                   else vs.compose_frame(aspect_ratio, prompt.strip(), body)) if body else None
                     text = narration_text.strip()
                     job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": prompt.strip(),
                            "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds, "provider": adapter.name,
                            "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
                            "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
                            "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None}
+                    if lip_sync:
+                        job["lip_sync"] = {"requested": True, "status": "processing", "engine": "sadtalker"}
                     store.save(job)
                     run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice))
                     return job, 202

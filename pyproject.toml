@@ -27,6 +27,7 @@ dependencies = [
   "gTTS>=2.5,<3",
   "sqlalchemy>=2.0,<3",
   "httpx>=0.27,<1",
+  "gradio-client>=1.11,<3",
 ]
 
 [project.optional-dependencies]

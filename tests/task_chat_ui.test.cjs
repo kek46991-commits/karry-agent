@@ -775,3 +775,44 @@ test('free preview is blocked before connection and while secret mode is active'
   await openProjectPreviewSuite(s);$('videoPrompt').value='Secret preview';const image=new s.win.File(['image'],'secret.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});$('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();
   assert.equal(posts.length,0);assert.equal(s.calls.some(call=>call.url==='/api/video/projects'),false);assert.equal(s.calls.some(call=>call.url==='/api/video/generate/preview'),false);s.dom.window.close();
 });
+
+test('SadTalker lip sync defaults off, shows an unconfigured fallback note, and posts false',async()=>{
+  const posts=[],baseFetch=videoFetch(posts),s=setup({fetch:async(url,request)=>{
+    if(url==='/api/video/config')return json({enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}],sadtalker:{configured:false,timeout_seconds:45,provider:'huggingface'}});
+    return baseFetch(url,request);
+  }}),$=id=>s.doc.getElementById(id);
+  assert.equal($('videoLipSync').checked,false);assert.equal($('videoLipSync').getAttribute('role'),'switch');assert.match($('videoLipSyncHelp').textContent,/外部サービスへ送信/);
+  s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(resolve=>setTimeout(resolve,0));
+  assert.match($('videoConfig').textContent,/SadTalker外部連携: 接続先未設定のためローカル合成になります/);
+  assert.match($('videoLipSyncState').textContent,/OFF（静止画＋音声）/);
+  $('videoPrompt').value='通常の人物動画';await s.win.generateVideo();
+  assert.equal(posts.length,1);assert.equal(posts[0].fields.lip_sync,'false');
+  $('videoLipSync').checked=true;$('videoLipSync').dispatchEvent(new s.win.Event('change'));
+  assert.equal($('videoGenerate').textContent,'人物動画を生成（外部連携）');assert.equal($('videoLipSyncState').textContent,'接続先未設定のためローカル合成になります');s.dom.window.close();
+});
+
+test('SadTalker lip sync rejects missing image and narration before networking, then posts true',async()=>{
+  const posts=[],s=setup({fetch:videoFetch(posts)}),$=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();
+  $('videoPrompt').value='話す人物';$('videoLipSync').checked=true;$('videoLipSync').dispatchEvent(new s.win.Event('change'));await s.win.generateVideo();
+  assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/写真を1枚/);
+  const image=new s.win.File(['image'],'speaker.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});await s.win.generateVideo();
+  assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/ナレーション/);
+  $('videoNarration').value='こんにちは';await s.win.generateVideo();
+  assert.equal(posts.length,1);assert.equal(posts[0].fields.image,'FILE:speaker.png');assert.equal(posts[0].fields.narration_text,'こんにちは');assert.equal(posts[0].fields.lip_sync,'true');assert.match($('videoStatus').textContent,/SadTalkerを利用できない場合は静止画＋音声/);s.dom.window.close();
+});
+
+test('free preview never receives the SadTalker flag and clearly explains that lip sync is skipped',async()=>{
+  const posts=[],s=setup({fetch:projectPreviewFetch(posts)}),$=id=>s.doc.getElementById(id);await openProjectPreviewSuite(s);
+  $('videoPrompt').value='Lip sync preview';$('videoLipSync').checked=true;$('videoLipSync').dispatchEvent(new s.win.Event('change'));const image=new s.win.File(['image'],'speaker.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});await s.win.generateVideoPreview();
+  const project=posts.find(post=>post.kind==='project');assert.ok(project);assert.equal(project.fields.lip_sync,undefined);assert.equal($('videoLipSyncPreviewHint').hidden,false);assert.match($('videoStatus').textContent,/0円プレビューは口パクを行いません。人物を喋らせるには動画を生成を選んでください/);s.dom.window.close();
+});
+
+test('SadTalker job cards use safe success or fallback text and secret mode guards the toggle',async()=>{
+  const posts=[],s=setup({fetch:videoFetch(posts)}),$=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();const sid=$('session').textContent;
+  const job={id:'lip-job',owner:sid,status:'succeeded',provider:'local',aspect_ratio:'16:9',duration_seconds:10,prompt:'人物',created_at:1,segments:[],narration:{text:'こんにちは',status:'placeholder',error:'tts_configuration'},lip_sync:{requested:true,status:'succeeded',engine:'sadtalker'}};
+  s.win.eval(`video.jobs.set('lip-job',${JSON.stringify(job)});renderVideoJobs()`);assert.match($('videoJobs').textContent,/SadTalkerで口パク生成/);
+  s.win.eval(`video.jobs.set('lip-job',${JSON.stringify({...job,lip_sync:{requested:true,status:'fallback',engine:'local',fallback_reason:'provider_timeout'}})});renderVideoJobs()`);
+  assert.match($('videoJobs').textContent,/口パク生成を利用できなかったため静止画＋音声で完成/);assert.match($('videoJobs').textContent,/ナレーション音声を作れませんでした/);assert.doesNotMatch($('videoJobs').textContent,/provider_timeout/);
+  $('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoLipSync').disabled,true);$('videoLipSync').checked=true;$('videoPrompt').value='秘密の人物';$('videoNarration').value='秘密の音声';await s.win.generateVideo();
+  assert.equal(posts.length,0);s.dom.window.close();
+});
