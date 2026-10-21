@@ -12,6 +12,7 @@ import time
 import hashlib
 from pathlib import Path
 from dataclasses import asdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -45,17 +46,25 @@ from karry_agent import optimus_core
 from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
-from karry_agent import video_suite_api
+from karry_agent import video_suite_api, video_projects
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def app_lifespan(application):
+    async with secret_chat.lifespan(application):
+        async with video_projects.lifespan(application):
+            yield
+
+
 app = FastAPI(
     title="karry-agent API",
     version="0.2.0",
     description="Gemini Function Calling agent API with chat and execution tracking",
-    lifespan=secret_chat.lifespan,
+    lifespan=app_lifespan,
 )
 STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
@@ -427,6 +436,9 @@ def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None
     if not os.getenv("KARRY_API_TOKEN"):
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
     require_api_auth(credentials)
+
+
+video_projects.install(app, require_tool_auth)
 
 
 class ToolRequest(BaseModel):
