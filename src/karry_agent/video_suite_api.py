@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
+from . import lipsync
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
@@ -33,7 +34,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
     narrators = narrator_factory or vs.narrator_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
 
-    def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str) -> None:
+    def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str,
+                     lip_sync: bool = False) -> None:
         wav = None
         if text:
             narrator = narrators()
@@ -48,13 +50,27 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 job["narration"] |= {"status": "placeholder", "muxed": True, "error": exc.code}
         segment = job["segments"][0]
         try:
-            try:
-                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
-            except vs.VideoError:
-                if wav is None:
-                    raise
-                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, None)
-                job["narration"]["muxed"] = False
+            clip = None
+            if lip_sync:
+                try:
+                    if (job["narration"] or {}).get("status") != "succeeded":
+                        raise lipsync.LipSyncError("no_narration")
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav, lip_sync=True)
+                    job["lipsync"] = {"status": "succeeded"}
+                except lipsync.LipSyncError as exc:
+                    job["lipsync"] = {"status": "fallback", "error": exc.code}
+                except Exception:
+                    job["lipsync"] = {"status": "fallback", "error": "lipsync_failed"}
+            if clip is None:
+                try:
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"],
+                                           job["duration_seconds"], image, wav)
+                except vs.VideoError:
+                    if wav is None:
+                        raise
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"],
+                                           job["duration_seconds"], image, None)
+                    job["narration"]["muxed"] = False
             store.put_blob(f"{job['id']}/0.mp4", clip, "video/mp4")
             segment["status"] = "succeeded"
         except vs.VideoError as exc:
@@ -62,7 +78,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         except Exception:
             segment |= {"status": "failed", "error": "render_failed"}
         job["status"] = vs.overall_status(job["segments"])
-        if job["status"] == "succeeded" and (job["narration"] or {}).get("status") not in (None, "succeeded"):
+        if job["status"] == "succeeded" and ((job["narration"] or {}).get("status") not in (None, "succeeded")
+                                             or (job.get("lipsync") or {}).get("status") == "fallback"):
             job["status"] = "partial"
         job["updated_at"] = time.time()
         store.save(job)
@@ -108,6 +125,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         return _json({"enabled": enabled, "reason": reason, "provider": provider, "clip_lengths": lengths,
                       "aspect_ratios": list(vs.ASPECT_RATIOS), "min_seconds": vs.MIN_SECONDS, "max_seconds": vs.MAX_SECONDS,
                       "narration_available": narrators().available,
+                      "lipsync_available": bool(enabled and getattr(adapter, "local", False) and lipsync.available()),
                       "voices": [{"id": k, "label": vs.VOICE_LABELS[k]} for k in vs.VOICES]})
 
     @router.post("/jobs")
@@ -118,6 +136,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                      narration_text: Annotated[str, Form(max_length=1000)] = "",
                      voice: Annotated[str, Form()] = "jimmy",
                      request_id: Annotated[uuid.UUID | None, Form()] = None,
+                     lip_sync: Annotated[bool, Form()] = False,
                      image: Annotated[UploadFile | None, File()] = None):
         try:
             if aspect_ratio not in vs.ASPECT_RATIOS:
@@ -144,9 +163,10 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                            "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds, "provider": adapter.name,
                            "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
                            "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
-                           "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None}
+                           "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None,
+                           "lipsync": {"status": "processing"} if lip_sync else None}
                     store.save(job)
-                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice))
+                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice, lip_sync))
                     return job, 202
                 segments = vs.plan_segments(duration_seconds, adapter.clip_lengths)
                 data_uri = vs.image_data_uri(body) if body else None

@@ -24,7 +24,10 @@
     .auth label{margin-top:0;color:var(--text);font-weight:700}.auth input{flex:1;min-width:0}.auth button{min-height:42px}
     .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
     .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
-    body[data-connection="online"] .dot{background:var(--good)}body[data-connection="error"] .dot{background:#f28b8b}
+    .lamp{display:inline-block;flex:none;width:9px;height:9px;border-radius:50%;background:#7b8597;vertical-align:middle;margin-right:6px}.status .lamp{margin:0}
+    .lamp[data-lamp="online"]{background:var(--good);box-shadow:0 0 6px var(--good)}.lamp[data-lamp="processing"]{background:#f4c95d;animation:lamp-blink 1s ease-in-out infinite}.lamp[data-lamp="warn"]{background:#f4c95d}.lamp[data-lamp="error"]{background:#f28b8b}
+    @keyframes lamp-blink{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.lamp[data-lamp="processing"]{animation:none}}
+    .video-engines{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0}.video-engines>span{display:inline-flex;align-items:center}
     .secret-controls{display:flex;align-items:center;gap:8px;margin-top:9px;color:#ffd2df;font-size:13px;font-weight:700}.secret-controls input{accent-color:#df6185}.secret-notice{margin:8px 0 0;color:#ffd2df;font-size:12px}.secret-notice[hidden]{display:none}
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
@@ -35,7 +38,7 @@
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
+    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
     <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
@@ -54,7 +57,7 @@
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
 	        <details id="videoSuite" class="video-suite"><summary>🎬 動画を作る（画像・縦横比・長さ・ナレーション）</summary><div class="video-body">
-	          <p id="videoConfig" class="hint">開くと利用設定を確認します。</p>
+	          <p id="videoConfig" class="hint">開くと利用設定を確認します。</p><p id="videoEngines" class="video-engines hint" aria-live="polite"></p>
 	          <label for="videoPrompt">どんな動画にするか</label><textarea id="videoPrompt" maxlength="2000" placeholder="例: 夕焼けの海辺をゆっくり歩くジミー、映画のような光" disabled></textarea>
 	          <div class="video-row"><label for="videoImage">写真（任意・0円プレビューは必須）</label><input id="videoImage" type="file" accept="image/jpeg,image/png,image/webp" disabled></div>
 	          <div class="video-row" role="radiogroup" aria-label="縦横比"><span>縦横比</span><label><input type="radio" name="videoAspect" value="16:9" checked disabled> 16:9 横</label><label><input type="radio" name="videoAspect" value="9:16" disabled> 9:16 縦</label></div>
@@ -62,6 +65,7 @@
 	          <p id="videoPlan" class="hint">1本 10秒まで。長い動画は複数カットに分けて順に再生します。</p>
 	          <label for="videoNarration">ナレーション（任意）</label><textarea id="videoNarration" maxlength="1000" placeholder="ジミーの声で読み上げる文章（MP4に音声として入ります）" disabled></textarea>
 	          <div class="video-row"><label><input id="videoPreviewTts" type="checkbox" disabled> 0円プレビューに英語TTSを付ける</label><span class="hint">「動画を生成」は日本語ナレーションをMP4に入れます。0円プレビュー側はONのときだけ上の文章を英語TTSとして送ります。</span></div>
+	          <div class="video-row"><label><input id="videoLipsync" type="checkbox" disabled> 👄 写真の人物を口パクさせる（簡易・0円）</label><span class="hint">写真とナレーションが必要です。顔が見つからないときは静止画＋音声の動画になります。</span></div>
 	          <div class="video-row"><label for="videoVoice">声</label><select id="videoVoice" disabled><option value="jimmy">ジミー（低めの男性）</option></select><button id="videoGenerate" type="button" disabled>動画を生成</button><button id="videoPreview" type="button" disabled>0円プレビュー</button></div>
 	          <p class="hint">「動画を生成」と0円プレビューはどちらもサーバー内で合成するローカル動画で、AIアニメーション生成ではありません。</p>
 	          <div id="videoStatus" class="hint" aria-live="polite"></div>
@@ -312,7 +316,12 @@
   }
   function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
   function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
-  function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';}
+  function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';updateStatusLamp();}
+  const LAMP_LABELS={idle:'未接続',online:'オンライン',processing:'処理中',warn:'注意',error:'エラー'};
+  function setLamp(el,state){el.dataset.lamp=state;el.setAttribute('aria-label',LAMP_LABELS[state]||state);}
+  function lampFor(state){const el=document.createElement('span');el.className='lamp';el.setAttribute('role','img');setLamp(el,state);return el;}
+  function videoProcessing(){try{return video.submitting||video.previewSubmitting||[...video.jobs.values()].some(job=>job.owner===sessionId&&job.status==='processing');}catch(_){return false;}}
+  function updateStatusLamp(){const lamp=$('statusLamp');if(!lamp)return;const c=document.body.dataset.connection;setLamp(lamp,c==='error'?'error':busy||videoProcessing()?'processing':c==='online'?'online':'idle');}
   function authHeaders(){const token=ownerToken();return token?{Authorization:`Bearer ${token}`}:{};}
   function headers(){return {...authHeaders(),'Content-Type':'application/json'};}
   async function requestJson(url,options={}){
@@ -605,10 +614,12 @@
     const ok=videoReady(),previewAvailable=video.projectConfig?.preview_available===true,ttsAvailable=video.projectConfig?.tts_available===true;
     for(const id of ['videoPrompt','videoImage','videoDuration','videoDurationRange','videoNarration','videoVoice'])$(id).disabled=!ok;
     $('videoPreviewTts').disabled=!ok||!previewAvailable||!ttsAvailable||videoBusy();
+    $('videoLipsync').disabled=!ok||videoBusy()||video.config?.lipsync_available!==true;
     for(const radio of document.querySelectorAll('input[name="videoAspect"]'))radio.disabled=!ok;
     $('videoGenerate').disabled=!ok||videoBusy()||video.config?.enabled===false;
     $('videoPreview').disabled=!ok||videoBusy()||!previewAvailable;
     if(video.session!==sessionId){video.session=sessionId;stopVideoPlayback();renderVideoJobs();if(ok&&$('videoSuite').open)loadVideoJobs();}
+    updateStatusLamp();renderVideoEngines();
   }
   const baseRefreshControls=refreshControls;
   refreshControls=function(){baseRefreshControls();refreshVideoSuite();};
@@ -617,7 +628,15 @@
     $('videoGenerate').textContent=config?.provider==='local'?'動画を生成（0円）':'AI動画を生成（有料）';
     const paid=config?.enabled&&config.provider==='local'?`0円ローカル合成モード（有料APIは使いません）${config.narration_available?'・ナレーション音声入り':'・ナレーションは端末の声で再生'}`:config?(config.enabled?`AI動画（有料）: ${config.provider}・1カット ${Math.max(...(config.clip_lengths||[10]))}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'AI動画（有料）は未設定です。')):'AI動画（有料）の設定を確認できませんでした。';
     const preview=project?.preview_available===true?`0円プレビュー: 利用可能・最長${videoMaxSeconds()}秒${project.tts_available?'・英語TTS可':''}`:'0円プレビューは利用できません。';
-    $('videoConfig').textContent=`${paid} ${preview}`;
+    $('videoConfig').textContent=`${paid} ${preview}`;renderVideoEngines();
+  }
+  function renderVideoEngines(){
+    const config=video.config,box=$('videoEngines');if(!box)return;if(!config){box.replaceChildren();return;}
+    const engine=(name,state,detail)=>{const item=document.createElement('span');item.dataset.engine=name;item.append(lampFor(state),`${name}: ${detail}`);return item;};
+    box.replaceChildren(
+      engine('合成',!config.enabled?'error':videoProcessing()?'processing':'online',!config.enabled?'停止中':videoProcessing()?'処理中':'待機中'),
+      engine('ナレーション',config.narration_available?'online':'warn',config.narration_available?'音声入り':'端末の声'),
+      engine('口パク',config.lipsync_available?'online':'idle',config.lipsync_available?'使えます':'使えません'));
   }
   async function loadVideoConfig(){
     const context=videoContext();let project=null,config=null;
@@ -640,17 +659,26 @@
     if(n.status==='placeholder')return '⚠ ナレーション音声を作れませんでした（'+(n.error==='tts_configuration'?'音声のキーが未設定で、無料の音声合成も使えません':'音声合成サービスに接続できませんでした')+'）。動画には仮の合図音を入れ、再生時は端末の声で読み上げます。';
     return 'ナレーション: 端末の声で再生';
   }
+  const LIPSYNC_REASONS={no_face:'写真から顔を見つけられませんでした',no_photo:'写真がありません',no_narration:'ナレーション音声がありません',unavailable:'サーバーで口パク機能を使えません',invalid_audio:'ナレーション音声を読めませんでした'};
+  function videoLipsyncLabel(l){
+    if(l.status==='succeeded')return '👄 口パク: 音声に合わせて口を動かしました（簡易）';
+    if(l.status==='fallback')return '⚠ 口パクできませんでした（'+(LIPSYNC_REASONS[l.error]||'口パク処理に失敗しました')+'）。静止画＋音声の動画にしました。';
+    return '👄 口パク: 処理中…';
+  }
+  function videoJobLamp(status){return {processing:'processing',succeeded:'online',partial:'warn',failed:'error'}[status]||'idle';}
   function renderVideoJobs(){
     const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>Number(b.created_at)-Number(a.created_at));
     $('videoJobs').replaceChildren(...list.map(job=>{
       const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;const segments=Array.isArray(job.segments)?job.segments:[];
-      const done=segments.filter(s=>s.status==='succeeded').length;const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${segments.length}カット｜${job.prompt}`;card.append(text);
+      const done=segments.filter(s=>s.status==='succeeded').length;const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${segments.length}カット｜${job.prompt}`;text.prepend(lampFor(videoJobLamp(job.status)));card.dataset.lamp=videoJobLamp(job.status);card.append(text);
       if(job.source==='project-preview'){const note=document.createElement('div');note.className='hint';note.textContent=job.preview_tts?'0円プレビュー・英語TTS付き（AIアニメーションではありません）':'0円プレビュー・写真1枚のローカル動画（AIアニメーションではありません）';card.append(note);}
       else if(job.narration){const n=document.createElement('div');n.className='hint video-narration';n.textContent=videoNarrationLabel(job.narration);card.append(n);}
+      if(job.lipsync){const l=document.createElement('div');l.className='hint video-lipsync';l.textContent=videoLipsyncLabel(job.lipsync);card.append(l);}
       if(job.poll_error){const n=document.createElement('div');n.className='hint';n.textContent=job.poll_error;card.append(n);}
       if(segments.some(s=>s.status==='succeeded'&&s.url)){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
       if(job.provider==='local'&&done){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
       return card;}));
+    updateStatusLamp();renderVideoEngines();
   }
   function previewJobStatus(status){return status==='queued'||status==='running'?'processing':status;}
   function normalisePreviewJob(project,job,owner,createdAt=Date.now(),previous={}){
@@ -701,6 +729,7 @@
     const context=videoContext(),owner=context.owner,form=new FormData(),file=$('videoImage').files?.[0];
     form.append('session_id',owner);form.append('prompt',prompt);form.append('aspect_ratio',document.querySelector('input[name="videoAspect"]:checked').value);
     form.append('duration_seconds',String(setVideoDuration($('videoDuration').value)));form.append('narration_text',$('videoNarration').value.trim());form.append('voice',$('videoVoice').value||'jimmy');form.append('request_id',videoRequestId());
+    if($('videoLipsync').checked&&!$('videoLipsync').disabled)form.append('lip_sync','true');
     if(file){if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}form.append('image',file);}
     video.submitting=true;refreshVideoSuite();$('videoStatus').textContent='生成を依頼しています…';
     try{

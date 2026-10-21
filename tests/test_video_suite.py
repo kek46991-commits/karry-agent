@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import app as web
+from karry_agent import lipsync
 from karry_agent import video_suite as vs
 
 TOKEN = 'synthetic-owner-' + 'token'
@@ -425,3 +426,73 @@ def test_interrupted_local_render_is_marked_failed(local_env, monkeypatch):
     monkeypatch.setattr(vs.time, 'time', lambda: job['created_at'] + vs.LOCAL_RENDER_TIMEOUT + 301)
     done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
     assert done['status'] == 'failed'
+
+
+def speech_wav(seconds=2.0, rate=16000):
+    import math
+    out = io.BytesIO()
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(rate * seconds)):
+            loud = (i // (rate // 2)) % 2  # 0.5 s silence / 0.5 s tone
+            frames += int(12000 * loud * math.sin(i * 0.2)).to_bytes(2, 'little', signed=True)
+        w.writeframes(bytes(frames))
+    return out.getvalue()
+
+
+def test_lipsync_levels_follow_loudness_and_concat_runs():
+    levels = lipsync.loudness_levels(speech_wav(), 15, 30)
+    assert len(levels) == 30 and max(levels[:6]) == 0 and max(levels[9:14]) == lipsync.LEVELS - 1
+    script = lipsync.concat_script(['/a', '/b'], [0, 0, 1, 1, 1, 0], 15)
+    assert script.splitlines() == ['ffconcat version 1.0', "file '/a'", 'duration 0.1333', "file '/b'", 'duration 0.2000',
+                                   "file '/a'", 'duration 0.0667', "file '/a'"]
+    with pytest.raises(lipsync.LipSyncError) as exc:
+        lipsync.loudness_levels(b'not a wav', 15, 3)
+    assert exc.value.code == 'invalid_audio'
+
+
+def test_lipsync_poses_open_the_mouth_and_blank_photo_has_no_face():
+    frame = vs.compose_frame('16:9', 'p', png((640, 360)))
+    with pytest.raises(lipsync.LipSyncError) as exc:
+        lipsync.find_mouth(frame)
+    assert exc.value.code == 'no_face'
+    poses = lipsync.mouth_poses(frame, lipsync.Mouth(cx=700, cy=420, width=120, face_height=300))
+    assert len(poses) == lipsync.LEVELS
+    closed, opened = (Image.open(io.BytesIO(p)).convert('L') for p in (poses[0], poses[-1]))
+    mouth_box = (650, 420, 750, 450)
+    assert sum(opened.crop(mouth_box).getdata()) < sum(closed.crop(mouth_box).getdata()) * 0.8
+
+
+def test_local_renderer_lipsync_outputs_mp4_and_needs_photo_and_voice(monkeypatch):
+    monkeypatch.setattr(lipsync, 'find_mouth', lambda frame: lipsync.Mouth(cx=400, cy=500, width=120, face_height=300))
+    mp4 = vs.LocalVideoRenderer().render('p', '9:16', 2, png((300, 200)), speech_wav(), lip_sync=True)
+    duration, size, has_audio = probe(mp4)
+    assert abs(duration - 2) < 0.3 and size == (720, 1280) and has_audio
+    for image, audio, code in ((None, speech_wav(), 'no_photo'), (png(), None, 'no_narration')):
+        with pytest.raises(lipsync.LipSyncError) as exc:
+            vs.LocalVideoRenderer().render('p', '9:16', 2, image, audio, lip_sync=True)
+        assert exc.value.code == code
+
+
+def test_local_job_lipsync_succeeds_or_falls_back_with_reason(local_env, monkeypatch):
+    client, narrator, queued = local_env
+    assert client.get('/api/video/config', headers=AUTH).json()['lipsync_available'] is True
+    job = create(client, duration_seconds='2', narration_text='まいど', lip_sync='true',
+                 files={'image': ('me.png', png(), 'image/png')}).json()
+    assert job['lipsync'] == {'status': 'processing'}
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'partial' and done['lipsync'] == {'status': 'fallback', 'error': 'no_face'}
+    assert done['segments'][0]['status'] == 'succeeded' and done['narration']['muxed'] is True
+    monkeypatch.setattr(lipsync, 'find_mouth', lambda frame: lipsync.Mouth(cx=400, cy=500, width=120, face_height=300))
+    job = create(client, duration_seconds='2', narration_text='まいど', lip_sync='true',
+                 files={'image': ('me.png', png(), 'image/png')}).json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['lipsync'] == {'status': 'succeeded'}
+    assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2]
+    plain = create(client, duration_seconds='2', narration_text='まいど').json()
+    assert plain['lipsync'] is None

@@ -653,7 +653,7 @@ test('speech service refusal and device busy have distinct actionable reasons',a
 
 function videoFetch(posts,provider='replicate'){
   return async(url,request={})=>{
-    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
+    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,lipsync_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
     if(url.startsWith('/api/video/jobs?'))return json([]);
     if(url==='/api/video/jobs'&&request.method==='POST'){
       const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
@@ -774,4 +774,26 @@ test('free preview is blocked before connection and while secret mode is active'
   const posts=[],s=setup({fetch:projectPreviewFetch(posts)}),$=id=>s.doc.getElementById(id);assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();assert.equal(posts.length,0);
   await openProjectPreviewSuite(s);$('videoPrompt').value='Secret preview';const image=new s.win.File(['image'],'secret.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});$('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();
   assert.equal(posts.length,0);assert.equal(s.calls.some(call=>call.url==='/api/video/projects'),false);assert.equal(s.calls.some(call=>call.url==='/api/video/generate/preview'),false);s.dom.window.close();
+});
+
+test('status lamps: header goes idle → online → processing, video engines and job cards get lamps',async()=>{
+  const posts=[];const s=setup({fetch:videoFetch(posts,'local')});const $=id=>s.doc.getElementById(id);
+  assert.equal($('statusLamp').dataset.lamp,'idle');assert.equal($('videoLipsync').disabled,true);
+  s.authenticate();await s.win.connectSessions();
+  assert.equal($('statusLamp').dataset.lamp,'online');assert.equal($('statusLamp').getAttribute('aria-label'),'オンライン');
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  const engines=[...$('videoEngines').querySelectorAll('[data-engine]')].map(e=>[e.dataset.engine,e.querySelector('.lamp').dataset.lamp]);
+  assert.deepEqual(engines,[['合成','online'],['ナレーション','online'],['口パク','online']]);
+  assert.equal($('videoLipsync').disabled,false);$('videoLipsync').checked=true;
+  $('videoPrompt').value='しゃべるジミー';$('videoNarration').value='まいど';await s.win.generateVideo();
+  assert.equal(posts[0].fields.lip_sync,'true');
+  assert.equal($('statusLamp').dataset.lamp,'processing');assert.equal(s.doc.querySelector('.video-job').dataset.lamp,'processing');
+  assert.equal($('videoEngines').querySelector('[data-engine="合成"] .lamp').dataset.lamp,'processing');
+  const sid=$('session').textContent;const job={id:'job1',owner:sid,status:'partial',provider:'local',aspect_ratio:'9:16',duration_seconds:5,prompt:'p',created_at:1,segments:[{index:0,status:'succeeded',clip_seconds:5,play_seconds:5,url:'/c'}],lipsync:{status:'fallback',error:'no_face'}};
+  s.win.eval(`for(const t of video.timers.values())clearTimeout(t);video.timers.clear();video.jobs.clear();video.jobs.set('job1',${JSON.stringify(job)});renderVideoJobs()`);
+  assert.equal($('statusLamp').dataset.lamp,'online');assert.equal(s.doc.querySelector('.video-job').dataset.lamp,'warn');
+  assert.match(s.doc.querySelector('.video-lipsync').textContent,/⚠ 口パクできませんでした（写真から顔を見つけられませんでした）。静止画＋音声/);
+  s.win.eval(`video.jobs.set('job1',${JSON.stringify({...job,status:'succeeded',lipsync:{status:'succeeded'}})});renderVideoJobs()`);
+  assert.equal(s.doc.querySelector('.video-job .lamp').dataset.lamp,'online');assert.match(s.doc.querySelector('.video-lipsync').textContent,/口を動かしました/);
+  s.win.setConnectionStatus('接続できません');assert.equal($('statusLamp').dataset.lamp,'error');s.dom.window.close();
 });
