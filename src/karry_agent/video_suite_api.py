@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import lipsync
+from . import lipsync, lipsync_remote
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
@@ -31,18 +31,49 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                  adapter_factory: Callable[[], vs.VideoAdapter] | None = None,
                  narrator_factory: Callable[[], Any] | None = None,
                  runner: Callable[[Callable[[], None]], None] | None = None,
+                 lipsync_factory: Callable[[], Any] | None = None,
                  lip_sync_factory: Callable[[], Any] | None = None,
                  lip_sync_normalizer: Callable[..., bytes] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
     narrators = narrator_factory or vs.narrator_from_env
+    lipsyncs = lipsync_factory or lipsync_remote.lipsync_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
 
     def lipsync_adapter():
         from .sadtalker import adapter_from_env
-        return (lip_sync_factory or adapter_from_env)()
+        if lip_sync_factory:
+            return lip_sync_factory()
+        import os
+        if os.getenv("KARRY_SADTALKER_SPACE"):
+            return adapter_from_env()
+        class CompatibleAdapter:
+            async def generate(self, image, audio):
+                try:
+                    engine = lipsyncs()
+                except vs.VideoError:
+                    from .sadtalker import SadTalkerError
+                    raise SadTalkerError("sadtalker_configuration") from None
+                return await asyncio.to_thread(engine.animate, lipsync_remote.prepare_face(image), audio)
+        return CompatibleAdapter()
 
-    def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str) -> None:
+    def animate_legacy(job, renderer, face, image, wav):
+        animation = job["animation"]
+        if wav is None or (job["narration"] or {}).get("status") != "succeeded":
+            animation |= {"status": "fallback", "error": "narration_unavailable"}
+            return None
+        try:
+            talking = lipsyncs().animate(face, wav)
+            clip = renderer.render_talking(talking, job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
+            animation["status"] = "succeeded"
+            return clip
+        except vs.VideoError as exc:
+            animation |= {"status": "fallback", "error": exc.code}
+        except Exception:
+            animation |= {"status": "fallback", "error": "lipsync_failed"}
+        return None
+
+    def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str, face: bytes | None = None) -> None:
         wav = None
         if text:
             try:
@@ -60,7 +91,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 job["narration"] |= {"status": "placeholder", "muxed": True, "error": "tts_failed"}
         segment = job["segments"][0]
         try:
-            clip = None
+            clip = animate_legacy(job, renderer, face, image, wav) if job.get("animation") and face else None
             if job.get("lip_sync", {}).get("requested"):
                 job["lip_sync"] |= {"status": "fallback", "engine": "local", "fallback_reason": "audio_unavailable"}
                 if image and wav and job["narration"]["status"] == "succeeded":
@@ -100,7 +131,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             segment |= {"status": "failed", "error": "render_failed"}
         job["status"] = vs.overall_status(job["segments"])
         if job["status"] == "succeeded" and ((job["narration"] or {}).get("status") not in (None, "succeeded")
-                                              or (job.get("lipsync") or {}).get("status") == "fallback"):
+                                              or (job.get("lipsync") or {}).get("status") == "fallback"
+                                              or (job.get("animation") or {}).get("status") == "fallback"):
             job["status"] = "partial"
         job["updated_at"] = time.time()
         store.save(job)
@@ -110,7 +142,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             return job
         if job["provider"] == "local":
             # A restart (e.g. Render sleep) kills the render thread; do not leave the job spinning forever.
-            if time.time() - job["updated_at"] > vs.LOCAL_RENDER_TIMEOUT + 300:
+            budget = vs.LOCAL_RENDER_TIMEOUT + 300 + (lipsync_remote.MAX_TIMEOUT if job.get("mode") == "talking" else 0)
+            if time.time() - job["updated_at"] > budget:
                 job["segments"][0] |= {"status": "failed", "error": "render_interrupted"}
                 job["status"], job["updated_at"] = "failed", time.time()
                 store.save(job)
@@ -143,10 +176,20 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             provider, lengths, enabled, reason = adapter.name, list(adapter.clip_lengths), True, None
         except vs.VideoError as exc:
             provider, lengths, enabled, reason = None, [], False, exc.message
+        try:
+            animation_engine, animation_reason = lipsyncs().name, None
+        except vs.VideoError as exc:
+            animation_engine, animation_reason = None, exc.message
         from .sadtalker import configuration_from_env
         sadtalker_config = configuration_from_env()
+        if not sadtalker_config["configured"] and animation_engine is not None:
+            sadtalker_config["provider"] = "existing_external"
+            sadtalker_config["timeout_seconds"] = lipsync_remote._timeout()
+        sadtalker_config["configured"] = sadtalker_config["configured"] or animation_engine is not None
         sadtalker_config["local_fallback_available"] = bool(vs.ffmpeg_exe())
-        return _json({"enabled": enabled, "reason": reason, "provider": provider, "clip_lengths": lengths,
+        return _json({"enabled": enabled, "modes": ["static", "mouth", "talking"],
+                      "talking": {"available": animation_engine is not None and provider == "local", "engine": animation_engine,
+                                  "reason": animation_reason if provider == "local" else "人物アニメーションは0円ローカル合成モードでだけ使えます。"}, "reason": reason, "provider": provider, "clip_lengths": lengths,
                       "aspect_ratios": list(vs.ASPECT_RATIOS), "min_seconds": vs.MIN_SECONDS, "max_seconds": vs.MAX_SECONDS,
                       "sadtalker": sadtalker_config,
                       "lipsync_available": bool(enabled and getattr(adapter, "local", False) and lipsync.available()),
@@ -162,6 +205,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                      voice: Annotated[str, Form()] = "jimmy",
                      lip_sync: Annotated[bool, Form()] = False,
                      sadtalker: Annotated[bool, Form()] = False,
+                     mode: Annotated[str, Form()] = "static",
                      request_id: Annotated[uuid.UUID | None, Form()] = None,
                      image: Annotated[UploadFile | None, File()] = None):
         try:
@@ -174,6 +218,18 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
             if sadtalker and (not body or not narration_text.strip()):
                 raise vs.VideoError("人物を喋らせるには人物画像と読み上げる文章が必要です。", 422, "lipsync_input_required")
+            if sadtalker:
+                mode = "talking"
+            elif lip_sync and mode == "static":
+                mode = "mouth"
+            if mode not in {"static", "mouth", "talking"}:
+                raise vs.VideoError("動画の種類は static / mouth / talking から選んでください。", 422, "invalid_mode")
+            legacy_talking = mode == "talking" and not sadtalker
+            lip_sync = mode == "mouth"
+            if legacy_talking and not body:
+                raise vs.VideoError("人物を喋らせるには、顔が写った写真を選んでください。", 422, "photo_required")
+            if legacy_talking and not narration_text.strip():
+                raise vs.VideoError("人物を喋らせるには、ナレーションの文章を入れてください。", 422, "narration_required")
             rid = str(request_id or uuid.uuid4())
 
             def work():
@@ -183,6 +239,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 if existing:
                     return existing, 200
                 adapter = vs.LocalVideoRenderer() if sadtalker else adapters()
+                if legacy_talking and not getattr(adapter, "local", False):
+                    raise vs.VideoError("人物アニメーションは0円ローカル合成モードでだけ使えます。", 422, "mode_unavailable")
                 if getattr(adapter, "local", False):
                     vs.plan_segments(duration_seconds, adapter.clip_lengths)
                     image_bytes = (base64.b64decode(vs.image_data_uri(body).split(",", 1)[1]) if sadtalker
@@ -193,11 +251,15 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                            "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
                            "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
                            "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None}
+                    face = lipsync_remote.prepare_face(body) if legacy_talking else None
+                    engine = lipsyncs().name if legacy_talking else None
+                    job["mode"] = mode
+                    job["animation"] = {"status": "processing", "engine": engine} if legacy_talking else None
                     job["lipsync"] = {"status": "processing"} if lip_sync and not sadtalker else None
                     if sadtalker:
                         job["lip_sync"] = {"requested": True, "status": "processing", "engine": "sadtalker"}
                     store.save(job)
-                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice))
+                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice, face))
                     return job, 202
                 segments = vs.plan_segments(duration_seconds, adapter.clip_lengths)
                 data_uri = vs.image_data_uri(body) if body else None

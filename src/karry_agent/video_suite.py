@@ -384,6 +384,40 @@ class LocalVideoRenderer:
         return script
 
 
+    def render_talking(self, talking: bytes, prompt: str, aspect_ratio: str, seconds: int, image: bytes | None, narration: bytes) -> bytes:
+        """Fit a lip-sync clip (usually a square face crop) onto a blurred photo background, then mux the narration."""
+        if aspect_ratio not in LOCAL_SIZES:
+            raise VideoError("縦横比は 16:9 か 9:16 を選んでください。", 422, "invalid_aspect_ratio")
+        plan_segments(seconds, self.clip_lengths)
+        from PIL import Image, ImageEnhance, ImageFilter
+        width, height = LOCAL_SIZES[aspect_ratio]
+        background = Image.open(io.BytesIO(compose_frame(aspect_ratio, prompt, image))).convert("RGB").resize((width, height))
+        background = ImageEnhance.Brightness(background.filter(ImageFilter.GaussianBlur(24))).enhance(0.55)
+        side = min(width, height)
+        video = (f"[1:v]scale={side}:{side}:force_original_aspect_ratio=decrease,setsar=1,fps={LOCAL_FPS},"
+                 f"tpad=stop_mode=clone:stop_duration={seconds}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v];[2:a]apad[a]")
+        with tempfile.TemporaryDirectory(prefix="karry-talking-") as work:
+            frame, clip, audio, out = (os.path.join(work, n) for n in ("bg.jpg", "talking.mp4", "narration.wav", "out.mp4"))
+            background.save(frame, "JPEG", quality=88)
+            for path, body in ((clip, talking), (audio, narration)):
+                with open(path, "wb") as handle:
+                    handle.write(body)
+            cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                   "-loop", "1", "-framerate", str(LOCAL_FPS), "-i", frame, "-i", clip, "-i", audio,
+                   "-filter_complex", video, "-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "96k",
+                   "-t", str(seconds), "-r", str(LOCAL_FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                   "-movflags", "+faststart", out]
+            try:
+                with _RENDER_SLOT:
+                    subprocess.run(cmd, check=True, capture_output=True, timeout=LOCAL_RENDER_TIMEOUT)
+            except (subprocess.SubprocessError, OSError):
+                raise VideoError("アニメーション動画の合成に失敗しました。", 500, "render_failed") from None
+            if os.path.getsize(out) > MAX_CLIP_BYTES:
+                raise VideoError("合成した動画の容量上限を超えました。", 413, "output_capacity")
+            with open(out, "rb") as handle:
+                return handle.read()
+
+
 def normalize_lipsync_video(clip: bytes, narration: bytes, aspect_ratio: str, seconds: int) -> bytes:
     """外部の口パク映像を、元の音声・指定サイズ・指定秒数でMP4に整える。"""
     ffmpeg = ffmpeg_exe()
@@ -614,8 +648,10 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
     segments = [{"index": s["index"], "status": s["status"], "clip_seconds": s["clip_seconds"], "play_seconds": s["play_seconds"],
                  **({"url": f"/api/video/jobs/{job['id']}/clips/{s['index']}{q}"} if s["status"] == "succeeded" else {})}
                 for s in job["segments"]]
-    narration = job.get("narration")
-    return {"id": job["id"], "request_id": job["request_id"], "status": job["status"], "prompt": job["prompt"],
+    narration, animation = job.get("narration"), job.get("animation")
+    return {"mode": job.get("mode", "static"),
+            "animation": None if not animation else {k: animation[k] for k in ("status", "engine", "error") if animation.get(k)},
+            "id": job["id"], "request_id": job["request_id"], "status": job["status"], "prompt": job["prompt"],
             "aspect_ratio": job["aspect_ratio"], "duration_seconds": job["duration_seconds"], "provider": job["provider"],
             **({"lip_sync": {key: value for key, value in job["lip_sync"].items()
                              if key in {"requested", "status", "engine", "fallback_reason"}}} if job.get("lip_sync") else {}),

@@ -86,7 +86,8 @@ def setup(monkeypatch):
 
         app = FastAPI()
         app.include_router(build_router(web.require_tool_auth, lambda sid: None, adapters, lambda: speaker,
-                                        lambda fn: fn(), lambda: lip, normalizer or (lambda *args: MP4)))
+                                        runner=lambda fn: fn(), lip_sync_factory=lambda: lip,
+                                        lip_sync_normalizer=normalizer or (lambda *args: MP4)))
         return TestClient(app), renderer, speaker, lip, paid_calls
 
     return make

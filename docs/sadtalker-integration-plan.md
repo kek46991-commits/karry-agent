@@ -1,6 +1,6 @@
 # SadTalker外部連携
 
-最新main（PR #35）のCPU口パク、ステータスランプ、既存動画生成とSQLプロジェクトAPIを保持します。Render内ではSadTalkerモデルやTorchを動かさず、設定したHugging Face Gradio Spaceへ検証済み人物画像と既存TTSのWAVを送ります。専用の非同期アダプターは送信・待機・ダウンロードを一度だけ実行し、期限超過や異常応答を安全な理由コードで返します。SadTalker経路のCPU処理は既存FFmpegによる軽量合成だけです。
+最新main（PR #35・#36）のCPU口パク、3モード、既存HTTP/Gradio接続、ステータスランプ、動画生成とSQLプロジェクトAPIを保持します。Render内ではSadTalkerモデルやTorchを動かさず、設定したHugging Face Gradio Spaceへ検証済み人物画像と既存TTSのWAVを送ります。専用の非同期アダプターは送信・待機・ダウンロードを一度だけ実行し、期限超過や異常応答を安全な理由コードで返します。SadTalker経路のCPU処理は既存FFmpegによる軽量合成だけです。
 
 `/api/video/jobs`へ`sadtalker`を追加し、ONの場合は有料動画プロバイダーではなくSadTalker→既存ローカル合成の経路を使います。既存の`lip_sync`だけを指定するAPIはCPU口パクのまま保持します。音声は一度だけ生成し、画像と実音声があれば外部連携を試します。未設定・混雑・失敗・音声生成失敗はローカルへ戻し、完成動画が口パクなのか静止画合成なのかをAPIとUIに明示します。SQLプロジェクトAPIと無料プレビューボタンはそのまま保持します。
 
