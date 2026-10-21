@@ -202,6 +202,10 @@ def test_replicate_adapter_request_shape_and_secret_safety():
     with pytest.raises(vs.VideoError) as exc:
         adapter.submit('海', '16:9', 5, None)
     assert token not in exc.value.message
+    session.request.return_value = Mock(status_code=402, json=Mock(return_value={'title': 'Insufficient credit', 'detail': token}))
+    with pytest.raises(vs.VideoError) as exc:
+        adapter.submit('海', '16:9', 5, None)
+    assert exc.value.code == 'provider_credit' and 'クレジット' in exc.value.message and token not in exc.value.message
 
 
 def test_runway_adapter_maps_ratio_and_model():

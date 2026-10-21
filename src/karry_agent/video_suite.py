@@ -133,6 +133,8 @@ class _HttpAdapter:
                                             timeout=(5, 30), allow_redirects=False, **kwargs)
         except requests.RequestException:
             raise VideoError("動画生成APIに接続できません。", 502, "provider_unavailable") from None
+        if response.status_code == 402:
+            raise VideoError("動画生成サービスのクレジットが不足しています。プロバイダーの請求設定でクレジットを追加してください。", 502, "provider_credit")
         if response.status_code in {400, 401, 403, 404, 422, 429}:
             raise VideoError("動画生成の受付が拒否されました。キー・入力・利用枠を確認してください。", 502, "submission_rejected")
         try:
