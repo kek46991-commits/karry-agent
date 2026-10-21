@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="video-suite-20261019">
+  <meta name="karry-ui-version" content="video-local-20261019">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -59,7 +59,7 @@
           <div class="video-row"><label for="videoImage">写真（任意）</label><input id="videoImage" type="file" accept="image/jpeg,image/png,image/webp" disabled></div>
           <div class="video-row" role="radiogroup" aria-label="縦横比"><span>縦横比</span><label><input type="radio" name="videoAspect" value="16:9" checked disabled> 16:9 横</label><label><input type="radio" name="videoAspect" value="9:16" disabled> 9:16 縦</label></div>
           <div class="video-row"><label for="videoDuration">長さ（秒）</label><input id="videoDuration" type="number" min="1" max="120" step="1" value="10" disabled><input id="videoDurationRange" type="range" min="1" max="120" step="1" value="10" aria-label="長さ（秒）" disabled></div>
-          <p id="videoPlan" class="hint">1本 10秒まで。長い動画は複数カットに分けて順に再生します。</p>
+          <p id="videoPlan" class="hint">長さに合わせて動画を作ります。</p>
           <label for="videoNarration">ナレーション（任意）</label><textarea id="videoNarration" maxlength="1000" placeholder="ジミーの声で読み上げる文章" disabled></textarea>
           <div class="video-row"><label for="videoVoice">声</label><select id="videoVoice" disabled><option value="jimmy">ジミー（低めの男性）</option></select><button id="videoGenerate" type="button" disabled>動画を生成</button></div>
           <div id="videoStatus" class="hint" aria-live="polite"></div>
@@ -586,7 +586,7 @@
   const video={session:null,config:null,submitting:false,jobs:new Map(),timers:new Map(),blobs:new Map(),play:null};
   function videoClamp(value){const n=Math.round(Number(value));return Number.isFinite(n)?Math.min(120,Math.max(1,n)):10;}
   function videoPlan(seconds){const lengths=video.config?.clip_lengths?.length?video.config.clip_lengths:[5,10];const longest=Math.max(...lengths);let left=seconds,cuts=0;while(left>0){left-=Math.min(left,longest);cuts++;}return cuts;}
-  function setVideoDuration(value){const seconds=videoClamp(value);$('videoDuration').value=seconds;$('videoDurationRange').value=seconds;const cuts=videoPlan(seconds);$('videoPlan').textContent=cuts>1?`${seconds}秒 → ${cuts}カットに分けて生成し、順に再生します。`:`${seconds}秒・1カットで生成します。`;return seconds;}
+  function setVideoDuration(value){const seconds=videoClamp(value);$('videoDuration').value=seconds;$('videoDurationRange').value=seconds;const cuts=videoPlan(seconds);$('videoPlan').textContent=video.config?.provider==='local'?`${seconds}秒の MP4 をサーバー内で1本に合成します（0円）。`:cuts>1?`${seconds}秒 → ${cuts}カットに分けて生成し、順に再生します。`:`${seconds}秒・1カットで生成します。`;return seconds;}
   function videoReady(){return connected&&!!sessionId&&!isSecret&&!busy;}
   function refreshVideoSuite(){
     const ok=videoReady();
@@ -600,7 +600,7 @@
   async function loadVideoConfig(){
     try{const config=await requestJson('/api/video/config');video.config=config;
       $('videoVoice').replaceChildren(...config.voices.map(v=>{const o=document.createElement('option');o.value=v.id;o.textContent=v.label;return o;}));
-      $('videoConfig').textContent=config.enabled?`生成先: ${config.provider}・1カット ${Math.max(...config.clip_lengths)}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'動画生成は未設定です。');
+      $('videoConfig').textContent=config.enabled&&config.provider==='local'?`0円ローカル合成モード（有料APIは使いません）${config.narration_available?'・ナレーション音声入り':'・ナレーションは端末の声で再生'}`:config.enabled?`生成先: ${config.provider}・1カット ${Math.max(...config.clip_lengths)}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'動画生成は未設定です。');
       setVideoDuration($('videoDuration').value);
     }catch(error){$('videoConfig').textContent=error.message;}
     refreshVideoSuite();
@@ -618,6 +618,7 @@
       const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${job.segments.length}カット｜${job.prompt}`;card.append(text);
       if(job.narration){const n=document.createElement('div');n.className='hint';n.textContent='ナレーション: '+(job.narration.status==='succeeded'?'音声あり':'端末の声で再生');card.append(n);}
       if(done){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
+      if(job.provider==='local'&&job.status==='succeeded'){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
       return card;}));
   }
   function scheduleVideoPoll(jobId){
@@ -635,10 +636,16 @@
     const player=$('videoPlayer');player.dataset.aspect=job.aspect_ratio;player.hidden=false;$('videoStatus').textContent='動画を読み込み中…';
     try{
       const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){player.pause?.();$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);let advanced=false;const next=()=>{if(advanced||video.play!==run)return;advanced=true;player.ontimeupdate=null;player.onended=null;run.index++;playClip();};player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds)next();};player.onended=next;await player.play?.()?.catch?.(()=>{});};
-      if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}
+      if(job.narration?.muxed){/* narration is already inside the MP4 */}
+      else if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}
       else if(job.narration?.text&&typeof speak==='function')speak(job.narration.text);
       $('videoStatus').textContent=`${job.segments.length}カットを順に再生します。`;await playClip();
     }catch(error){$('videoStatus').textContent=error.message;}
+  }
+  async function saveVideoJob(jobId){
+    const job=video.jobs.get(jobId);const clip=job?.segments.find(s=>s.status==='succeeded');if(!clip)return;
+    try{const link=document.createElement('a');link.href=await videoBlob(clip.url);link.download=`karry-video-${job.aspect_ratio.replace(':','x')}-${job.duration_seconds}s.mp4`;document.body.append(link);link.click();link.remove();$('videoStatus').textContent='MP4を保存しました。';}
+    catch(error){$('videoStatus').textContent=error.message;}
   }
   async function generateVideo(){
     if(!videoReady()||video.submitting)return;
@@ -653,7 +660,7 @@
       const response=await fetch('/api/video/jobs',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}
       if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'動画生成を依頼できませんでした');
       video.jobs.set(data.id,{...data,owner});renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);
-      $('videoStatus').textContent='生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';
+      $('videoStatus').textContent=data.provider==='local'?'サーバー内で合成を始めました（0円）。長い動画は数分かかります。ほかの操作を続けて大丈夫です。':'生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';
     }catch(error){$('videoStatus').textContent=error.message;}
     finally{video.submitting=false;refreshVideoSuite();}
   }

@@ -1,8 +1,10 @@
-"""Creative Video Suite: image/text → video clips (Replicate Kling or Runway) + Gemini TTS narration.
+"""Creative Video Suite: image/text → video + Gemini TTS narration.
 
-Providers return clips of at most 10 s, so a 1–120 s request is planned as an ordered
-list of segments. Each segment is a separate provider job; the UI plays them in order
-and trims the last one to the requested length.
+The default provider is ``local``: the server composes one MP4 (photo or title card,
+slow pan, fades, narration audio) with a bundled ffmpeg, so no paid API is called.
+Paid providers (Replicate Kling / Runway) are opt-in; they return clips of at most
+10 s, so a 1–120 s request is planned as an ordered list of segments that the UI plays
+in order and trims to the requested length.
 """
 from __future__ import annotations
 
@@ -12,6 +14,9 @@ import hashlib
 import io
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -228,15 +233,143 @@ class RunwayVideoAdapter(_HttpAdapter):
         return self._submission(self._call("GET", f"{self.api}/tasks/{provider_id}"))
 
 
-def adapter_from_env() -> VideoAdapter:
+LOCAL_SIZES = {"16:9": (1280, 720), "9:16": (720, 1280)}
+LOCAL_FPS = 15
+LOCAL_RENDER_TIMEOUT = 900
+_FONT_PATHS = (
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+)
+_RENDER_SLOT = threading.BoundedSemaphore(1)
+
+
+def ffmpeg_exe() -> str | None:
+    configured = os.getenv("KARRY_FFMPEG", "").strip()
+    if configured:
+        return configured if os.path.isfile(configured) else None
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return shutil.which("ffmpeg")
+
+
+def _font(size: int):
+    from PIL import ImageFont
+    for path in [os.getenv("KARRY_VIDEO_FONT", ""), *_FONT_PATHS]:
+        if path and os.path.isfile(path):
+            try:
+                return ImageFont.truetype(path, size), True
+            except OSError:
+                continue
+    return ImageFont.load_default(size=size), False
+
+
+def _wrap(draw, text: str, font, width: int, max_lines: int) -> list[str]:
+    lines, line = [], ""
+    for char in " ".join(text.split()):
+        if draw.textlength(line + char, font=font) > width and line:
+            lines.append(line)
+            line = char.lstrip()
+            if len(lines) == max_lines:
+                lines[-1] = lines[-1][:-1] + "…"
+                return lines
+        else:
+            line += char
+    return lines + ([line] if line else [])
+
+
+def compose_frame(aspect_ratio: str, prompt: str, image: bytes | None) -> bytes:
+    """Base frame (12% larger than the output so ffmpeg can pan by cropping): photo cover-fit, else a title card."""
+    from PIL import Image, ImageDraw, ImageOps
+    width, height = LOCAL_SIZES[aspect_ratio]
+    big = (round(width * 1.12 / 2) * 2, round(height * 1.12 / 2) * 2)
+    if image:
+        try:
+            with Image.open(io.BytesIO(image)) as source:
+                frame = ImageOps.fit(ImageOps.exif_transpose(source).convert("RGB"), big, Image.Resampling.LANCZOS)
+        except Exception:
+            raise VideoError("画像を読み込めませんでした。JPG / PNG / WEBP を選んでください。", 422, "invalid_image") from None
+    else:
+        top, bottom = (24, 38, 74), (190, 92, 48)
+        gradient = Image.linear_gradient("L").resize(big)
+        frame = Image.composite(Image.new("RGB", big, bottom), Image.new("RGB", big, top), gradient)
+        draw = ImageDraw.Draw(frame)
+        font, cjk = _font(max(28, big[0] // 18))
+        text = prompt if cjk or prompt.isascii() else "KARRY VIDEO"
+        lines = _wrap(draw, text, font, int(big[0] * 0.78), 6)
+        line_height = int(font.size * 1.45)
+        y = (big[1] - line_height * len(lines)) // 2
+        for line in lines:
+            x = (big[0] - draw.textlength(line, font=font)) // 2
+            draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0))
+            draw.text((x, y), line, font=font, fill=(255, 244, 228))
+            y += line_height
+    out = io.BytesIO()
+    frame.save(out, "JPEG", quality=90)
+    return out.getvalue()
+
+
+class LocalVideoRenderer:
+    """Free in-server composition: one MP4 per job, no external video API."""
+
+    name = "local"
+    local = True
+    clip_lengths = (MAX_SECONDS,)
+
+    def __init__(self, ffmpeg: str | None = None):
+        self.ffmpeg = ffmpeg if ffmpeg is not None else ffmpeg_exe()
+        if not self.ffmpeg:
+            raise VideoError("動画の合成エンジン（ffmpeg）がサーバーにありません。", 503, "video_configuration")
+
+    def render(self, prompt: str, aspect_ratio: str, seconds: int, image: bytes | None, narration: bytes | None) -> bytes:
+        if aspect_ratio not in LOCAL_SIZES:
+            raise VideoError("縦横比は 16:9 か 9:16 を選んでください。", 422, "invalid_aspect_ratio")
+        plan_segments(seconds, self.clip_lengths)
+        width, height = LOCAL_SIZES[aspect_ratio]
+        fade = min(0.6, seconds / 4)
+        video = (f"[0:v]crop={width}:{height}:x='(iw-ow)*t/{seconds}':y='(ih-oh)*t/{seconds}',"
+                 f"fade=t=in:st=0:d={fade:.2f},fade=t=out:st={seconds - fade:.2f}:d={fade:.2f},format=yuv420p[v]")
+        with tempfile.TemporaryDirectory(prefix="karry-video-") as work:
+            frame, out = os.path.join(work, "frame.jpg"), os.path.join(work, "out.mp4")
+            with open(frame, "wb") as handle:
+                handle.write(compose_frame(aspect_ratio, prompt, image))
+            cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                   "-loop", "1", "-framerate", str(LOCAL_FPS), "-i", frame]
+            if narration:
+                audio = os.path.join(work, "narration.wav")
+                with open(audio, "wb") as handle:
+                    handle.write(narration)
+                cmd += ["-i", audio, "-filter_complex", video + ";[1:a]apad[a]", "-map", "[v]", "-map", "[a]",
+                        "-c:a", "aac", "-b:a", "96k"]
+            else:
+                cmd += ["-filter_complex", video, "-map", "[v]"]
+            cmd += ["-t", str(seconds), "-r", str(LOCAL_FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                    "-movflags", "+faststart", out]
+            try:
+                with _RENDER_SLOT:
+                    subprocess.run(cmd, check=True, capture_output=True, timeout=LOCAL_RENDER_TIMEOUT)
+            except (subprocess.SubprocessError, OSError):
+                raise VideoError("動画の合成に失敗しました。", 500, "render_failed") from None
+            if os.path.getsize(out) > MAX_CLIP_BYTES:
+                raise VideoError("合成した動画の容量上限を超えました。", 413, "output_capacity")
+            with open(out, "rb") as handle:
+                return handle.read()
+
+
+def adapter_from_env() -> VideoAdapter | LocalVideoRenderer:
+    provider = os.getenv("KARRY_VIDEO_PROVIDER", "local").strip().lower() or "local"
+    if provider == "local":
+        return LocalVideoRenderer()
     if os.getenv("KARRY_VIDEO_GENERATION_ENABLED") != "1":
-        raise VideoError("動画生成は未有効化です。管理者がキーと利用設定を確認してください。", 503, "generation_disabled")
-    provider = os.getenv("KARRY_VIDEO_PROVIDER", "replicate").strip().lower()
+        raise VideoError("有料の動画生成APIは無効です。0円のローカル合成を使うには KARRY_VIDEO_PROVIDER=local にしてください。", 503, "generation_disabled")
     if provider == "replicate":
         return ReplicateVideoAdapter()
     if provider == "runway":
         return RunwayVideoAdapter()
-    raise VideoError("KARRY_VIDEO_PROVIDER は replicate か runway を指定してください。", 503, "video_configuration")
+    raise VideoError("KARRY_VIDEO_PROVIDER は local・replicate・runway のどれかを指定してください。", 503, "video_configuration")
 
 
 class GeminiNarrator:
@@ -343,6 +476,7 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             "aspect_ratio": job["aspect_ratio"], "duration_seconds": job["duration_seconds"], "provider": job["provider"],
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
+                                                     "muxed": bool(narration.get("muxed")),
                                                      **({"url": f"/api/video/jobs/{job['id']}/narration{q}"} if narration["status"] == "succeeded" else {})}}
 
 

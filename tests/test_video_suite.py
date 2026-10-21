@@ -1,6 +1,9 @@
 import base64
 import io
+import re
+import subprocess
 import uuid
+import wave
 from unittest.mock import Mock
 
 import pytest
@@ -159,11 +162,16 @@ def test_routes_require_owner_token(env):
     assert config['aspect_ratios'] == ['16:9', '9:16'] and config['max_seconds'] == 120 and config['enabled'] is True
 
 
-def test_disabled_provider_fails_closed(monkeypatch):
+def test_default_provider_is_free_local_and_paid_apis_need_explicit_opt_in(monkeypatch):
+    monkeypatch.delenv('KARRY_VIDEO_PROVIDER', raising=False)
+    monkeypatch.setenv('KARRY_VIDEO_GENERATION_ENABLED', '1')
+    monkeypatch.setenv('REPLICATE_API_TOKEN', 'r8_' + 'synthetic')
+    assert vs.adapter_from_env().name == 'local'
+    monkeypatch.setenv('KARRY_VIDEO_PROVIDER', 'replicate')
     monkeypatch.delenv('KARRY_VIDEO_GENERATION_ENABLED', raising=False)
     with pytest.raises(vs.VideoError) as exc:
         vs.adapter_from_env()
-    assert exc.value.status_code == 503
+    assert exc.value.status_code == 503 and exc.value.code == 'generation_disabled'
     monkeypatch.setenv('KARRY_VIDEO_GENERATION_ENABLED', '1')
     monkeypatch.delenv('REPLICATE_API_TOKEN', raising=False)
     with pytest.raises(vs.VideoError) as exc:
@@ -249,3 +257,100 @@ def test_gemini_narrator_uses_documented_interactions_api():
     with pytest.raises(vs.VideoError):
         narrator.synthesize('x', 'jimmy')
     assert vs.GeminiNarrator(api_key='').available is False
+
+
+def wav_bytes(seconds=1.0, rate=16000):
+    out = io.BytesIO()
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b'\x00\x10' * int(rate * seconds))
+    return out.getvalue()
+
+
+def probe(mp4):
+    path = '/tmp/karry-probe-' + uuid.uuid4().hex + '.mp4'
+    with open(path, 'wb') as handle:
+        handle.write(mp4)
+    info = subprocess.run([vs.ffmpeg_exe(), '-hide_banner', '-i', path], capture_output=True, text=True).stderr
+    h, m, sec = re.search(r'Duration: (\d+):(\d+):([\d.]+)', info).groups()
+    size = re.search(r'Video: h264.*?, (\d+)x(\d+)', info).groups()
+    return int(h) * 3600 + int(m) * 60 + float(sec), tuple(map(int, size)), 'Audio: aac' in info
+
+
+@pytest.mark.parametrize('aspect,size,seconds,with_image,with_audio', [
+    ('9:16', (720, 1280), 3, True, True), ('16:9', (1280, 720), 2, False, False)])
+def test_local_renderer_outputs_real_mp4(aspect, size, seconds, with_image, with_audio):
+    mp4 = vs.LocalVideoRenderer().render('夕焼けの大阪', aspect, seconds, png((300, 200)) if with_image else None,
+                                         wav_bytes() if with_audio else None)
+    assert mp4[4:8] == b'ftyp'
+    duration, actual, has_audio = probe(mp4)
+    assert abs(duration - seconds) < 0.3 and actual == size and has_audio is with_audio
+
+
+def test_local_renderer_rejects_bad_input_and_missing_ffmpeg(monkeypatch):
+    with pytest.raises(vs.VideoError) as exc:
+        vs.LocalVideoRenderer().render('p', '16:9', 121, None, None)
+    assert exc.value.code == 'invalid_duration'
+    with pytest.raises(vs.VideoError) as exc:
+        vs.compose_frame('16:9', 'p', b'not an image')
+    assert exc.value.code == 'invalid_image'
+    monkeypatch.setenv('KARRY_FFMPEG', '/nonexistent/ffmpeg')
+    with pytest.raises(vs.VideoError) as exc:
+        vs.LocalVideoRenderer()
+    assert exc.value.status_code == 503
+
+
+class WavNarrator(FakeNarrator):
+    def synthesize(self, text, voice):
+        super().synthesize(text, voice)
+        return wav_bytes(0.5)
+
+
+@pytest.fixture
+def local_env(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', TOKEN)
+    vs._MEMORY_DOCS.clear()
+    vs._MEMORY_BLOBS.clear()
+    narrator, queued = WavNarrator(), []
+    test_app = web.FastAPI()
+    test_app.include_router(web.video_suite_api.build_router(
+        web.require_tool_auth, lambda sid: None, vs.LocalVideoRenderer, lambda: narrator, queued.append))
+    return TestClient(test_app), narrator, queued
+
+
+def test_local_job_completes_free_with_narration_inside_mp4(local_env):
+    client, narrator, queued = local_env
+    job = create(client, duration_seconds='2', narration_text='まいど、ジミーや。', files={'image': ('me.png', png(), 'image/png')}).json()
+    assert job['provider'] == 'local' and job['status'] == 'processing' and len(queued) == 1
+    assert [(s['clip_seconds'], s['play_seconds']) for s in job['segments']] == [(2, 2)]
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['narration']['status'] == 'succeeded' and done['narration']['muxed'] is True
+    clip = client.get(done['segments'][0]['url'], headers=AUTH)
+    assert clip.status_code == 200 and clip.headers['content-type'] == 'video/mp4'
+    duration, size, has_audio = probe(clip.content)
+    assert abs(duration - 2) < 0.3 and size == (720, 1280) and has_audio
+    assert narrator.calls == [('まいど、ジミーや。', 'jimmy')]
+    config = client.get('/api/video/config', headers=AUTH).json()
+    assert config['enabled'] is True and config['provider'] == 'local' and config['clip_lengths'] == [120]
+
+
+def test_local_job_without_tts_still_succeeds_silently(local_env):
+    client, narrator, queued = local_env
+    narrator.fail = True
+    job = create(client, duration_seconds='1', narration_text='テスト').json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['narration'] == {'text': 'テスト', 'voice': 'jimmy', 'status': 'failed', 'muxed': False}
+    assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2] is False
+
+
+def test_interrupted_local_render_is_marked_failed(local_env, monkeypatch):
+    client, _, queued = local_env
+    job = create(client, duration_seconds='1').json()
+    queued.clear()
+    monkeypatch.setattr(vs.time, 'time', lambda: job['created_at'] + vs.LOCAL_RENDER_TIMEOUT + 301)
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'failed'

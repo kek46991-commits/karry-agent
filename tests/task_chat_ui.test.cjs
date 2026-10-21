@@ -651,9 +651,9 @@ test('speech service refusal and device busy have distinct actionable reasons',a
   assert.match(s.win.micStatusForError({name:'NotReadableError'}),/他のアプリ/);s.dom.window.close();
 });
 
-function videoFetch(posts){
+function videoFetch(posts,provider='replicate'){
   return async(url,request={})=>{
-    if(url==='/api/video/config')return json({enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
+    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
     if(url.startsWith('/api/video/jobs?'))return json([]);
     if(url==='/api/video/jobs'&&request.method==='POST'){
       const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
@@ -688,6 +688,23 @@ test('video suite posts image, aspect, duration and narration with owner auth an
   assert.match(fields.request_id,/^[0-9a-f-]{36}$/);assert.equal(fields.session_id,s.doc.getElementById('session').textContent);
   assert.match($('videoJobs').textContent,/生成中…｜9:16・23秒・0\/3カット｜海辺のジミー/);
   assert.equal($('send').disabled,false);s.dom.window.close();
+});
+
+test('local free mode explains 0-yen synthesis, plays muxed narration from the MP4 and offers download',async()=>{
+  const s=setup({fetch:videoFetch([],'local')});const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  assert.match($('videoConfig').textContent,/0円ローカル合成モード/);assert.doesNotMatch($('videoConfig').textContent,/replicate/);
+  $('videoDurationRange').value='45';$('videoDurationRange').dispatchEvent(new s.win.Event('input'));assert.match($('videoPlan').textContent,/45秒の MP4 をサーバー内で1本に合成/);
+  const sid=s.doc.getElementById('session').textContent;const audios=[];s.win.Audio=function(src){audios.push(src);this.play=async()=>{};this.pause=()=>{};};
+  s.win.URL.createObjectURL=()=>'blob:x';const origFetch=s.win.fetch;s.win.fetch=async(url,request)=>String(url).includes('/clips/')?{ok:true,blob:async()=>({url})}:origFetch(url,request);
+  const player=$('videoPlayer');player.play=async()=>{};player.pause=()=>{};
+  const job={id:'j',owner:sid,status:'succeeded',provider:'local',aspect_ratio:'16:9',duration_seconds:45,prompt:'p',created_at:1,segments:[{index:0,status:'succeeded',clip_seconds:45,play_seconds:45,url:'/clips/0'}],narration:{text:'やあ',voice:'jimmy',status:'succeeded',muxed:true,url:'/narration'}};
+  s.win.eval(`video.jobs.set('j',${JSON.stringify(job)});renderVideoJobs()`);
+  const save=s.doc.querySelector('.video-save');assert.ok(save,'download button for local MP4');
+  await s.win.playVideoJob('j');assert.equal(audios.length,0,'narration is already inside the MP4');
+  let clicked=0;s.win.HTMLAnchorElement.prototype.click=function(){clicked++;assert.match(this.download,/karry-video-16x9-45s\.mp4/);};
+  save.click();await new Promise(r=>setTimeout(r,5));assert.equal(clicked,1);s.dom.window.close();
 });
 
 test('video playback advances exactly one cut when timeupdate and ended both fire',async()=>{

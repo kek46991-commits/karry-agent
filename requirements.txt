@@ -12,3 +12,4 @@ boto3>=1.40,<2
 Pillow>=11.3,<13
 python-multipart>=0.0.20,<1
 psycopg[binary]>=3.2,<4
+imageio-ffmpeg>=0.5,<1
