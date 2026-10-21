@@ -38,16 +38,16 @@ def agent_with_fetch(result=None):
 
 
 def test_default_and_env_max_steps(monkeypatch):
-    assert AgentCore(client=Mock()).max_steps == 20
+    assert AgentCore(client=Mock()).max_steps == 100
     monkeypatch.setenv("KARRY_MAX_TOOL_STEPS", "15")
     assert AgentCore(client=Mock()).max_steps == 15
     assert AgentCore(client=Mock(), max_steps=3).max_steps == 3
 
 
-@pytest.mark.parametrize("raw", ["0", "51", "wrong", "1.5"])
+@pytest.mark.parametrize("raw", ["0", "201", "wrong", "1.5"])
 def test_invalid_step_configuration(raw, monkeypatch):
     monkeypatch.setenv("KARRY_MAX_TOOL_STEPS", raw)
-    with pytest.raises(ValueError, match="integer from 1 to 50"):
+    with pytest.raises(ValueError, match="integer from 1 to 200"):
         AgentCore(client=Mock())
 
 
