@@ -52,6 +52,31 @@ clip uses the smallest supported length and the player stops it at `play_seconds
 Paid providers additionally require `KARRY_VIDEO_GENERATION_ENABLED=1`; otherwise create requests
 fail closed with 503. Narration uses `KARRY_TTS_MODEL` (Interactions API).
 
+## Talking-head mode (lip-sync)
+
+The form offers two modes (`mode` form field on `POST /api/video/jobs`):
+
+| Mode | UI label | What runs | Cost |
+| --- | --- | --- | --- |
+| `static` (default) | 静止画＋音声（0円・高速） | in-server ffmpeg pan over the photo + narration | free |
+| `talking` | 人物を喋らせる（アニメーション化） | photo + narration WAV → lip-sync engine → in-server compositing | free on your own endpoint |
+
+SadTalker/LivePortrait-class models need a GPU, so they never run on the CPU-only Render instance.
+`src/karry_agent/lipsync.py` provides two adapters, both disabled unless `KARRY_LIPSYNC_PROVIDER` is set:
+
+- `http` — POST multipart `image` + `audio` to `KARRY_LIPSYNC_URL`, expect `video/mp4`
+  (reference server: `tools/lipsync_server/`, e.g. SadTalker on a free Colab GPU).
+- `gradio` — a SadTalker Gradio app (your own Hugging Face Space) via Gradio's HTTP API
+  (`/upload` → `/call/<api>` → SSE `complete` → same-origin file download).
+
+Flow for `talking`: a photo and narration text are required (422 `photo_required` / `narration_required`),
+and an unconfigured engine is refused up front (503 `lipsync_configuration`). The narration is synthesised
+first (Gemini → gTTS); the engine animates the face, and the clip is fitted onto a blurred copy of the photo
+at 16:9/9:16, frozen on the last frame if shorter than the requested duration, and muxed with the narration.
+If narration or the engine fails, the job falls back to the static render, keeps `animation.status="fallback"`
+with an error code, and is reported as `partial` — it is never shown as a successful animation.
+`/api/video/config` exposes `lipsync.available/engine/reason` (never the URL or token).
+
 ## Security
 
 - Owner bearer token on every route; the upload guard bounds the multipart body before parsing.
