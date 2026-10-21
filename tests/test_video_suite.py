@@ -1,6 +1,9 @@
 import base64
 import io
+import re
+import subprocess
 import uuid
+import wave
 from unittest.mock import Mock
 
 import pytest
@@ -159,11 +162,16 @@ def test_routes_require_owner_token(env):
     assert config['aspect_ratios'] == ['16:9', '9:16'] and config['max_seconds'] == 120 and config['enabled'] is True
 
 
-def test_disabled_provider_fails_closed(monkeypatch):
+def test_default_provider_is_free_local_and_paid_apis_need_explicit_opt_in(monkeypatch):
+    monkeypatch.delenv('KARRY_VIDEO_PROVIDER', raising=False)
+    monkeypatch.setenv('KARRY_VIDEO_GENERATION_ENABLED', '1')
+    monkeypatch.setenv('REPLICATE_API_TOKEN', 'r8_' + 'synthetic')
+    assert vs.adapter_from_env().name == 'local'
+    monkeypatch.setenv('KARRY_VIDEO_PROVIDER', 'replicate')
     monkeypatch.delenv('KARRY_VIDEO_GENERATION_ENABLED', raising=False)
     with pytest.raises(vs.VideoError) as exc:
         vs.adapter_from_env()
-    assert exc.value.status_code == 503
+    assert exc.value.status_code == 503 and exc.value.code == 'generation_disabled'
     monkeypatch.setenv('KARRY_VIDEO_GENERATION_ENABLED', '1')
     monkeypatch.delenv('REPLICATE_API_TOKEN', raising=False)
     with pytest.raises(vs.VideoError) as exc:
@@ -202,6 +210,10 @@ def test_replicate_adapter_request_shape_and_secret_safety():
     with pytest.raises(vs.VideoError) as exc:
         adapter.submit('海', '16:9', 5, None)
     assert token not in exc.value.message
+    session.request.return_value = Mock(status_code=402, json=Mock(return_value={'title': 'Insufficient credit', 'detail': token}))
+    with pytest.raises(vs.VideoError) as exc:
+        adapter.submit('海', '16:9', 5, None)
+    assert exc.value.code == 'provider_credit' and 'クレジット' in exc.value.message and token not in exc.value.message
 
 
 def test_runway_adapter_maps_ratio_and_model():
@@ -245,3 +257,171 @@ def test_gemini_narrator_uses_documented_interactions_api():
     with pytest.raises(vs.VideoError):
         narrator.synthesize('x', 'jimmy')
     assert vs.GeminiNarrator(api_key='').available is False
+
+
+def wav_bytes(seconds=1.0, rate=16000):
+    out = io.BytesIO()
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b'\x00\x10' * int(rate * seconds))
+    return out.getvalue()
+
+
+def probe(mp4):
+    path = '/tmp/karry-probe-' + uuid.uuid4().hex + '.mp4'
+    with open(path, 'wb') as handle:
+        handle.write(mp4)
+    info = subprocess.run([vs.ffmpeg_exe(), '-hide_banner', '-i', path], capture_output=True, text=True).stderr
+    h, m, sec = re.search(r'Duration: (\d+):(\d+):([\d.]+)', info).groups()
+    size = re.search(r'Video: h264.*?, (\d+)x(\d+)', info).groups()
+    return int(h) * 3600 + int(m) * 60 + float(sec), tuple(map(int, size)), 'Audio: aac' in info
+
+
+@pytest.mark.parametrize('aspect,size,seconds,with_image,with_audio', [
+    ('9:16', (720, 1280), 3, True, True), ('16:9', (1280, 720), 2, False, False)])
+def test_local_renderer_outputs_real_mp4(aspect, size, seconds, with_image, with_audio):
+    mp4 = vs.LocalVideoRenderer().render('夕焼けの大阪', aspect, seconds, png((300, 200)) if with_image else None,
+                                         wav_bytes() if with_audio else None)
+    assert mp4[4:8] == b'ftyp'
+    duration, actual, has_audio = probe(mp4)
+    assert abs(duration - seconds) < 0.3 and actual == size and has_audio is with_audio
+
+
+def test_local_renderer_rejects_bad_input_and_missing_ffmpeg(monkeypatch):
+    with pytest.raises(vs.VideoError) as exc:
+        vs.LocalVideoRenderer().render('p', '16:9', 121, None, None)
+    assert exc.value.code == 'invalid_duration'
+    with pytest.raises(vs.VideoError) as exc:
+        vs.compose_frame('16:9', 'p', b'not an image')
+    assert exc.value.code == 'invalid_image'
+    monkeypatch.setenv('KARRY_FFMPEG', '/nonexistent/ffmpeg')
+    with pytest.raises(vs.VideoError) as exc:
+        vs.LocalVideoRenderer()
+    assert exc.value.status_code == 503
+
+
+class WavNarrator(FakeNarrator):
+    name = 'fake'
+
+    def synthesize(self, text, voice):
+        super().synthesize(text, voice)
+        return wav_bytes(0.5)
+
+
+@pytest.fixture
+def local_env(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', TOKEN)
+    vs._MEMORY_DOCS.clear()
+    vs._MEMORY_BLOBS.clear()
+    narrator, queued = WavNarrator(), []
+    test_app = web.FastAPI()
+    test_app.include_router(web.video_suite_api.build_router(
+        web.require_tool_auth, lambda sid: None, vs.LocalVideoRenderer, lambda: narrator, queued.append))
+    return TestClient(test_app), narrator, queued
+
+
+def test_local_job_completes_free_with_narration_inside_mp4(local_env):
+    client, narrator, queued = local_env
+    job = create(client, duration_seconds='2', narration_text='まいど、ジミーや。', files={'image': ('me.png', png(), 'image/png')}).json()
+    assert job['provider'] == 'local' and job['status'] == 'processing' and len(queued) == 1
+    assert [(s['clip_seconds'], s['play_seconds']) for s in job['segments']] == [(2, 2)]
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['narration']['status'] == 'succeeded' and done['narration']['muxed'] is True
+    assert done['narration']['engine'] == 'fake'
+    clip = client.get(done['segments'][0]['url'], headers=AUTH)
+    assert clip.status_code == 200 and clip.headers['content-type'] == 'video/mp4'
+    duration, size, has_audio = probe(clip.content)
+    assert abs(duration - 2) < 0.3 and size == (720, 1280) and has_audio
+    assert narrator.calls == [('まいど、ジミーや。', 'jimmy')]
+    config = client.get('/api/video/config', headers=AUTH).json()
+    assert config['enabled'] is True and config['provider'] == 'local' and config['clip_lengths'] == [120]
+
+
+def test_local_job_without_any_tts_is_not_a_silent_success(local_env):
+    client, narrator, queued = local_env
+    narrator.fail = True
+    job = create(client, duration_seconds='1', narration_text='テスト').json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'partial'
+    assert done['narration'] == {'text': 'テスト', 'voice': 'jimmy', 'status': 'placeholder', 'muxed': True, 'engine': None, 'error': 'tts_failed'}
+    assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2] is True
+
+
+def test_local_job_without_narration_text_is_a_plain_success(local_env):
+    client, narrator, queued = local_env
+    job = create(client, duration_seconds='1').json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['narration'] is None and narrator.calls == []
+
+
+def mp3_bytes():
+    return subprocess.run([vs.ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-f', 'wav', '-i', 'pipe:0', '-f', 'mp3', 'pipe:1'],
+                          input=wav_bytes(1.0), capture_output=True, check=True).stdout
+
+
+class FakeGTTS:
+    calls = []
+
+    def __init__(self, text, lang, timeout):
+        FakeGTTS.calls.append((text, lang))
+
+    def write_to_fp(self, fp):
+        fp.write(mp3_bytes())
+
+
+def test_free_narrator_converts_key_free_tts_to_wav():
+    FakeGTTS.calls = []
+    wav = vs.FreeNarrator(tts_factory=FakeGTTS).synthesize('まいど', 'jimmy')
+    assert wav.startswith(b'RIFF') and FakeGTTS.calls == [('まいど', 'ja')]
+    with wave.open(io.BytesIO(wav)) as w:
+        assert w.getnframes() / w.getframerate() > 0.5
+
+
+def test_free_narrator_errors_are_masked():
+    class Down(FakeGTTS):
+        def write_to_fp(self, fp):
+            raise OSError('connection refused to translate.google.com token=' + 'abc')
+    with pytest.raises(vs.VideoError) as exc:
+        vs.FreeNarrator(tts_factory=Down).synthesize('x', 'jimmy')
+    assert exc.value.code == 'tts_failed' and 'token' not in str(exc.value)
+    assert vs.FreeNarrator(tts_factory=None, ffmpeg='').available is False
+
+
+def test_narrator_chain_prefers_gemini_then_falls_back_to_free():
+    class Named(FakeNarrator):
+        def __init__(self, name, fail=False, available=True):
+            super().__init__(fail)
+            self.name, self.available = name, available
+    gemini, free = Named('gemini', available=False), Named('free')
+    chain = vs.NarratorChain([gemini, free])
+    assert chain.available and chain.synthesize('a', 'jimmy').startswith(b'RIFF') and chain.last_engine == 'free'
+    gemini.available, gemini.fail = True, True
+    chain.synthesize('b', 'jimmy')
+    assert chain.last_engine == 'free' and gemini.calls == [('b', 'jimmy')]
+    free.fail = True
+    with pytest.raises(vs.VideoError):
+        chain.synthesize('c', 'jimmy')
+    none = vs.NarratorChain([Named('gemini', available=False)])
+    with pytest.raises(vs.VideoError) as exc:
+        none.synthesize('d', 'jimmy')
+    assert exc.value.code == 'tts_configuration' and none.available is False
+
+
+def test_placeholder_is_audible_wav():
+    with wave.open(io.BytesIO(vs.placeholder_wav())) as w:
+        frames = w.readframes(w.getnframes())
+    assert max(abs(int.from_bytes(frames[i:i + 2], 'little', signed=True)) for i in range(0, 8000, 2)) > 1000
+
+
+def test_interrupted_local_render_is_marked_failed(local_env, monkeypatch):
+    client, _, queued = local_env
+    job = create(client, duration_seconds='1').json()
+    queued.clear()
+    monkeypatch.setattr(vs.time, 'time', lambda: job['created_at'] + vs.LOCAL_RENDER_TIMEOUT + 301)
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'failed'

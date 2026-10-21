@@ -1,6 +1,7 @@
 """FastAPI router for the Creative Video Suite (owner-authenticated)."""
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from typing import Annotated, Any, Callable
@@ -25,13 +26,56 @@ def _error(exc: vs.VideoError) -> JSONResponse:
 
 def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                  adapter_factory: Callable[[], vs.VideoAdapter] | None = None,
-                 narrator_factory: Callable[[], vs.GeminiNarrator] | None = None) -> APIRouter:
+                 narrator_factory: Callable[[], Any] | None = None,
+                 runner: Callable[[Callable[[], None]], None] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
-    narrators = narrator_factory or vs.GeminiNarrator
+    narrators = narrator_factory or vs.narrator_from_env
+    run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
+
+    def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str) -> None:
+        wav = None
+        if text:
+            narrator = narrators()
+            try:
+                wav = narrator.synthesize(text, voice)
+                store.put_blob(f"{job['id']}/narration.wav", wav, "audio/wav")
+                engine = getattr(narrator, "last_engine", None) or getattr(narrator, "name", "tts")
+                job["narration"] |= {"status": "succeeded", "muxed": True, "engine": engine}
+            except vs.VideoError as exc:
+                # Never report a silent narration as success: mux an audible placeholder and mark the job partial.
+                wav = vs.placeholder_wav()
+                job["narration"] |= {"status": "placeholder", "muxed": True, "error": exc.code}
+        segment = job["segments"][0]
+        try:
+            try:
+                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
+            except vs.VideoError:
+                if wav is None:
+                    raise
+                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, None)
+                job["narration"]["muxed"] = False
+            store.put_blob(f"{job['id']}/0.mp4", clip, "video/mp4")
+            segment["status"] = "succeeded"
+        except vs.VideoError as exc:
+            segment |= {"status": "failed", "error": exc.code}
+        except Exception:
+            segment |= {"status": "failed", "error": "render_failed"}
+        job["status"] = vs.overall_status(job["segments"])
+        if job["status"] == "succeeded" and (job["narration"] or {}).get("status") not in (None, "succeeded"):
+            job["status"] = "partial"
+        job["updated_at"] = time.time()
+        store.save(job)
 
     def refresh(store: vs.VideoJobStore, job: dict[str, Any]) -> dict[str, Any]:
         if job["status"] != "processing":
+            return job
+        if job["provider"] == "local":
+            # A restart (e.g. Render sleep) kills the render thread; do not leave the job spinning forever.
+            if time.time() - job["updated_at"] > vs.LOCAL_RENDER_TIMEOUT + 300:
+                job["segments"][0] |= {"status": "failed", "error": "render_interrupted"}
+                job["status"], job["updated_at"] = "failed", time.time()
+                store.save(job)
             return job
         adapter = adapters()
         for segment in job["segments"]:
@@ -92,6 +136,18 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 if existing:
                     return existing, 200
                 adapter = adapters()
+                if getattr(adapter, "local", False):
+                    vs.plan_segments(duration_seconds, adapter.clip_lengths)
+                    image_bytes = vs.compose_frame(aspect_ratio, prompt.strip(), body) if body else None
+                    text = narration_text.strip()
+                    job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": prompt.strip(),
+                           "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds, "provider": adapter.name,
+                           "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
+                           "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
+                           "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None}
+                    store.save(job)
+                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice))
+                    return job, 202
                 segments = vs.plan_segments(duration_seconds, adapter.clip_lengths)
                 data_uri = vs.image_data_uri(body) if body else None
                 job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": prompt.strip(),
