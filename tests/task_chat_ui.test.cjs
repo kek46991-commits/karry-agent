@@ -27,6 +27,14 @@ function setup(options={}){
       Object.defineProperty(window.navigator,'mediaDevices',{configurable:true,value:{getUserMedia:microphone.getUserMedia||(async()=>({getTracks:()=>microphone.tracks}))}});
       window.__microphone=microphone;
     }
+    if(options.speech){
+      window.speechSynthesis={spoken:[],cancelled:0,current:null,getVoices:()=>options.speech.voices||[],
+        speak(utterance){this.spoken.push(utterance);this.current=utterance;},
+        finish(){const utterance=this.current;this.current=null;utterance?.onend?.();},
+        cancel(){this.cancelled++;const utterance=this.current;this.current=null;utterance?.onerror?.({error:'interrupted'});utterance?.onend?.();},
+        addEventListener(){}};
+      window.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
+    }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
       calls.push({url,request});
@@ -117,14 +125,120 @@ test('SSE request targets the selected task and restores server messages',async(
   assert.equal(s.doc.getElementById('apiCalls').textContent,'1');s.dom.window.close();
 });
 
-test('task switching is disabled while a message is in flight',async()=>{
+test('task switching, typing, new sends and the microphone stay usable while a message is in flight',async()=>{
   let finish;
   const pending=new Promise(resolve=>{finish=resolve;});
+  const microphone={};
+  const s=setup({microphone,sessions:[['a',record('a','A')],['b',record('b','B','Only B')]],fetch:async(url,request)=>{if(url==='/api/chat'&&JSON.parse(request.body).session_id==='a')await pending;}});
+  s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Wait';
+  const sending=s.win.sendMessage({preventDefault(){}});
+  assert.equal(s.doc.getElementById('send').disabled,true);assert.equal(s.doc.getElementById('prompt').disabled,false);
+  assert.equal(s.doc.getElementById('mic').disabled,false);assert.equal(s.doc.querySelector('[data-session-id="b"]').disabled,false);
+  assert.equal(s.doc.querySelector('[data-delete-id="a"]').disabled,true);
+  await s.win.startMicrophone();assert.equal(microphone.instance.started,1);microphone.instance.emitResult('次の指示');
+  assert.equal(s.doc.getElementById('prompt').value,'次の指示');
+  await s.win.selectSession('b');assert.equal(s.doc.getElementById('session').textContent,'b');assert.match(s.doc.getElementById('messages').textContent,/Only B/);
+  assert.equal(s.doc.getElementById('send').disabled,false);
+  s.doc.getElementById('prompt').value='B task';await s.win.sendMessage({preventDefault(){}});assert.match(s.doc.getElementById('messages').textContent,/Answer for B/);
+  finish();await sending;
+  assert.equal(s.doc.getElementById('session').textContent,'b');assert.doesNotMatch(s.doc.getElementById('messages').textContent,/Answer for A/);
+  assert.doesNotMatch(s.doc.getElementById('trace').textContent,/Answer for A/);
+  await s.win.selectSession('a');assert.match(s.doc.getElementById('messages').textContent,/Answer for A/);
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('a reply for a task the user returned to is shown without wiping the next draft',async()=>{
+  let finish;const pending=new Promise(resolve=>{finish=resolve;});
   const s=setup({sessions:[['a',record('a','A')],['b',record('b','B')]],fetch:async(url)=>{if(url==='/api/chat')await pending;}});
   s.authenticate();await s.win.connectSessions();s.doc.getElementById('prompt').value='Wait';
-  const sending=s.win.sendMessage({preventDefault(){}});const before=s.calls.length;await s.win.selectSession('b');
-  assert.equal(s.calls.length,before);assert.equal(s.doc.querySelector('[data-session-id="b"]').disabled,true);
-  finish();await sending;assert.equal(s.doc.getElementById('session').textContent,'a');s.dom.window.close();
+  const sending=s.win.sendMessage({preventDefault(){}});await s.win.selectSession('b');await s.win.selectSession('a');
+  assert.match(s.doc.getElementById('messages').textContent,/処理中/);assert.equal(s.doc.getElementById('send').disabled,true);
+  s.doc.getElementById('prompt').value='下書き';finish();await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/Answer for A/);assert.equal(s.doc.getElementById('prompt').value,'下書き');
+  assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('pressing the microphone again cancels a stuck permission request',async()=>{
+  let resolveMedia;const microphone={getUserMedia:()=>new Promise(resolve=>{resolveMedia=resolve;})};
+  const s=setup({microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();
+  const starting=s.win.startMicrophone();await new Promise(r=>setTimeout(r,0));
+  assert.equal(s.doc.getElementById('mic').disabled,false);await s.win.startMicrophone();
+  assert.match(s.doc.getElementById('voiceStatus').textContent,/停止/);
+  resolveMedia({getTracks:()=>microphone.tracks});await starting;assert.equal(microphone.instance.started,0);
+  assert.equal(microphone.tracks[0].stopped,1);s.dom.window.close();
+});
+
+test('speech strips markdown, prefers a low male Japanese voice and speaks faster',async()=>{
+  const voices=[{name:'Kyoko',voiceURI:'com.apple.voice.Kyoko',lang:'ja-JP'},{name:'Otoya',voiceURI:'com.apple.voice.Otoya',lang:'ja-JP'},{name:'Samantha',voiceURI:'en',lang:'en-US'}];
+  const s=setup({speech:{voices},sessions:[['a',record('a','A')]]});
+  const clean=s.win.speechText('# 見出し\n**太字**と*斜体*と`code`\n- 項目1\n1. 手順\n> 引用\n[リンク先](https://example.com) と https://example.com/x\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n```js\nconst a=1;\n```\n---\nsnake_case_name ~~取消~~');
+  assert.doesNotMatch(clean,/[*#`>~]|\]\(|https?:|---|\|/);
+  assert.match(clean,/見出し/);assert.match(clean,/太字と斜体とcode/);assert.match(clean,/項目1/);assert.match(clean,/リンク先/);
+  assert.match(clean,/コードは画面で確認してください/);assert.match(clean,/snake_case_name/);assert.doesNotMatch(clean,/const a/);
+  s.win.speak('**こんにちは** ジミーやで');const spoken=s.win.speechSynthesis.spoken.at(-1);
+  assert.equal(spoken.text,'こんにちは ジミーやで');assert.equal(spoken.voice.name,'Otoya');assert.equal(spoken.pitch,0.8);assert.equal(spoken.rate,1.5);
+  assert.equal(s.doc.getElementById('speechRateValue').textContent,'1.5倍');assert.equal(s.doc.getElementById('voiceHint').hidden,true);
+  const options=[...s.doc.getElementById('voiceSelect').options].map(o=>o.textContent);assert.deepEqual(options,['自動（男性の低い声を優先）','Kyoko','Otoya（男性）']);
+  s.doc.getElementById('speechRate').value='2';s.doc.getElementById('speechRate').dispatchEvent(new s.win.Event('input'));s.win.speak('速く');
+  assert.equal(s.win.speechSynthesis.spoken.at(-1).rate,2);assert.equal(s.win.localStorage.getItem('karry-speech-rate'),'2');
+  s.dom.window.close();
+});
+
+test('automatic voice never picks a known female voice and recognises male voices across platforms',()=>{
+  const pick=voices=>{const s=setup({speech:{voices}});s.win.speak('テスト');const spoken=s.win.speechSynthesis.spoken.at(-1);const result={voice:spoken.voice?.name,pitch:spoken.pitch,hint:s.doc.getElementById('voiceHint').hidden};s.dom.window.close();return result;};
+  assert.deepEqual(pick([{name:'Microsoft Nanami Online (Natural) - Japanese (Japan)',voiceURI:'nanami',lang:'ja-JP'},{name:'Microsoft Keita Online (Natural) - Japanese (Japan)',voiceURI:'keita',lang:'ja-JP'}]),{voice:'Microsoft Keita Online (Natural) - Japanese (Japan)',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'日本語 日本',voiceURI:'ja-jp-x-jab-local',lang:'ja-JP'},{name:'日本語 日本 3',voiceURI:'ja-jp-x-jac-local',lang:'ja_JP'}]),{voice:'日本語 日本 3',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'ja-JP-Wavenet-B',voiceURI:'b',lang:'ja-JP'},{name:'ja-JP-Wavenet-C',voiceURI:'c',lang:'ja-JP'}]),{voice:'ja-JP-Wavenet-C',pitch:0.8,hint:true});
+  assert.deepEqual(pick([{name:'Google 日本語',voiceURI:'Google 日本語',lang:'ja-JP'}]),{voice:undefined,pitch:0.6,hint:false});
+  assert.deepEqual(pick([{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'},{name:'Japanese Voice',voiceURI:'generic',lang:'ja-JP'}]),{voice:'Japanese Voice',pitch:0.7,hint:false});
+  assert.deepEqual(pick([]),{voice:undefined,pitch:0.6,hint:false});
+});
+
+test('long replies are spoken in short chunks and the stop button ends playback immediately',async()=>{
+  const s=setup({speech:{voices:[{name:'Otoya',voiceURI:'otoya',lang:'ja-JP'}]},sessions:[['a',record('a','A')]]});
+  const synth=s.win.speechSynthesis,stop=s.doc.getElementById('stopSpeech');
+  assert.equal(stop.hidden,true);
+  s.win.speak(Array.from({length:6},(_,i)=>`これは${i+1}番目の長めの文章で、読み上げを途中で止められるか確認するためのテキストです。`).join(''));
+  assert.equal(stop.hidden,false);assert.equal(synth.spoken.length,1);assert.ok(synth.spoken[0].text.length<=120);
+  synth.finish();assert.equal(synth.spoken.length,2);
+  const stale=synth.current;stop.click();
+  assert.equal(stop.hidden,true);assert.match(s.doc.getElementById('voiceStatus').textContent,/止めました/);
+  stale.onend();assert.equal(synth.spoken.length,2);
+  s.win.speak('短い');while(synth.current)synth.finish();assert.equal(stop.hidden,true);
+  s.dom.window.close();
+});
+
+test('typing, tapping the prompt, switching or creating tasks and the microphone all interrupt speech without locking the UI',async()=>{
+  const microphone={};
+  const s=setup({microphone,speech:{voices:[{name:'Otoya',voiceURI:'otoya',lang:'ja-JP'}]},sessions:[['a',record('a','A')],['b',record('b','B')]]});
+  s.authenticate();await s.win.connectSessions();
+  const synth=s.win.speechSynthesis,long='一文目です。二文目です。三文目です。';
+  const interrupts={
+    input:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.Event('input')),
+    keydown:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.KeyboardEvent('keydown',{key:'a'})),
+    pointerdown:()=>s.doc.getElementById('prompt').dispatchEvent(new s.win.Event('pointerdown')),
+    switchTask:()=>s.win.selectSession(s.doc.getElementById('session').textContent==='a'?'b':'a'),
+    newTask:()=>s.win.createNewSession(),
+    mic:async()=>{s.doc.getElementById('mic').click();await new Promise(r=>setTimeout(r,200));s.win.stopMicrophone();},
+  };
+  for(const [name,interrupt] of Object.entries(interrupts)){
+    s.win.speak(long);const stale=synth.current,count=synth.spoken.length,cancelled=synth.cancelled;
+    for(const id of ['prompt','send','mic'])assert.equal(s.doc.getElementById(id).disabled,false,`${name}: ${id} locked while speaking`);
+    for(const item of s.doc.querySelectorAll('.task-item'))assert.equal(item.disabled,false,`${name}: task locked while speaking`);
+    await interrupt();
+    assert.ok(synth.cancelled>cancelled,`${name} did not cancel speech`);
+    assert.equal(s.doc.getElementById('stopSpeech').hidden,true,name);
+    stale.onend?.();assert.equal(synth.spoken.length,count,`${name}: stale speech continued`);
+  }
+  s.dom.window.close();
+});
+
+test('the microphone still starts after interrupting speech',async()=>{
+  const microphone={};const s=setup({microphone,speech:{voices:[{name:'Kyoko',voiceURI:'kyoko',lang:'ja-JP'}]},sessions:[['a',record('a','A')]]});
+  s.authenticate();await s.win.connectSessions();s.win.speak('テストです。もう一文。');
+  const before=s.win.speechSynthesis.cancelled;await s.win.startMicrophone();
+  assert.ok(s.win.speechSynthesis.cancelled>before);assert.equal(microphone.instance.started,1);
+  microphone.instance.emitResult('割り込み');assert.equal(s.doc.getElementById('prompt').value,'割り込み');s.dom.window.close();
 });
 
 test('authentication errors do not create tasks or reveal old messages',async()=>{
