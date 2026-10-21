@@ -45,6 +45,7 @@ from karry_agent import optimus_core
 from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
+from karry_agent import video_suite_api
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -141,7 +142,7 @@ class ImageUploadGuard:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload"}:
+        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload", "/api/video/jobs"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         token = os.getenv("KARRY_API_TOKEN")
@@ -1232,6 +1233,9 @@ def clear_task_history(session_id: str):
 def _media_session(session_id: str) -> None:
     # Existing task authorization/existence rules; do not silently create tasks.
     _image_service(session_id).document()
+
+
+app.include_router(video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id)))
 
 
 def _media_json(value: Any, status_code: int = 200):
