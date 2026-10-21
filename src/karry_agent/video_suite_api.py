@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import lipsync
+from . import lipsync_remote
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
@@ -33,7 +33,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
     narrators = narrator_factory or vs.narrator_from_env
-    lipsyncs = lipsync_factory or lipsync.lipsync_from_env
+    lipsyncs = lipsync_factory or lipsync_remote.lipsync_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
 
     def animate(job: dict[str, Any], renderer: Any, face: bytes, image: bytes | None, wav: bytes | None) -> bytes | None:
@@ -95,7 +95,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             return job
         if job["provider"] == "local":
             # A restart (e.g. Render sleep) kills the render thread; do not leave the job spinning forever.
-            budget = vs.LOCAL_RENDER_TIMEOUT + 300 + (lipsync.MAX_TIMEOUT if job.get("mode") == "talking" else 0)
+            budget = vs.LOCAL_RENDER_TIMEOUT + 300 + (lipsync_remote.MAX_TIMEOUT if job.get("mode") == "talking" else 0)
             if time.time() - job["updated_at"] > budget:
                 job["segments"][0] |= {"status": "failed", "error": "render_interrupted"}
                 job["status"], job["updated_at"] = "failed", time.time()
@@ -178,7 +178,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                     raise vs.VideoError("人物アニメーションは0円ローカル合成モードでだけ使えます。", 422, "mode_unavailable")
                 if getattr(adapter, "local", False):
                     vs.plan_segments(duration_seconds, adapter.clip_lengths)
-                    face = lipsync.prepare_face(body) if talking else None
+                    face = lipsync_remote.prepare_face(body) if talking else None
                     engine = lipsyncs().name if talking else None
                     image_bytes = vs.compose_frame(aspect_ratio, prompt.strip(), body) if body else None
                     text = narration_text.strip()

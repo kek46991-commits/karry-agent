@@ -8,7 +8,7 @@ from PIL import Image
 from test_video_suite import AUTH, TOKEN, WavNarrator, create, png, probe
 
 import app as web
-from karry_agent import lipsync as ls
+from karry_agent import lipsync_remote as ls
 from karry_agent import video_suite as vs
 
 TOKEN_VALUE = 'synthetic-lipsync-' + 'credential'
