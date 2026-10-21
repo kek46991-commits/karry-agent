@@ -650,3 +650,62 @@ test('speech service refusal and device busy have distinct actionable reasons',a
   microphone.instance.emitError('service-not-allowed');assert.match(s.doc.getElementById('voiceStatus').textContent,/音声認識サービス/);assert.doesNotMatch(s.doc.getElementById('voiceStatus').textContent,/権限が拒否/);assert.equal(s.doc.getElementById('micHelp').open,true);
   assert.match(s.win.micStatusForError({name:'NotReadableError'}),/他のアプリ/);s.dom.window.close();
 });
+
+function videoFetch(posts){
+  return async(url,request={})=>{
+    if(url==='/api/video/config')return json({enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
+    if(url.startsWith('/api/video/jobs?'))return json([]);
+    if(url==='/api/video/jobs'&&request.method==='POST'){
+      const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
+      return json({id:'job1',request_id:fields.request_id,status:'processing',prompt:fields.prompt,aspect_ratio:fields.aspect_ratio,duration_seconds:Number(fields.duration_seconds),provider:'replicate',with_image:!!fields.image,created_at:1,segments:[{index:0,status:'processing',clip_seconds:10,play_seconds:10},{index:1,status:'processing',clip_seconds:10,play_seconds:10},{index:2,status:'processing',clip_seconds:5,play_seconds:3}],narration:{text:fields.narration_text,voice:fields.voice,status:'succeeded'}},202);
+    }
+  };
+}
+
+test('video suite stays locked until connected and clamps duration to 1-120 seconds',async()=>{
+  const s=setup({fetch:videoFetch([])});const $=id=>s.doc.getElementById(id);
+  assert.equal($('videoGenerate').disabled,true);assert.equal($('videoPrompt').disabled,true);
+  s.authenticate();await s.win.connectSessions();
+  assert.equal($('videoGenerate').disabled,false);
+  assert.deepEqual([...s.doc.querySelectorAll('input[name="videoAspect"]')].map(r=>r.value),['16:9','9:16']);
+  for(const [input,expected] of [['500','120'],['0','1'],['7.4','7']]){$('videoDuration').value=input;$('videoDuration').dispatchEvent(new s.win.Event('change'));assert.equal($('videoDuration').value,expected);assert.equal($('videoDurationRange').value,expected);}
+  $('videoDurationRange').value='23';$('videoDurationRange').dispatchEvent(new s.win.Event('input'));assert.match($('videoPlan').textContent,/23秒 → 3カット/);
+  assert.equal(s.calls.filter(c=>String(c.url).startsWith('/api/video')).length,0);s.dom.window.close();
+});
+
+test('video suite posts image, aspect, duration and narration with owner auth and shows the job',async()=>{
+  const posts=[];const s=setup({fetch:videoFetch(posts)});const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  assert.match($('videoConfig').textContent,/replicate/);assert.equal($('videoVoice').options.length,2);
+  $('videoGenerate').click();await new Promise(r=>setTimeout(r,0));assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/入力してください/);
+  $('videoPrompt').value='海辺のジミー';s.doc.querySelector('input[value="9:16"]').checked=true;$('videoDuration').value='23';$('videoNarration').value='やあ';
+  const file=new s.win.File(['img'],'me.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[file]});
+  $('videoGenerate').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(posts.length,1);const {fields,headers}=posts[0];
+  assert.equal(headers.Authorization,'Bearer synthetic-owner');assert.equal(headers['Content-Type'],undefined);
+  assert.equal(fields.aspect_ratio,'9:16');assert.equal(fields.duration_seconds,'23');assert.equal(fields.narration_text,'やあ');assert.equal(fields.voice,'jimmy');assert.equal(fields.image,'FILE:me.png');
+  assert.match(fields.request_id,/^[0-9a-f-]{36}$/);assert.equal(fields.session_id,s.doc.getElementById('session').textContent);
+  assert.match($('videoJobs').textContent,/生成中…｜9:16・23秒・0\/3カット｜海辺のジミー/);
+  assert.equal($('send').disabled,false);s.dom.window.close();
+});
+
+test('video playback advances exactly one cut when timeupdate and ended both fire',async()=>{
+  const s=setup();const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  const sid=s.doc.getElementById('session').textContent;const sources=[];
+  s.win.URL.createObjectURL=blob=>'blob:'+sources.length;
+  const origFetch=s.win.fetch;s.win.fetch=async(url,request)=>String(url).includes('/clips/')?{ok:true,blob:async()=>({url})}:origFetch(url,request);
+  const player=$('videoPlayer');let paused=0;player.play=async()=>{sources.push(player.src);};player.pause=()=>{paused++;};
+  const segments=[{index:0,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/c0'},{index:1,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/clips/1'},{index:2,status:'succeeded',clip_seconds:5,play_seconds:3,url:'/clips/2'}];
+  segments[0].url='/clips/0';
+  s.win.eval(`video.jobs.set('j',${JSON.stringify({id:'j',owner:sid,status:'succeeded',aspect_ratio:'9:16',duration_seconds:23,prompt:'p',created_at:1,segments,narration:null})})`);
+  await s.win.playVideoJob('j');assert.equal(sources.length,1);
+  Object.defineProperty(player,'currentTime',{configurable:true,writable:true,value:10});
+  player.ontimeupdate();player.onended?.();await new Promise(r=>setTimeout(r,5));
+  assert.equal(sources.length,2,'second cut must start once');
+  player.currentTime=10;player.ontimeupdate();player.onended?.();await new Promise(r=>setTimeout(r,5));
+  assert.equal(sources.length,3);
+  player.currentTime=3;player.ontimeupdate();await new Promise(r=>setTimeout(r,5));
+  assert.match($('videoStatus').textContent,/再生が終わりました/);assert.ok(paused>=2,'last cut is paused at play_seconds');s.dom.window.close();
+});

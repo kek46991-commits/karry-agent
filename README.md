@@ -158,6 +158,9 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
 
+### Creative Video Suite（画像→動画・ナレーション）
+チャット下の「🎬 動画を作る」から、写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して動画を生成します。生成は Replicate の Kling（`kwaivgi/kling-v2.5-turbo-pro`）か Runway（`gen4_turbo` / `gen4.5`）で行い、1カット最大10秒のため長い動画は複数カットに分けて順に再生します。ナレーションは Gemini TTS（低めの男性声 `Charon`）で WAV を作り、キー未設定時は端末の声で読み上げます。APIはすべて所有者トークン必須で、プロバイダのキー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
+
 ### 自律型知識獲得エンジン
 
 `POST /api/knowledge/sync` が GitHub の人気リポジトリ（指定トピック・★100以上・更新順の上位5件）から README を取得し、Gemini の埋め込みを付けてタスク保存先の R2/S3（`knowledge/index.json`）へ保存します。チャットでは `search_knowledge` ツールで参照します。外部 README は信頼できない参考資料として扱い、指示としては使いません。毎日の同期は `.github/workflows/knowledge-sync.yml` で行います。詳細は [docs/knowledge-engine.md](docs/knowledge-engine.md) を参照してください。
