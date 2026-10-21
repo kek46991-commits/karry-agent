@@ -134,7 +134,11 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 ### URL解析の短縮経路
 
-単独URLまたは単一ページの解析・要約・改善提案依頼は、`fetch_and_summarize_url`を1回実行し、抽出済みタイトル・本文3000文字・見出し・構造からツールなしのモデル生成で回答します。正常時は2ステップ・1ツール実行、通常1モデル呼び出しです。一般ループの既定上限は20、`KARRY_MAX_TOOL_STEPS`で1～50へ設定できます。取得失敗・JavaScriptページの制約や複合依頼の扱いは [docs/fast-url-analysis.md](docs/fast-url-analysis.md) を参照してください。
+単独URLまたは単一ページの解析・要約・改善提案依頼は、`fetch_and_summarize_url`を1回実行し、抽出済みタイトル・本文3000文字・見出し・構造からツールなしのモデル生成で回答します。正常時は2ステップ・1ツール実行、通常1モデル呼び出しです。一般ループの既定上限は100、`KARRY_MAX_TOOL_STEPS`で1～200へ設定できます（長時間実行は [docs/long-run.md](docs/long-run.md)）。取得失敗・JavaScriptページの制約や複合依頼の扱いは [docs/fast-url-analysis.md](docs/fast-url-analysis.md) を参照してください。
+
+### 長時間・低コストの自律実行
+
+既定で最大100ステップまでツールを使い続けます。4ステップごとに古い実行結果を上限4000文字の要約へ置き換え、直近2ステップだけ生のまま残すため、100ステップでもモデル入力はほぼ一定です。`KARRY_LIGHT_PROVIDER=groq|deepseek` を設定すると、最初の計画と最終回答は Gemini、途中の「次にどのツールを使うか」は Groq / DeepSeek（OpenAI互換API）が担当し、Gemini の呼び出し回数を減らします。詳細は [docs/long-run.md](docs/long-run.md)。
 
 ### HTML成果物の即時URL公開
 
