@@ -709,3 +709,45 @@ test('video playback advances exactly one cut when timeupdate and ended both fir
   player.currentTime=3;player.ontimeupdate();await new Promise(r=>setTimeout(r,5));
   assert.match($('videoStatus').textContent,/再生が終わりました/);assert.ok(paused>=2,'last cut is paused at play_seconds');s.dom.window.close();
 });
+
+const PROJECT_ID='123e4567-e89b-42d3-a456-426614174000',PREVIEW_JOB_ID='123e4567-e89b-42d3-a456-426614174001';
+function projectPreviewFetch(posts){
+  return async(url,request={})=>{
+    if(url==='/api/video/project-config')return json({enabled:true,preview_available:true,tts_available:true,max_seconds:120,job_prefix:'/api/video/project-jobs'});
+    if(url==='/api/video/config')return json({enabled:false,reason:'有料プロバイダーは未設定です。',clip_lengths:[5,10],voices:[]});
+    if(url.startsWith('/api/video/jobs?'))return json([]);
+    if(url==='/api/video/projects'&&request.method==='POST'){
+      const fields=Object.fromEntries([...request.body.entries()].map(([key,value])=>[key,typeof value==='string'?value:'FILE:'+value.name]));posts.push({kind:'project',fields,headers:request.headers});
+      return json({project_id:PROJECT_ID,title:fields.title,aspect_ratio:fields.aspect_ratio,duration_seconds:Number(fields.duration_seconds)},201);
+    }
+    if(url==='/api/video/generate/preview'&&request.method==='POST'){
+      posts.push({kind:'preview',body:JSON.parse(request.body),headers:request.headers});
+      return json({job_id:PREVIEW_JOB_ID,status:'queued',status_url:'/api/video/project-jobs/'+PREVIEW_JOB_ID,download_url:null},202);
+    }
+  };
+}
+async function openProjectPreviewSuite(s){
+  const $=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(resolve=>setTimeout(resolve,10));
+}
+
+test('free preview creates an owner-authenticated project then preview job without the paid endpoint',async()=>{
+  const posts=[],s=setup({fetch:projectPreviewFetch(posts)}),$=id=>s.doc.getElementById(id);await openProjectPreviewSuite(s);
+  assert.equal($('videoGenerate').disabled,true);assert.equal($('videoPreview').disabled,false);
+  $('videoPrompt').value='Coastal preview';$('videoNarration').value='English narration.';$('videoPreviewTts').checked=true;$('videoDuration').value='23';s.doc.querySelector('input[value="9:16"]').checked=true;
+  const image=new s.win.File(['image'],'coast.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});await s.win.generateVideoPreview();
+  assert.equal(posts.length,2);const project=posts.find(post=>post.kind==='project'),preview=posts.find(post=>post.kind==='preview');
+  assert.equal(project.headers.Authorization,'Bearer synthetic-owner');assert.equal(project.headers['Content-Type'],undefined);assert.equal(project.fields.title,'Coastal preview');assert.equal(project.fields.render_prompt,'Coastal preview');assert.equal(project.fields.aspect_ratio,'9:16');assert.equal(project.fields.duration_seconds,'23');assert.equal(project.fields.image,'FILE:coast.png');assert.deepEqual(JSON.parse(project.fields.tts),{text:'English narration.',voice:'en'});assert.equal(project.fields.session_id,undefined);
+  assert.equal(preview.headers.Authorization,'Bearer synthetic-owner');assert.deepEqual(preview.body,{project_id:PROJECT_ID,request_id:preview.body.request_id});assert.match(preview.body.request_id,/^[0-9a-f-]{36}$/);assert.equal(s.calls.filter(call=>call.url==='/api/video/jobs'&&call.request.method==='POST').length,0);
+  const job=JSON.parse(JSON.stringify(s.win.eval('video.jobs.get("'+PREVIEW_JOB_ID+'")')));assert.deepEqual({id:job.id,source:job.source,owner:job.owner,status:job.status,prompt:job.prompt,segments:job.segments},{id:PREVIEW_JOB_ID,source:'project-preview',owner:$('session').textContent,status:'processing',prompt:'Coastal preview',segments:[{index:0,status:'processing',clip_seconds:23,play_seconds:23,url:null}]});assert.match($('videoJobs').textContent,/0円プレビュー/);s.dom.window.close();
+});
+
+test('free preview requires a photo before it creates a project or a generation job',async()=>{
+  const posts=[],s=setup({fetch:projectPreviewFetch(posts)}),$=id=>s.doc.getElementById(id);await openProjectPreviewSuite(s);$('videoPrompt').value='Photo required';await s.win.generateVideoPreview();
+  assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/写真を1枚/);assert.equal(s.calls.some(call=>call.url==='/api/video/generate/preview'),false);assert.equal(s.calls.some(call=>call.url==='/api/video/jobs'&&call.request.method==='POST'),false);s.dom.window.close();
+});
+
+test('free preview is blocked before connection and while secret mode is active',async()=>{
+  const posts=[],s=setup({fetch:projectPreviewFetch(posts)}),$=id=>s.doc.getElementById(id);assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();assert.equal(posts.length,0);
+  await openProjectPreviewSuite(s);$('videoPrompt').value='Secret preview';const image=new s.win.File(['image'],'secret.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});$('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();
+  assert.equal(posts.length,0);assert.equal(s.calls.some(call=>call.url==='/api/video/projects'),false);assert.equal(s.calls.some(call=>call.url==='/api/video/generate/preview'),false);s.dom.window.close();
+});

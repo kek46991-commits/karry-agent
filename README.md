@@ -275,3 +275,7 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 ## PostgreSQLメディア管理
 
 `schema.ts`のDrizzle定義とMigrationで`media_files`を作成し、Python/FastAPIから同じPostgreSQLへ画像を保存します。所有者認証付きの`/api/media/upload`、FLUX生成・状態照会、非公開一覧・読取を追加しています。旧チャット画像添付のR2/Gemini経路は維持します。管理者がDATABASE_URLを秘密設定へ登録して`npm run db:migrate`を適用してください。生成はREPLICATE_API_TOKENと明示有効化が必要で、既定では課金APIを呼びません。接続先・保存・再送・本番未適用の詳細は[メディアDBガイド](docs/media-postgres.md)を参照してください。
+
+## SQL動画プロジェクトと0円プレビュー
+
+動画プロジェクトCRUD（SQLite／PostgreSQL）と、アップロード画像＋ローカルTTSによるMP4プレビューを本体へ追加しました。動画UIの「0円プレビュー」は外部生成APIなしで動作し、既存のAI動画UIは保持します。要求された`/api/video/projects`と`/api/video/generate/*`を提供し、新しいジョブは既存ルートと衝突しない`/api/video/project-jobs/*`へ配置します。KARRY_API_TOKEN認証、OSツール、Renderネイティブ／Dockerの違い、永続ストレージ、AI最大10秒、日本語TTSの制約は[動画プロジェクトガイド](docs/video-projects.md)を参照してください。
