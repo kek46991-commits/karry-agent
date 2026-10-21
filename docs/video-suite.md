@@ -59,7 +59,8 @@ The form offers two modes (`mode` form field on `POST /api/video/jobs`):
 | Mode | UI label | What runs | Cost |
 | --- | --- | --- | --- |
 | `static` (default) | 静止画＋音声（0円・高速） | in-server ffmpeg pan over the photo + narration | free |
-| `talking` | 人物を喋らせる（アニメーション化） | photo + narration WAV → lip-sync engine → in-server compositing | free on your own endpoint |
+| `mouth` | 👄 簡易口パク（0円・サーバー内） | OpenCV 2D mouth flap driven by narration loudness (see below) | free |
+| `talking` | 人物を喋らせる（SadTalker・GPU） | photo + narration WAV → lip-sync engine → in-server compositing | free on your own endpoint |
 
 SadTalker/LivePortrait-class models need a GPU, so they never run on the CPU-only Render instance.
 `src/karry_agent/lipsync.py` provides two adapters, both disabled unless `KARRY_LIPSYNC_PROVIDER` is set:
@@ -75,7 +76,7 @@ first (Gemini → gTTS); the engine animates the face, and the clip is fitted on
 at 16:9/9:16, frozen on the last frame if shorter than the requested duration, and muxed with the narration.
 If narration or the engine fails, the job falls back to the static render, keeps `animation.status="fallback"`
 with an error code, and is reported as `partial` — it is never shown as a successful animation.
-`/api/video/config` exposes `lipsync.available/engine/reason` (never the URL or token).
+`/api/video/config` exposes `talking.available/engine/reason` (never the URL or token) and `lipsync_available` for `mouth`.
 
 ## Security
 
@@ -84,3 +85,17 @@ with an error code, and is reported as `partial` — it is never shown as a succ
 - Provider job IDs and output URLs never leave the server; clips are downloaded only from allowlisted
   HTTPS hosts (`replicate.delivery`, `KARRY_VIDEO_OUTPUT_HOSTS` for Runway) without credentials and stored in the private bucket.
 - Provider error bodies are never echoed; `request_id` makes retries idempotent (no double billing).
+
+## 簡易リップシンク（口パク・0円）
+
+`POST /api/video/jobs` に `mode=mouth`（互換のため `lip_sync=true` も可）を付けると、ローカル合成（`KARRY_VIDEO_PROVIDER=local`）で写真の人物の口をナレーション音声に合わせて開閉させます（`src/karry_agent/lipsync.py`）。
+
+- OpenCV の Haar カスケードで顔を検出し、顔下部で最も暗い行を唇の合わせ目として口の位置を推定します。
+- 口の開き具合を 5 段階で事前に描画し（下唇〜あごを下にずらし、口内を暗くする）、15 fps の各フレームに音声の RMS から段階を割り当てて ffmpeg の concat demuxer で MP4 にします。GPU や外部 API は使いません。
+- 写真・ナレーション音声（TTS 成功時のみ）・顔のどれかが無いときは、静止画＋音声の動画にフォールバックし、ジョブは `partial`、`lipsync` は `{"status": "fallback", "error": "no_face" | "no_photo" | "no_narration" | "unavailable" | ...}` になります。
+- `/api/video/config` の `lipsync_available` で UI のチェックボックスを有効化します。`KARRY_LIPSYNC=0` で無効化できます。
+- 2D の近似なので、SadTalker などの AI 顔アニメーションほど自然ではありません。
+
+## ステータスランプ
+
+UI のヘッダー、動画ジョブカード、動画エンジン（合成・ナレーション・口パク）に共通のランプ（`.lamp[data-lamp]`）を表示します。灰=未接続、緑=オンライン/完成、黄点滅=処理中、黄=一部失敗・注意、赤=エラー。

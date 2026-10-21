@@ -176,7 +176,7 @@ def run_job(client, queued, **fields):
 def test_talking_mode_animates_photo_with_narration(talking_env):
     client, _narrator, queued, state = talking_env
     config = client.get('/api/video/config', headers=AUTH).json()
-    assert config['modes'] == ['static', 'talking'] and config['lipsync'] == {'available': True, 'engine': 'fake-sadtalker', 'reason': None}
+    assert config['modes'] == ['static', 'mouth', 'talking'] and config['talking'] == {'available': True, 'engine': 'fake-sadtalker', 'reason': None}
     done = run_job(client, queued, mode='talking', duration_seconds='2', narration_text='まいど、ジミーや。', files={'image': ('me.png', png(), 'image/png')})
     assert done['status'] == 'succeeded' and done['mode'] == 'talking'
     assert done['animation'] == {'status': 'succeeded', 'engine': 'fake-sadtalker'} and done['narration']['muxed'] is True
@@ -206,7 +206,9 @@ def test_talking_mode_validation_and_unconfigured_engine(talking_env):
     state['lipsync'] = None
     response = create(client, mode='talking', narration_text='やあ', files={'image': ('me.png', png(), 'image/png')})
     assert response.status_code == 503 and response.json()['code'] == 'lipsync_configuration' and queued == []
-    config = client.get('/api/video/config', headers=AUTH).json()['lipsync']
+    config = client.get('/api/video/config', headers=AUTH).json()['talking']
     assert config['available'] is False and config['engine'] is None and '未設定' in config['reason']
     static = run_job(client, queued, duration_seconds='1', files={'image': ('me.png', png(), 'image/png')})
     assert static['status'] == 'succeeded' and static['mode'] == 'static' and static['animation'] is None
+    mouth = create(client, mode='mouth', narration_text='やあ', files={'image': ('me.png', png(), 'image/png')}).json()
+    assert mouth['mode'] == 'mouth' and mouth['lipsync'] == {'status': 'processing'} and mouth['animation'] is None

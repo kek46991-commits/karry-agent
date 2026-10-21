@@ -161,7 +161,7 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 ### Creative Video Suite（画像→動画・ナレーション）
 チャット下の「🎬 動画を作る」から、写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して動画を作ります。既定は **0円ローカル合成モード**（`KARRY_VIDEO_PROVIDER=local`）で、Replicate などの有料動画APIは一切呼ばず、サーバー内の ffmpeg（`imageio-ffmpeg` 同梱）で写真またはタイトルカードにゆっくりしたパンとフェードを付け、ナレーション音声を重ねた1本の MP4 を合成して非公開ストレージに保存します。ナレーションは Gemini TTS（低めの男性声 `Charon`、既存の `GEMINI_API_KEY`）で作り、キー未設定や失敗時はキー不要の無料音声合成（gTTS）で作って MP4 の音声トラックに入れます。どちらも使えないときは無音で「成功」にせず、仮の合図音を入れて `partial`（一部失敗）として画面に理由を出します。Replicate Kling / Runway は `KARRY_VIDEO_PROVIDER` と `KARRY_VIDEO_GENERATION_ENABLED=1` を明示したときだけ使う任意機能です。APIはすべて所有者トークン必須で、キー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
 
-フォームの「動画の種類」で **静止画＋音声（0円・高速）**（既定）と **人物を喋らせる（アニメーション化）** を選べます。後者は写真の顔をナレーションに合わせて動かすリップシンクで、SadTalker 等の GPU モデルを Render の外（自分の Colab / Hugging Face Space）で動かし、`KARRY_LIPSYNC_PROVIDER=http|gradio` で接続します（既定は無効・有料APIへのフォールバックなし）。実行先が失敗したときは静止画＋音声の MP4 に戻して `partial` と理由を表示します。手順は [tools/lipsync_server/README.md](tools/lipsync_server/README.md)。
+フォームの「動画の種類」で **静止画＋音声（0円・高速）**（既定）、**簡易口パク（0円・サーバー内の OpenCV で口元だけ開閉）**、**人物を喋らせる（SadTalker・GPU）** を選べます。SadTalker は写真の顔全体をナレーションに合わせて動かすリップシンクで、SadTalker 等の GPU モデルを Render の外（自分の Colab / Hugging Face Space）で動かし、`KARRY_LIPSYNC_PROVIDER=http|gradio` で接続します（既定は無効・有料APIへのフォールバックなし）。実行先が失敗したときは静止画＋音声の MP4 に戻して `partial` と理由を表示します。手順は [tools/lipsync_server/README.md](tools/lipsync_server/README.md)。
 
 ### 自律型知識獲得エンジン
 

@@ -10,10 +10,12 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import lipsync_remote
+from . import lipsync, lipsync_remote
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
+# static: pan over the photo; mouth: free CPU 2D mouth flap (lipsync.py); talking: GPU engine (lipsync_remote.py)
+MODES = ("static", "mouth", "talking")
 SessionId = Annotated[str, Query(min_length=1, max_length=100)]
 
 
@@ -54,7 +56,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         return None
 
     def render_local(store: vs.VideoJobStore, job: dict[str, Any], renderer: Any, image: bytes | None, text: str, voice: str,
-                     face: bytes | None = None) -> None:
+                     face: bytes | None = None, lip_sync: bool = False) -> None:
         wav = None
         if text:
             narrator = narrators()
@@ -70,6 +72,16 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         segment = job["segments"][0]
         try:
             clip = animate(job, renderer, face, image, wav) if job.get("mode") == "talking" and face else None
+            if lip_sync:
+                try:
+                    if (job["narration"] or {}).get("status") != "succeeded":
+                        raise lipsync.LipSyncError("no_narration")
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav, lip_sync=True)
+                    job["lipsync"] = {"status": "succeeded"}
+                except lipsync.LipSyncError as exc:
+                    job["lipsync"] = {"status": "fallback", "error": exc.code}
+                except Exception:
+                    job["lipsync"] = {"status": "fallback", "error": "lipsync_failed"}
             try:
                 clip = clip or renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
             except vs.VideoError:
@@ -84,7 +96,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         except Exception:
             segment |= {"status": "failed", "error": "render_failed"}
         job["status"] = vs.overall_status(job["segments"])
-        degraded = (job["narration"] or {}).get("status") not in (None, "succeeded") or (job.get("animation") or {}).get("status") == "fallback"
+        degraded = ((job["narration"] or {}).get("status") not in (None, "succeeded")
+                    or "fallback" in ((job.get("animation") or {}).get("status"), (job.get("lipsync") or {}).get("status")))
         if job["status"] == "succeeded" and degraded:
             job["status"] = "partial"
         job["updated_at"] = time.time()
@@ -133,11 +146,12 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             engine, lipsync_reason = lipsyncs().name, None
         except vs.VideoError as exc:
             engine, lipsync_reason = None, exc.message
-        return _json({"enabled": enabled, "modes": ["static", "talking"],
-                      "lipsync": {"available": engine is not None and provider == "local", "engine": engine,
-                                  "reason": lipsync_reason if provider == "local" else "人物アニメーションは0円ローカル合成モードでだけ使えます。"}, "reason": reason, "provider": provider, "clip_lengths": lengths,
+        return _json({"enabled": enabled, "modes": list(MODES), "reason": reason, "provider": provider, "clip_lengths": lengths,
+                      "talking": {"available": engine is not None and provider == "local", "engine": engine,
+                                  "reason": lipsync_reason if provider == "local" else "人物アニメーションは0円ローカル合成モードでだけ使えます。"},
                       "aspect_ratios": list(vs.ASPECT_RATIOS), "min_seconds": vs.MIN_SECONDS, "max_seconds": vs.MAX_SECONDS,
                       "narration_available": narrators().available,
+                      "lipsync_available": bool(enabled and getattr(adapter, "local", False) and lipsync.available()),
                       "voices": [{"id": k, "label": vs.VOICE_LABELS[k]} for k in vs.VOICES]})
 
     @router.post("/jobs")
@@ -149,6 +163,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                      voice: Annotated[str, Form()] = "jimmy",
                      mode: Annotated[str, Form()] = "static",
                      request_id: Annotated[uuid.UUID | None, Form()] = None,
+                     lip_sync: Annotated[bool, Form()] = False,
                      image: Annotated[UploadFile | None, File()] = None):
         try:
             if aspect_ratio not in vs.ASPECT_RATIOS:
@@ -158,9 +173,11 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             body = await image.read(MAX_UPLOAD_BYTES + 1) if image is not None and image.filename else b""
             if len(body) > MAX_UPLOAD_BYTES:
                 raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
-            if mode not in ("static", "talking"):
-                raise vs.VideoError("動画の種類は static か talking を選んでください。", 422, "invalid_mode")
-            talking = mode == "talking"
+            if lip_sync and mode == "static":
+                mode = "mouth"
+            if mode not in MODES:
+                raise vs.VideoError("動画の種類は static / mouth / talking から選んでください。", 422, "invalid_mode")
+            talking, lip_sync = mode == "talking", mode == "mouth"
             if talking and not body:
                 raise vs.VideoError("人物を喋らせるには、顔が写った写真を選んでください。", 422, "photo_required")
             if talking and not narration_text.strip():
@@ -187,9 +204,10 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                            "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
                            "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
                            "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None,
-                           "mode": mode, "animation": {"status": "processing", "engine": engine} if talking else None}
+                           "mode": mode, "animation": {"status": "processing", "engine": engine} if talking else None,
+                           "lipsync": {"status": "processing"} if lip_sync else None}
                     store.save(job)
-                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice, face))
+                    run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice, face, lip_sync))
                     return job, 202
                 segments = vs.plan_segments(duration_seconds, adapter.clip_lengths)
                 data_uri = vs.image_data_uri(body) if body else None
