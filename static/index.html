@@ -24,18 +24,22 @@
     .auth label{margin-top:0;color:var(--text);font-weight:700}.auth input{flex:1;min-width:0}.auth button{min-height:42px}
     .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
     .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
-    body[data-connection="online"] .dot{background:var(--good)}body[data-connection="error"] .dot{background:#f28b8b}
+    .lamp{display:inline-block;flex:none;width:9px;height:9px;border-radius:50%;background:#7b8597;vertical-align:middle;margin-right:6px}.status .lamp{margin:0}
+    .lamp[data-lamp="online"]{background:var(--good);box-shadow:0 0 6px var(--good)}.lamp[data-lamp="processing"]{background:#f4c95d;animation:lamp-blink 1s ease-in-out infinite}.lamp[data-lamp="warn"]{background:#f4c95d}.lamp[data-lamp="error"]{background:#f28b8b}
+    @keyframes lamp-blink{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.lamp[data-lamp="processing"]{animation:none}}
+    .video-engines{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0}.video-engines>span{display:inline-flex;align-items:center}
     .secret-controls{display:flex;align-items:center;gap:8px;margin-top:9px;color:#ffd2df;font-size:13px;font-weight:700}.secret-controls input{accent-color:#df6185}.secret-notice{margin:8px 0 0;color:#ffd2df;font-size:12px}.secret-notice[hidden]{display:none}
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     .composer-tools{padding:12px 15px;border-top:1px solid var(--line);background:#172239;scroll-margin-top:16px}.secret-controls{margin:0;flex-wrap:wrap;font-size:14px}.secret-controls input{appearance:none;position:relative;width:44px;height:26px;margin:0;background:#536078;border-radius:20px;cursor:pointer;flex:none}.secret-controls input::after{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:white;border-radius:50%;transition:transform .15s}.secret-controls input:checked{background:#bd416a}.secret-controls input:checked::after{transform:translateX(18px)}.secret-controls input:disabled{cursor:not-allowed;opacity:.7}.mode-status{padding:1px 8px;border-radius:20px;background:#263451;font-size:12px}.feature-jump{font-size:12px;margin-top:7px}.voice-options{flex-wrap:wrap}#voiceStatus{flex-basis:100%;overflow-wrap:anywhere}.mic-help{padding:0 15px 14px;color:var(--muted);font-size:13px}.mic-help summary{cursor:pointer;color:#a5cdff;font-weight:700}.mic-help ol{padding-left:20px}.mic-help button{padding:7px 12px;margin-top:5px}.mic-help a{display:inline-block;margin:8px 0}.ui-version{font-size:11px;color:var(--muted)}
-    .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-lipsync{font-weight:700;color:#d7e8ff}.video-lipsync input{accent-color:var(--accent)}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}
+    .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}
+    .video-projects-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}.video-projects-heading h3{margin:0;font-size:14px}.video-projects{display:grid;gap:8px}.video-project{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-project button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-project-title{font-weight:700;overflow-wrap:anywhere}.video-project-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;color:var(--muted);font-size:12px}.video-project-duration{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:7px}.video-project-duration input{width:82px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
   </style>
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span class="dot"></span><span id="status">タスク未接続</span></div></header>
+    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
     <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
@@ -54,23 +58,25 @@
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
 	        <details id="videoSuite" class="video-suite"><summary>🎬 動画を作る（画像・縦横比・長さ・ナレーション）</summary><div class="video-body">
-	          <p id="videoConfig" class="hint">開くと利用設定を確認します。</p>
+	          <p id="videoConfig" class="hint">開くと利用設定を確認します。</p><p id="videoEngines" class="video-engines hint" aria-live="polite"></p>
 	          <label for="videoPrompt">どんな動画にするか</label><textarea id="videoPrompt" maxlength="2000" placeholder="例: 夕焼けの海辺をゆっくり歩くジミー、映画のような光" disabled></textarea>
 	          <div class="video-row"><label for="videoImage">写真（任意・0円プレビューは必須）</label><input id="videoImage" type="file" accept="image/jpeg,image/png,image/webp" disabled></div>
 	          <div class="video-row" role="radiogroup" aria-label="縦横比"><span>縦横比</span><label><input type="radio" name="videoAspect" value="16:9" checked disabled> 16:9 横</label><label><input type="radio" name="videoAspect" value="9:16" disabled> 9:16 縦</label></div>
-	          <div class="video-row"><label for="videoDuration">長さ（秒）</label><input id="videoDuration" type="number" min="1" max="120" step="1" value="10" disabled><input id="videoDurationRange" type="range" min="1" max="120" step="1" value="10" aria-label="長さ（秒）" disabled></div>
+	          <div class="video-row"><label for="videoDuration">長尺指定（秒、1〜120）</label><input id="videoDuration" type="number" min="1" max="120" step="1" value="10" disabled><input id="videoDurationRange" type="range" min="1" max="120" step="1" value="10" aria-label="長尺指定（秒、1〜120）" disabled></div>
 	          <p id="videoPlan" class="hint">1本 10秒まで。長い動画は複数カットに分けて順に再生します。</p>
-		          <label for="videoNarration">ナレーション（任意）</label><textarea id="videoNarration" maxlength="1000" placeholder="ジミーの声で読み上げる文章（MP4に音声として入ります）" disabled></textarea>
-		          <div class="video-row"><label class="video-lipsync" for="videoLipSync"><input id="videoLipSync" type="checkbox" role="switch" aria-describedby="videoLipSyncHelp videoLipSyncState" disabled> 人物を喋らせる（SadTalker）</label></div>
-		          <p id="videoLipSyncHelp" class="hint">ONで画像と音声を設定済みの外部サービスへ送信します。混雑・失敗時は静止画＋音声へ自動切り替え</p>
-		          <p id="videoLipSyncState" class="hint" role="status" aria-live="polite">人物を喋らせる: OFF（静止画＋音声）</p>
-		          <div class="video-row"><label><input id="videoPreviewTts" type="checkbox" disabled> 0円プレビューに英語TTSを付ける</label><span class="hint">「動画を生成」は日本語ナレーションをMP4に入れます。0円プレビュー側はONのときだけ上の文章を英語TTSとして送ります。</span></div>
-		          <p id="videoLipSyncPreviewHint" class="hint" role="status" hidden>0円プレビューは口パクを行いません。人物を喋らせるには動画を生成を選んでください。</p>
+	          <label for="videoNarration">ナレーション（任意）</label><textarea id="videoNarration" maxlength="1000" placeholder="ジミーの声で読み上げる文章（MP4に音声として入ります）" disabled></textarea>
+	          <div class="video-row"><label><input id="videoPreviewTts" type="checkbox" disabled> 0円プレビューに英語TTSを付ける</label><span class="hint">「動画を生成」は日本語ナレーションをMP4に入れます。0円プレビュー側はONのときだけ上の文章を英語TTSとして送ります。</span></div>
+	          <div class="video-row"><label class="video-lipsync" for="videoLipsync"><input id="videoLipsync" type="checkbox" role="switch" aria-describedby="videoLipsyncHelp" disabled> 👄 写真の人物を口パクさせる（CPU・0円）</label><span id="videoLipsyncHelp" class="hint">SadTalkerとは同時に選べません。顔が見つからないときは静止画＋音声の動画になります。</span></div>
+	          <div class="video-row"><label class="video-lipsync" for="videoLipSync"><input id="videoLipSync" type="checkbox" role="switch" aria-describedby="videoLipSyncHelp videoLipSyncState" disabled> 人物を喋らせる（SadTalker）</label></div>
+	          <p id="videoLipSyncHelp" class="hint">ONで画像と音声を設定済みの外部サービスへ送信します。混雑・失敗時は静止画＋音声へ自動切り替え</p>
+	          <p id="videoLipSyncState" class="hint" role="status" aria-live="polite">人物を喋らせる: OFF（静止画＋音声）</p>
+	          <p id="videoLipSyncPreviewHint" class="hint" role="status" hidden>0円プレビューは口パクを行いません。人物を喋らせるには動画を生成を選んでください。</p>
 	          <div class="video-row"><label for="videoVoice">声</label><select id="videoVoice" disabled><option value="jimmy">ジミー（低めの男性）</option></select><button id="videoGenerate" type="button" disabled>動画を生成</button><button id="videoPreview" type="button" disabled>0円プレビュー</button></div>
-	          <p class="hint">「動画を生成」と0円プレビューはどちらもサーバー内で合成するローカル動画で、AIアニメーション生成ではありません。</p>
+	          <p class="hint">0円プレビューとCPU口パクはサーバー内で合成するローカル動画です。SadTalkerをONにした人物動画のみ、画像・音声を外部連携へ送信し、失敗時はローカルの静止画＋音声へ切り替えます。</p>
 	          <div id="videoStatus" class="hint" aria-live="polite"></div>
 	          <video id="videoPlayer" class="video-player" controls playsinline hidden></video>
 	          <div id="videoJobs" class="video-jobs"></div>
+	          <section class="video-projects-section" aria-labelledby="videoProjectsHeading"><div class="video-projects-heading"><h3 id="videoProjectsHeading">動画プロジェクト一覧</h3><button id="videoProjectsRefresh" type="button" disabled>一覧を更新</button></div><div id="videoProjects" class="video-projects" aria-live="polite"></div></section>
         </div></details>
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
@@ -316,7 +322,12 @@
   }
   function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
   function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
-  function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';}
+  function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';updateStatusLamp();}
+  const LAMP_LABELS={idle:'未接続',online:'オンライン',processing:'処理中',warn:'注意',error:'エラー'};
+  function setLamp(el,state){el.dataset.lamp=state;el.setAttribute('aria-label',LAMP_LABELS[state]||state);}
+  function lampFor(state){const el=document.createElement('span');el.className='lamp';el.setAttribute('role','img');setLamp(el,state);return el;}
+  function videoProcessing(){try{return video.submitting||video.previewSubmitting||[...video.jobs.values()].some(job=>job.owner===sessionId&&job.status==='processing');}catch(_){return false;}}
+  function updateStatusLamp(){const lamp=$('statusLamp');if(!lamp)return;const c=document.body.dataset.connection;setLamp(lamp,c==='error'?'error':busy||videoProcessing()?'processing':c==='online'?'online':'idle');}
   function authHeaders(){const token=ownerToken();return token?{Authorization:`Bearer ${token}`}:{};}
   function headers(){return {...authHeaders(),'Content-Type':'application/json'};}
   async function requestJson(url,options={}){
@@ -590,7 +601,7 @@
 </script>
 <script>
   const VIDEO_POLL_MS=6000,VIDEO_POLL_LIMIT_MS=5*60*1000;
-  const video={session:null,config:null,projectConfig:null,submitting:false,previewSubmitting:false,jobs:new Map(),timers:new Map(),blobs:new Map(),play:null,epoch:0};
+  const video={session:null,config:null,projectConfig:null,submitting:false,previewSubmitting:false,projectsLoading:false,projects:new Map(),projectSaving:new Set(),jobs:new Map(),timers:new Map(),blobs:new Map(),play:null,epoch:0};
   function videoMaxSeconds(){const n=Math.floor(Number(video.projectConfig?.max_seconds));return Number.isFinite(n)?Math.min(120,Math.max(1,n)):120;}
   function videoClamp(value){const n=Math.round(Number(value));return Number.isFinite(n)?Math.min(videoMaxSeconds(),Math.max(1,n)):10;}
   function videoPlan(seconds){const lengths=video.config?.clip_lengths?.length?video.config.clip_lengths:[5,10];const longest=Math.max(...lengths);let left=seconds,cuts=0;while(left>0){left-=Math.min(left,longest);cuts++;}return cuts;}
@@ -603,36 +614,32 @@
   function safeProjectStatusUrl(url){return /^\/api\/video\/project-jobs\/[0-9a-f-]{36}$/i.test(String(url||''));}
   function safeProjectDownloadUrl(url){return /^\/api\/video\/project-jobs\/[0-9a-f-]{36}\/download$/i.test(String(url||''));}
   function resetVideoSuite(){
-    video.epoch++;for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear();for(const url of video.blobs.values())try{URL.revokeObjectURL?.(url);}catch(_){}video.blobs.clear();video.jobs.clear();video.session=null;video.config=null;video.projectConfig=null;video.submitting=false;video.previewSubmitting=false;stopVideoPlayback();$('videoJobs')?.replaceChildren();if($('videoStatus'))$('videoStatus').textContent='';
+    video.epoch++;for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear();for(const url of video.blobs.values())try{URL.revokeObjectURL?.(url);}catch(_){}video.blobs.clear();video.jobs.clear();video.projects.clear();video.projectSaving.clear();video.session=null;video.config=null;video.projectConfig=null;video.submitting=false;video.previewSubmitting=false;video.projectsLoading=false;stopVideoPlayback();$('videoJobs')?.replaceChildren();$('videoProjects')?.replaceChildren();if($('videoStatus'))$('videoStatus').textContent='';
   }
-  function lipSyncRequested(){return $('videoLipSync').checked===true;}
+  function cpuLipSyncRequested(){return $('videoLipsync').checked===true;}
+  function sadTalkerRequested(){return $('videoLipSync').checked===true;}
   function configuredSadTalker(){return video.config?.sadtalker?.configured===true;}
-  function renderVideoLipSyncUi(){
-    const requested=lipSyncRequested(),configured=configuredSadTalker();
-    $('videoLipSync').setAttribute('aria-checked',String(requested));
-    $('videoLipSyncPreviewHint').hidden=!requested;
-    $('videoLipSyncState').textContent=requested?(configured?'SadTalker連携で人物の口パクを生成します。混雑・失敗時は静止画＋音声に切り替えます。':'接続先未設定のためローカル合成になります'):'人物を喋らせる: OFF（静止画＋音声）';
-  }
+  function sadTalkerCanFallback(){return video.config?.sadtalker?.local_fallback_available===true;}
+  function renderVideoLipSyncUi(){const requested=sadTalkerRequested(),configured=configuredSadTalker();$('videoLipSync').setAttribute('aria-checked',String(requested));$('videoLipsync').setAttribute('aria-checked',String(cpuLipSyncRequested()));$('videoLipSyncPreviewHint').hidden=!requested;$('videoLipSyncState').textContent=requested?(configured?'SadTalker連携で人物の口パクを生成します。混雑・失敗時は静止画＋音声に切り替えます。':'接続先未設定のためローカル合成になります'):'人物を喋らせる: OFF（静止画＋音声）';}
   function refreshVideoSuite(){
-    const ok=videoReady(),previewAvailable=video.projectConfig?.preview_available===true,ttsAvailable=video.projectConfig?.tts_available===true;
+    const ok=videoReady(),previewAvailable=video.projectConfig?.preview_available===true,ttsAvailable=video.projectConfig?.tts_available===true,sadCanGenerate=sadTalkerRequested()&&sadTalkerCanFallback();
     for(const id of ['videoPrompt','videoImage','videoDuration','videoDurationRange','videoNarration','videoVoice'])$(id).disabled=!ok;
-    $('videoLipSync').disabled=!ok||videoBusy();
-    $('videoPreviewTts').disabled=!ok||!previewAvailable||!ttsAvailable||videoBusy();
+    $('videoPreviewTts').disabled=!ok||!previewAvailable||!ttsAvailable||videoBusy();$('videoLipsync').disabled=!ok||videoBusy()||video.config?.lipsync_available!==true;$('videoLipSync').disabled=!ok||videoBusy();
     for(const radio of document.querySelectorAll('input[name="videoAspect"]'))radio.disabled=!ok;
-    $('videoGenerate').disabled=!ok||videoBusy()||(lipSyncRequested()?video.config?.sadtalker?.local_fallback_available===false:video.config?.enabled===false);
-    $('videoPreview').disabled=!ok||videoBusy()||!previewAvailable;
-    renderVideoLipSyncUi();
-    if(video.session!==sessionId){video.session=sessionId;stopVideoPlayback();renderVideoJobs();if(ok&&$('videoSuite').open)loadVideoJobs();}
+    $('videoGenerate').disabled=!ok||videoBusy()||(!sadCanGenerate&&video.config?.enabled===false);$('videoPreview').disabled=!ok||videoBusy()||!previewAvailable;$('videoProjectsRefresh').disabled=!ok||videoBusy()||video.projectsLoading;
+    renderVideoLipSyncUi();if(video.session!==sessionId){video.session=sessionId;video.projects.clear();video.projectSaving.clear();stopVideoPlayback();renderVideoJobs();renderVideoProjects();if(ok&&$('videoSuite').open)loadVideoJobs();}updateStatusLamp();renderVideoEngines();
   }
   const baseRefreshControls=refreshControls;
   refreshControls=function(){baseRefreshControls();refreshVideoSuite();};
   function renderVideoConfig(){
-    const config=video.config,project=video.projectConfig,sadtalker=config?.sadtalker;
-    $('videoGenerate').textContent=lipSyncRequested()?'人物動画を生成（外部連携）':config?.provider==='local'?'動画を生成（0円）':'AI動画を生成（有料）';
-    const rendering=config?.enabled&&config.provider==='local'?`0円ローカル合成モード${config.narration_available?'・ナレーション音声入り':'・ナレーションは端末の声で再生'}`:config?(config.enabled?`AI動画（有料）: ${config.provider}・1カット ${Math.max(...(config.clip_lengths||[10]))}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'動画生成サービスは未設定です。')):'動画生成の設定を確認できませんでした。';
-    const sadTalkerNote=sadtalker?.configured===true?`SadTalker外部連携: 利用可能（${sadtalker.provider==='huggingface'?'Hugging Face':'設定済み'}・上限${Number.isFinite(Number(sadtalker.timeout_seconds))?Math.max(0,Math.floor(Number(sadtalker.timeout_seconds))):0}秒）`:'SadTalker外部連携: 接続先未設定のためローカル合成になります';
-    const preview=project?.preview_available===true?`0円プレビュー: 利用可能・最長${videoMaxSeconds()}秒${project.tts_available?'・英語TTS可':''}`:'0円プレビューは利用できません。';
-    $('videoConfig').textContent=`${rendering} ${sadTalkerNote} ${preview}`;renderVideoLipSyncUi();
+    const config=video.config,project=video.projectConfig,sadtalker=config?.sadtalker;$('videoGenerate').textContent=sadTalkerRequested()?'人物動画を生成（外部連携）':config?.provider==='local'?'動画を生成（0円）':'AI動画を生成（有料）';
+    const paid=config?.enabled&&config.provider==='local'?`0円ローカル合成モード（有料APIは使いません）${config.narration_available?'・ナレーション音声入り':'・ナレーションは端末の声で再生'}`:config?(config.enabled?`AI動画（有料）: ${config.provider}・1カット ${Math.max(...(config.clip_lengths||[10]))}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'AI動画（有料）は未設定です。')):'AI動画（有料）の設定を確認できませんでした。';
+    const sadNote=sadtalker?.configured===true?`SadTalker外部連携: 接続先設定済み（${sadtalker.provider==='huggingface'?'Hugging Face':'設定済み'}・上限${Number.isFinite(Number(sadtalker.timeout_seconds))?Math.max(0,Math.floor(Number(sadtalker.timeout_seconds))):0}秒）`:'SadTalker外部連携: 接続先未設定のためローカル合成になります';
+    const preview=project?.preview_available===true?`0円プレビュー: 利用可能・最長${videoMaxSeconds()}秒${project.tts_available?'・英語TTS可':''}`:'0円プレビューは利用できません。';$('videoConfig').textContent=`${paid} ${sadNote} ${preview}`;renderVideoLipSyncUi();renderVideoEngines();
+  }
+  function renderVideoEngines(){
+    const config=video.config,box=$('videoEngines');if(!box)return;if(!config){box.replaceChildren();return;}const engine=(name,state,detail)=>{const item=document.createElement('span');item.dataset.engine=name;item.append(lampFor(state),`${name}: ${detail}`);return item;};const lipsyncAvailable=config.lipsync_available===true||config.sadtalker?.configured===true||config.sadtalker?.local_fallback_available===true;
+    box.replaceChildren(engine('合成',!config.enabled&&!sadTalkerCanFallback()?'error':videoProcessing()?'processing':'online',!config.enabled&&!sadTalkerCanFallback()?'停止中':videoProcessing()?'処理中':'待機中'),engine('ナレーション',config.narration_available?'online':'warn',config.narration_available?'音声入り':'端末の声'),engine('口パク',lipsyncAvailable?'online':'idle',config.lipsync_available?'CPU / SadTalkerを選択可':config.sadtalker?.local_fallback_available?'SadTalker失敗時もローカル合成':'使えません'));
   }
   async function loadVideoConfig(){
     const context=videoContext();let project=null,config=null;
@@ -655,18 +662,28 @@
     if(n.status==='placeholder')return '⚠ ナレーション音声を作れませんでした（'+(n.error==='tts_configuration'?'音声のキーが未設定で、無料の音声合成も使えません':'音声合成サービスに接続できませんでした')+'）。動画には仮の合図音を入れ、再生時は端末の声で読み上げます。';
     return 'ナレーション: 端末の声で再生';
   }
+  const LIPSYNC_REASONS={no_face:'写真から顔を見つけられませんでした',no_photo:'写真がありません',no_narration:'ナレーション音声がありません',unavailable:'サーバーで口パク機能を使えません',invalid_audio:'ナレーション音声を読めませんでした'};
+  function videoLipsyncLabel(l){if(l.status==='succeeded')return '👄 口パク: 音声に合わせて口を動かしました（簡易）';if(l.status==='fallback')return '⚠ 口パクできませんでした（'+(LIPSYNC_REASONS[l.error]||'口パク処理に失敗しました')+'）。静止画＋音声の動画にしました。';return '👄 口パク: 処理中…';}
+  function sadTalkerJobLabel(l){return l.status==='succeeded'?'SadTalkerで口パク生成':l.status==='fallback'?'口パク生成を利用できなかったため静止画＋音声で完成':'SadTalkerで口パク生成中…';}
+  function videoJobLamp(status){return {processing:'processing',succeeded:'online',partial:'warn',failed:'error'}[status]||'idle';}
   function renderVideoJobs(){
-    const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>Number(b.created_at)-Number(a.created_at));
-    $('videoJobs').replaceChildren(...list.map(job=>{
-      const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;const segments=Array.isArray(job.segments)?job.segments:[];
-      const done=segments.filter(s=>s.status==='succeeded').length;const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${segments.length}カット｜${job.prompt}`;card.append(text);
-      if(job.source==='project-preview'){const note=document.createElement('div');note.className='hint';note.textContent=job.preview_tts?'0円プレビュー・英語TTS付き（AIアニメーションではありません）':'0円プレビュー・写真1枚のローカル動画（AIアニメーションではありません）';card.append(note);}
-      if(job.source!=='project-preview'&&job.lip_sync?.requested===true){const lip=document.createElement('div');lip.className='hint video-lipsync-status';lip.textContent=job.lip_sync.status==='succeeded'?'SadTalkerで口パク生成':job.lip_sync.status==='fallback'?'口パク生成を利用できなかったため静止画＋音声で完成':job.lip_sync.status==='processing'?'SadTalkerで口パク生成中…':'';if(lip.textContent)card.append(lip);}
-      if(job.source!=='project-preview'&&job.narration){const n=document.createElement('div');n.className='hint video-narration';n.textContent=videoNarrationLabel(job.narration);card.append(n);}
-      if(job.poll_error){const n=document.createElement('div');n.className='hint';n.textContent=job.poll_error;card.append(n);}
-      if(segments.some(s=>s.status==='succeeded'&&s.url)){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
-      if(job.provider==='local'&&done){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
-      return card;}));
+    const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>Number(b.created_at)-Number(a.created_at));$('videoJobs').replaceChildren(...list.map(job=>{const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;const segments=Array.isArray(job.segments)?job.segments:[];const done=segments.filter(x=>x.status==='succeeded').length;const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${segments.length}カット｜${job.prompt}`;text.prepend(lampFor(videoJobLamp(job.status)));card.dataset.lamp=videoJobLamp(job.status);card.append(text);
+      if(job.source==='project-preview'){const note=document.createElement('div');note.className='hint';note.textContent=job.preview_tts?'0円プレビュー・英語TTS付き（AIアニメーションではありません）':'0円プレビュー・写真1枚のローカル動画（AIアニメーションではありません）';card.append(note);}else if(job.narration){const n=document.createElement('div');n.className='hint video-narration';n.textContent=videoNarrationLabel(job.narration);card.append(n);}
+      const lip=job.lip_sync?.requested===true?{text:sadTalkerJobLabel(job.lip_sync),className:'hint video-lipsync video-lipsync-status'}:job.lipsync?{text:videoLipsyncLabel(job.lipsync),className:'hint video-lipsync'}:null;if(lip){const el=document.createElement('div');el.className=lip.className;el.textContent=lip.text;card.append(el);}if(job.poll_error){const n=document.createElement('div');n.className='hint';n.textContent=job.poll_error;card.append(n);}if(segments.some(x=>x.status==='succeeded'&&x.url)){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}if(job.provider==='local'&&done){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}return card;}));updateStatusLamp();renderVideoEngines();
+  }
+  function projectStatusInfo(status){if(status==='draft')return {lamp:'idle',label:'未生成',busy:false};if(status==='queued'||status==='running')return {lamp:'processing',label:'生成中',busy:true};if(status==='succeeded')return {lamp:'online',label:'完了',busy:false};if(status==='failed')return {lamp:'error',label:'エラー',busy:false};return {lamp:'error',label:'要確認',busy:false};}
+  function renderVideoProjects(){
+    const box=$('videoProjects');if(!box)return;const projects=[...video.projects.values()].sort((x,y)=>String(y.updated_at||'').localeCompare(String(x.updated_at||'')));if(!projects.length){box.replaceChildren();return;}
+    box.replaceChildren(...projects.map(project=>{const id=String(project.project_id||''),info=projectStatusInfo(project.status),saving=video.projectSaving.has(id),blocked=!videoReady()||videoBusy()||saving||info.busy||!!project.active_job_id;const card=document.createElement('article');card.className='video-project';card.dataset.projectId=id;card.dataset.lamp=info.lamp;const title=document.createElement('div');title.className='video-project-title';title.textContent=String(project.title||'無題の動画');const meta=document.createElement('div');meta.className='video-project-meta';const lamp=lampFor(info.lamp);lamp.setAttribute('aria-label',info.label);const state=document.createElement('span');state.textContent=info.label;state.setAttribute('aria-label','状態: '+info.label);const aspect=document.createElement('span');aspect.textContent=String(project.aspect_ratio||'—');aspect.setAttribute('aria-label','縦横比: '+aspect.textContent);meta.append(lamp,state,aspect);const row=document.createElement('div');row.className='video-project-duration';const label=document.createElement('label');label.htmlFor='videoProjectDuration-'+id;label.textContent=`長尺指定（秒、1〜${videoMaxSeconds()}）`;const input=document.createElement('input');input.type='number';input.id='videoProjectDuration-'+id;input.min='1';input.max=String(videoMaxSeconds());input.step='1';input.value=String(project.duration_seconds??'');input.setAttribute('aria-label',`${title.textContent} の長尺指定（秒、1〜${videoMaxSeconds()}）`);input.disabled=blocked;const save=document.createElement('button');save.type='button';save.textContent=saving?'保存中…':'秒数を保存';save.disabled=blocked;save.setAttribute('aria-label',`${title.textContent} の秒数を保存`);save.addEventListener('click',()=>saveProjectDuration(id,input.value));row.append(label,input,save);card.append(title,meta,row);return card;}));
+  }
+  async function loadVideoProjects(){
+    if(!videoReady()||videoBusy()||video.projectsLoading)return;const context=videoContext();video.projectsLoading=true;refreshVideoSuite();$('videoStatus').textContent='動画プロジェクト一覧を読み込み中…';
+    try{const data=await requestJson('/api/video/projects');if(!isCurrentVideoContext(context))return;if(!data||!Array.isArray(data.items))throw new Error('動画プロジェクト一覧の応答形式が不正です');video.projects.clear();for(const project of data.items)if(isUuid(project?.project_id))video.projects.set(project.project_id,project);renderVideoProjects();$('videoStatus').textContent=`動画プロジェクト一覧を更新しました（${Number.isFinite(Number(data.total))?Number(data.total):video.projects.size}件）。`;}
+    catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}finally{if(context.epoch===video.epoch){video.projectsLoading=false;refreshVideoSuite();}}
+  }
+  async function saveProjectDuration(projectId,rawValue){
+    const project=video.projects.get(projectId);if(!project||!videoReady()||videoBusy()||video.projectSaving.has(projectId))return;const info=projectStatusInfo(project.status),max=videoMaxSeconds(),seconds=Number(rawValue);if(info.busy||project.active_job_id){$('videoStatus').textContent='生成中のプロジェクトは秒数を更新できません。';return;}if(!Number.isInteger(seconds)||seconds<1||seconds>max){$('videoStatus').textContent=`長尺指定は1〜${max}秒の整数で入力してください。`;return;}const version=Number(project.version);if(!Number.isInteger(version)||version<1){$('videoStatus').textContent='プロジェクトのバージョンを確認できません。一覧を更新してください。';return;}
+    const context=videoContext();video.projectSaving.add(projectId);renderVideoProjects();try{const updated=await requestJson('/api/video/projects/'+encodeURIComponent(projectId),{method:'PATCH',body:JSON.stringify({version,duration_seconds:seconds})});if(!isCurrentVideoContext(context))return;if(!updated||!isUuid(updated.project_id)||!Number.isInteger(Number(updated.version)))throw new Error('プロジェクト更新の応答形式が不正です');video.projects.set(projectId,{...project,...updated});renderVideoProjects();$('videoStatus').textContent='長尺指定を保存しました。動画プロジェクト一覧を更新しました。';}catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error?.status===409?'別の更新と競合しました。一覧を更新してからもう一度保存してください。':error.message;}finally{if(context.epoch===video.epoch){video.projectSaving.delete(projectId);renderVideoProjects();refreshVideoSuite();}}
   }
   function previewJobStatus(status){return status==='queued'||status==='running'?'processing':status;}
   function normalisePreviewJob(project,job,owner,createdAt=Date.now(),previous={}){
@@ -712,26 +729,16 @@
   }
   function videoRequestId(){return window.crypto?.randomUUID?window.crypto.randomUUID():'00000000-0000-4000-8000-'+String(Date.now()).padStart(12,'0').slice(-12);}
   async function generateVideo(){
-    if(!videoReady()||videoBusy())return;
-    const prompt=$('videoPrompt').value.trim();if(!prompt){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}
-    const context=videoContext(),owner=context.owner,form=new FormData(),file=$('videoImage').files?.[0],narration=$('videoNarration').value.trim(),lipSync=lipSyncRequested();
-    if(lipSync&&!file){$('videoStatus').textContent='人物を喋らせるには写真を1枚選んでください。';return;}
-    if(lipSync&&!narration){$('videoStatus').textContent='人物を喋らせるにはナレーションを入力してください。';return;}
-    form.append('session_id',owner);form.append('prompt',prompt);form.append('aspect_ratio',document.querySelector('input[name="videoAspect"]:checked').value);
-    form.append('duration_seconds',String(setVideoDuration($('videoDuration').value)));form.append('narration_text',narration);form.append('voice',$('videoVoice').value||'jimmy');form.append('lip_sync',String(lipSync));form.append('request_id',videoRequestId());
-    if(file){if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}form.append('image',file);}
-    video.submitting=true;refreshVideoSuite();$('videoStatus').textContent='生成を依頼しています…';
-    try{
-      const response=await fetch('/api/video/jobs',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}
-      if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'動画生成を依頼できませんでした');if(!isCurrentVideoContext(context))return;
-      video.jobs.set(data.id,{...data,owner,poll_epoch:video.epoch});renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);$('videoStatus').textContent=lipSync?'人物動画を生成（外部連携）を開始しました。SadTalkerを利用できない場合は静止画＋音声に切り替わります。':data.provider==='local'?'サーバー内で合成を始めました（0円）。長い動画は数分かかります。ほかの操作を続けて大丈夫です。':'生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';
-    }catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}
-    finally{if(context.epoch===video.epoch)video.submitting=false;refreshVideoSuite();}
+    if(!videoReady()||videoBusy())return;const prompt=$('videoPrompt').value.trim();if(!prompt){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}const context=videoContext(),owner=context.owner,form=new FormData(),file=$('videoImage').files?.[0],narration=$('videoNarration').value.trim(),cpu=cpuLipSyncRequested(),sad=sadTalkerRequested();
+    if(sad&&!file){$('videoStatus').textContent='人物を喋らせるには写真を1枚選んでください。';return;}if(sad&&!narration){$('videoStatus').textContent='人物を喋らせるにはナレーションを入力してください。';return;}
+    form.append('session_id',owner);form.append('prompt',prompt);form.append('aspect_ratio',document.querySelector('input[name="videoAspect"]:checked').value);form.append('duration_seconds',String(setVideoDuration($('videoDuration').value)));form.append('narration_text',narration);form.append('voice',$('videoVoice').value||'jimmy');form.append('lip_sync',String(cpu||sad));form.append('sadtalker',String(sad));form.append('request_id',videoRequestId());
+    if(file){if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}form.append('image',file);}video.submitting=true;refreshVideoSuite();$('videoStatus').textContent='生成を依頼しています…';
+    try{const response=await fetch('/api/video/jobs',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'動画生成を依頼できませんでした');if(!isCurrentVideoContext(context))return;video.jobs.set(data.id,{...data,owner,poll_epoch:video.epoch});renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);$('videoStatus').textContent=sad?'人物動画を生成（外部連携）を開始しました。SadTalkerを利用できない場合は静止画＋音声に切り替わります。':data.provider==='local'?'サーバー内で合成を始めました（0円）。長い動画は数分かかります。ほかの操作を続けて大丈夫です。':'生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';}catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}finally{if(context.epoch===video.epoch)video.submitting=false;refreshVideoSuite();}
   }
   async function generateVideoPreview(){
     if(!videoReady()||videoBusy())return;if(video.projectConfig?.preview_available!==true){$('videoStatus').textContent='0円プレビューは利用できません。';return;}
     const title=$('videoPrompt').value.trim(),file=$('videoImage').files?.[0];if(!title){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}if(!file){$('videoStatus').textContent='0円プレビューには写真を1枚選んでください。';return;}if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}
-    const context=videoContext(),aspectRatio=document.querySelector('input[name="videoAspect"]:checked').value,durationSeconds=setVideoDuration($('videoDuration').value),narration=$('videoNarration').value.trim(),tts={text:$('videoPreviewTts').checked?narration:'',voice:'en'},lipSync=lipSyncRequested();
+    const context=videoContext(),aspectRatio=document.querySelector('input[name="videoAspect"]:checked').value,durationSeconds=setVideoDuration($('videoDuration').value),narration=$('videoNarration').value.trim(),tts={text:$('videoPreviewTts').checked?narration:'',voice:'en'},sad=sadTalkerRequested();
     const form=new FormData();form.append('title',title);form.append('aspect_ratio',aspectRatio);form.append('duration_seconds',String(durationSeconds));form.append('tts',JSON.stringify(tts));form.append('render_prompt',title);form.append('image',file);
     video.previewSubmitting=true;refreshVideoSuite();$('videoStatus').textContent='0円プレビューを準備しています…';
     try{
@@ -739,15 +746,17 @@
       if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof project.detail==='string'?project.detail:'0円プレビューを作成できませんでした');if(!isCurrentVideoContext(context))return;
       if(!isUuid(project.project_id))throw new Error('プレビュープロジェクトの応答形式が不正です');const projectRecord={...project,title:typeof project.title==='string'?project.title:title,aspect_ratio:project.aspect_ratio||aspectRatio,duration_seconds:project.duration_seconds??durationSeconds,tts};
       const queued=await requestJson('/api/video/generate/preview',{method:'POST',body:JSON.stringify({project_id:project.project_id,request_id:videoRequestId()})});if(!isCurrentVideoContext(context))return;
-      const job=normalisePreviewJob(projectRecord,queued,context.owner,Date.now());job.poll_epoch=video.epoch;video.jobs.set(job.id,job);renderVideoJobs();if(job.status==='processing')scheduleVideoPoll(job.id);$('videoStatus').textContent=lipSync?'0円プレビューは口パクを行いません。人物を喋らせるには動画を生成を選んでください。':'0円プレビューを開始しました。ほかの操作を続けて大丈夫です。';
+      const job=normalisePreviewJob(projectRecord,queued,context.owner,Date.now());job.poll_epoch=video.epoch;video.jobs.set(job.id,job);renderVideoJobs();if(job.status==='processing')scheduleVideoPoll(job.id);$('videoStatus').textContent=sad?'0円プレビューは口パクを行いません。人物を喋らせるには動画を生成を選んでください。':'0円プレビューを開始しました。ほかの操作を続けて大丈夫です。';
     }catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}
     finally{if(context.epoch===video.epoch)video.previewSubmitting=false;refreshVideoSuite();}
   }
   $('videoDuration').addEventListener('change',event=>setVideoDuration(event.target.value));
   $('videoDurationRange').addEventListener('input',event=>setVideoDuration(event.target.value));
-  $('videoLipSync').addEventListener('change',()=>{renderVideoConfig();refreshVideoSuite();});
+  $('videoLipsync').addEventListener('change',()=>{if(cpuLipSyncRequested())$('videoLipSync').checked=false;renderVideoConfig();refreshVideoSuite();});
+  $('videoLipSync').addEventListener('change',()=>{if(sadTalkerRequested())$('videoLipsync').checked=false;renderVideoConfig();refreshVideoSuite();});
   $('videoGenerate').addEventListener('click',generateVideo);
   $('videoPreview').addEventListener('click',generateVideoPreview);
+  $('videoProjectsRefresh').addEventListener('click',loadVideoProjects);
   $('videoSuite').addEventListener('toggle',()=>{if($('videoSuite').open&&connected){loadVideoConfig();if(sessionId)loadVideoJobs();}});
 </script>
 </body>

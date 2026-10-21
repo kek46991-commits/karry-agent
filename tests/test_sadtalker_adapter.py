@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -118,7 +119,11 @@ class Client:
 ''',
         encoding="utf-8",
     )
-    monkeypatch.setenv("PYTHONPATH", str(root))
+    # 本番は-Iで起動する。fake SDKはテスト専用launcherだけへ明示的に注入する。
+    launcher = root / "test_worker_launcher.py"
+    worker = Path(st.__file__).with_name("sadtalker_worker.py")
+    launcher.write_text(f"import runpy,sys\nsys.path.insert(0,{str(root)!r})\nrunpy.run_path({str(worker)!r},run_name='__main__')\n")
+    monkeypatch.setattr(st, "_worker_command", lambda: [sys.executable, "-I", str(launcher)])
     return root
 
 
@@ -271,3 +276,28 @@ def test_error_code_is_a_fixed_safe_enum() -> None:
     assert st.SadTalkerError("sadtalker_busy").code == "sadtalker_busy"
     with pytest.raises(ValueError):
         st.SadTalkerError("private-provider-message")
+
+
+def test_worker_does_not_inherit_pythonpath_or_other_provider_keys(monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "/untrusted/python/modules")
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-unrelated-key")
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner-key")
+    monkeypatch.setenv("HF_TOKEN", "synthetic-hf-key")
+    environment = st._worker_environment()
+    assert set(environment) == {"PATH", "LANG", "HF_TOKEN"}
+    assert environment["HF_TOKEN"] == "synthetic-hf-key"
+    assert st._worker_command()[1] == "-I"
+
+
+def test_gradio_profile_rejects_legacy_count_and_partial_parameter_names():
+    from karry_agent import sadtalker_worker as worker
+    names = ["source_image", "driven_audio", "preprocess_type", "is_still_mode", "enhancer",
+             "batch_size", "size_of_image", "pose_style", "facerender", "exp_weight",
+             "use_ref_video", "ref_video", "ref_info", "use_idle_mode", "length_of_audio", "blink_every"]
+    parameters = [{"parameter_name": name} for name in names]
+    worker._validate_parameter_schema(parameters, 16)
+    with pytest.raises(worker.WorkerError):
+        worker._validate_parameter_schema(parameters[:8], 8)
+    parameters[0]["parameter_name"] = "source_image_send_elsewhere"
+    with pytest.raises(worker.WorkerError):
+        worker._validate_parameter_schema(parameters, 16)

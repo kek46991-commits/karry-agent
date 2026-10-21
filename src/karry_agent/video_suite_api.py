@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
+from . import lipsync
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
@@ -73,6 +74,16 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                         from .sadtalker import SadTalkerError
                         code = exc.code if isinstance(exc, SadTalkerError) else "sadtalker_output" if isinstance(exc, vs.VideoError) else "sadtalker_failed"
                         job["lip_sync"]["fallback_reason"] = code
+            if clip is None and job.get("lipsync"):
+                try:
+                    if (job["narration"] or {}).get("status") != "succeeded":
+                        raise lipsync.LipSyncError("no_narration")
+                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav, lip_sync=True)
+                    job["lipsync"] = {"status": "succeeded"}
+                except lipsync.LipSyncError as exc:
+                    job["lipsync"] = {"status": "fallback", "error": exc.code}
+                except Exception:
+                    job["lipsync"] = {"status": "fallback", "error": "lipsync_failed"}
             if clip is None:
                 try:
                     clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
@@ -88,7 +99,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         except Exception:
             segment |= {"status": "failed", "error": "render_failed"}
         job["status"] = vs.overall_status(job["segments"])
-        if job["status"] == "succeeded" and (job["narration"] or {}).get("status") not in (None, "succeeded"):
+        if job["status"] == "succeeded" and ((job["narration"] or {}).get("status") not in (None, "succeeded")
+                                              or (job.get("lipsync") or {}).get("status") == "fallback"):
             job["status"] = "partial"
         job["updated_at"] = time.time()
         store.save(job)
@@ -137,6 +149,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         return _json({"enabled": enabled, "reason": reason, "provider": provider, "clip_lengths": lengths,
                       "aspect_ratios": list(vs.ASPECT_RATIOS), "min_seconds": vs.MIN_SECONDS, "max_seconds": vs.MAX_SECONDS,
                       "sadtalker": sadtalker_config,
+                      "lipsync_available": bool(enabled and getattr(adapter, "local", False) and lipsync.available()),
                       "narration_available": narrators().available,
                       "voices": [{"id": k, "label": vs.VOICE_LABELS[k]} for k in vs.VOICES]})
 
@@ -148,6 +161,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                      narration_text: Annotated[str, Form(max_length=1000)] = "",
                      voice: Annotated[str, Form()] = "jimmy",
                      lip_sync: Annotated[bool, Form()] = False,
+                     sadtalker: Annotated[bool, Form()] = False,
                      request_id: Annotated[uuid.UUID | None, Form()] = None,
                      image: Annotated[UploadFile | None, File()] = None):
         try:
@@ -158,7 +172,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             body = await image.read(MAX_UPLOAD_BYTES + 1) if image is not None and image.filename else b""
             if len(body) > MAX_UPLOAD_BYTES:
                 raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
-            if lip_sync and (not body or not narration_text.strip()):
+            if sadtalker and (not body or not narration_text.strip()):
                 raise vs.VideoError("人物を喋らせるには人物画像と読み上げる文章が必要です。", 422, "lipsync_input_required")
             rid = str(request_id or uuid.uuid4())
 
@@ -168,10 +182,10 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 existing = next((j for j in store.jobs().values() if j["request_id"] == rid), None)
                 if existing:
                     return existing, 200
-                adapter = vs.LocalVideoRenderer() if lip_sync else adapters()
+                adapter = vs.LocalVideoRenderer() if sadtalker else adapters()
                 if getattr(adapter, "local", False):
                     vs.plan_segments(duration_seconds, adapter.clip_lengths)
-                    image_bytes = (base64.b64decode(vs.image_data_uri(body).split(",", 1)[1]) if lip_sync
+                    image_bytes = (base64.b64decode(vs.image_data_uri(body).split(",", 1)[1]) if sadtalker
                                    else vs.compose_frame(aspect_ratio, prompt.strip(), body)) if body else None
                     text = narration_text.strip()
                     job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": prompt.strip(),
@@ -179,7 +193,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                            "with_image": bool(body), "created_at": time.time(), "updated_at": time.time(),
                            "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}],
                            "narration": {"text": text, "voice": voice, "status": "failed", "muxed": False} if text else None}
-                    if lip_sync:
+                    job["lipsync"] = {"status": "processing"} if lip_sync and not sadtalker else None
+                    if sadtalker:
                         job["lip_sync"] = {"requested": True, "status": "processing", "engine": "sadtalker"}
                     store.save(job)
                     run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice))

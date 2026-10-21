@@ -95,7 +95,7 @@ def setup(monkeypatch):
 def create(client, *, lip=True, with_image=True, narration="Hello", rid=None, headers=AUTH):
     return client.post("/api/video/jobs", headers=headers, data={"session_id": "lipsync-test-task", "prompt": "Portrait",
         "aspect_ratio": "9:16", "duration_seconds": "5", "voice": "jimmy", "narration_text": narration,
-        "lip_sync": str(lip).lower(), "request_id": str(rid or uuid4())},
+        "lip_sync": str(lip).lower(), "sadtalker": str(lip).lower(), "request_id": str(rid or uuid4())},
         files={"image": ("portrait.png", portrait(), "image/png")} if with_image else None)
 
 

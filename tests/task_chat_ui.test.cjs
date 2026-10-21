@@ -653,7 +653,7 @@ test('speech service refusal and device busy have distinct actionable reasons',a
 
 function videoFetch(posts,provider='replicate'){
   return async(url,request={})=>{
-    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
+    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,lipsync_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
     if(url.startsWith('/api/video/jobs?'))return json([]);
     if(url==='/api/video/jobs'&&request.method==='POST'){
       const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
@@ -815,4 +815,50 @@ test('SadTalker job cards use safe success or fallback text and secret mode guar
   assert.match($('videoJobs').textContent,/口パク生成を利用できなかったため静止画＋音声で完成/);assert.match($('videoJobs').textContent,/ナレーション音声を作れませんでした/);assert.doesNotMatch($('videoJobs').textContent,/provider_timeout/);
   $('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoLipSync').disabled,true);$('videoLipSync').checked=true;$('videoPrompt').value='秘密の人物';$('videoNarration').value='秘密の音声';await s.win.generateVideo();
   assert.equal(posts.length,0);s.dom.window.close();
+});
+
+
+test('status lamps: header goes idle → online → processing, video engines and CPU job cards get lamps',async()=>{
+  const posts=[];const s=setup({fetch:videoFetch(posts,'local')});const $=id=>s.doc.getElementById(id);
+  assert.equal($('statusLamp').dataset.lamp,'idle');assert.equal($('videoLipsync').disabled,true);
+  s.authenticate();await s.win.connectSessions();assert.equal($('statusLamp').dataset.lamp,'online');assert.equal($('statusLamp').getAttribute('aria-label'),'オンライン');
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  const engines=[...$('videoEngines').querySelectorAll('[data-engine]')].map(e=>[e.dataset.engine,e.querySelector('.lamp').dataset.lamp]);assert.deepEqual(engines,[['合成','online'],['ナレーション','online'],['口パク','online']]);
+  assert.equal($('videoLipsync').disabled,false);$('videoLipsync').checked=true;$('videoPrompt').value='しゃべるジミー';$('videoNarration').value='まいど';await s.win.generateVideo();
+  assert.equal(posts[0].fields.lip_sync,'true');assert.equal(posts[0].fields.sadtalker,'false');assert.equal($('statusLamp').dataset.lamp,'processing');assert.equal(s.doc.querySelector('.video-job').dataset.lamp,'processing');assert.equal($('videoEngines').querySelector('[data-engine="合成"] .lamp').dataset.lamp,'processing');
+  const sid=$('session').textContent,job={id:'job1',owner:sid,status:'partial',provider:'local',aspect_ratio:'9:16',duration_seconds:5,prompt:'p',created_at:1,segments:[{index:0,status:'succeeded',clip_seconds:5,play_seconds:5,url:'/c'}],lipsync:{status:'fallback',error:'no_face'}};
+  s.win.eval(`for(const t of video.timers.values())clearTimeout(t);video.timers.clear();video.jobs.clear();video.jobs.set('job1',${JSON.stringify(job)});renderVideoJobs()`);assert.equal($('statusLamp').dataset.lamp,'online');assert.equal(s.doc.querySelector('.video-job').dataset.lamp,'warn');assert.match(s.doc.querySelector('.video-job .video-lipsync').textContent,/写真から顔を見つけられませんでした/);
+  s.win.eval(`video.jobs.set('job1',${JSON.stringify({...job,status:'succeeded',lipsync:{status:'succeeded'}})});renderVideoJobs()`);assert.equal(s.doc.querySelector('.video-job .lamp').dataset.lamp,'online');assert.match(s.doc.querySelector('.video-job .video-lipsync').textContent,/口を動かしました/);s.win.setConnectionStatus('接続できません');assert.equal($('statusLamp').dataset.lamp,'error');s.dom.window.close();
+});
+
+const SQL_PROJECT_ID='123e4567-e89b-42d3-a456-426614174099';
+function sqlProject(id=SQL_PROJECT_ID,status='draft',version=1,duration_seconds=10){return {project_id:id,title:'SQL project '+status,aspect_ratio:'16:9',status,version,duration_seconds,updated_at:'2026-10-22T00:00:00Z'};}
+function sqlProjectsFetch(calls,items,patch){return async(url,request={})=>{
+  if(url==='/api/video/project-config')return json({enabled:true,preview_available:false,tts_available:false,max_seconds:120});
+  if(url==='/api/video/config')return json({enabled:false,reason:'有料プロバイダーは未設定です。',clip_lengths:[5,10],lipsync_available:false,narration_available:true,voices:[],sadtalker:{configured:false,local_fallback_available:true,timeout_seconds:30,provider:'huggingface'}});
+  if(url.startsWith('/api/video/jobs?'))return json([]);
+  if(url==='/api/video/projects'&&(!request.method||request.method==='GET')){calls.push({kind:'list',request});return json({items,total:items.length,limit:20,offset:0});}
+  if(url==='/api/video/projects/'+SQL_PROJECT_ID&&request.method==='PATCH'){const body=JSON.parse(request.body);calls.push({kind:'patch',body,request});return patch?patch(body,request):json({...items[0],version:body.version+1,duration_seconds:body.duration_seconds});}
+};}
+async function openSqlProjects(s){const $=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));}
+
+test('SQL video project list is fetched only by its explicit button and renders draft, yellow, green and red lamps',async()=>{
+  const calls=[],items=[sqlProject(SQL_PROJECT_ID,'draft'),sqlProject('123e4567-e89b-42d3-a456-426614174098','queued'),sqlProject('123e4567-e89b-42d3-a456-426614174097','succeeded'),sqlProject('123e4567-e89b-42d3-a456-426614174096','failed'),sqlProject('123e4567-e89b-42d3-a456-426614174095','unknown')];const s=setup({fetch:sqlProjectsFetch(calls,items)}),$=id=>s.doc.getElementById(id);await openSqlProjects(s);
+  assert.equal(calls.length,0);assert.match($('videoProjectsHeading').textContent,/動画プロジェクト一覧/);assert.equal($('videoProjectsRefresh').disabled,false);$('videoProjectsRefresh').click();await new Promise(r=>setTimeout(r,0));
+  assert.equal(calls.length,1);assert.equal(calls[0].request.headers.Authorization,'Bearer synthetic-owner');const cards=[...$('videoProjects').querySelectorAll('.video-project')];assert.equal(cards.length,5);assert.deepEqual(cards.map(card=>card.dataset.lamp),['idle','processing','online','error','error']);assert.match(cards[0].textContent,/未生成/);assert.match(cards[4].textContent,/要確認/);assert.equal(cards[1].querySelector('.lamp').getAttribute('aria-label'),'生成中');s.dom.window.close();
+});
+
+test('SQL project seconds PATCH carries the current version, adopts returned version, and explains a 409 conflict',async()=>{
+  const calls=[],items=[sqlProject()];let conflict=false;
+  const s=setup({fetch:sqlProjectsFetch(calls,items,body=>conflict?json({detail:'conflict'},409):json({...items[0],version:2,duration_seconds:body.duration_seconds}))}),$=id=>s.doc.getElementById(id);await openSqlProjects(s);await s.win.loadVideoProjects();let input=$('videoProjects').querySelector('input[type="number"]');input.value='45';$('videoProjects').querySelector('button').click();await new Promise(r=>setTimeout(r,0));
+  assert.deepEqual(calls.find(c=>c.kind==='patch').body,{version:1,duration_seconds:45});assert.equal(calls.find(c=>c.kind==='patch').request.headers.Authorization,'Bearer synthetic-owner');assert.equal(s.win.eval(`video.projects.get('${SQL_PROJECT_ID}').version`),2);assert.match($('videoStatus').textContent,/保存しました/);
+  conflict=true;input=$('videoProjects').querySelector('input[type="number"]');input.value='46';$('videoProjects').querySelector('button').click();await new Promise(r=>setTimeout(r,0));assert.match($('videoStatus').textContent,/競合.*一覧を更新/);s.dom.window.close();
+});
+
+test('SQL project invalid seconds are not clamped and never PATCH',async()=>{
+  const calls=[],items=[sqlProject()];const s=setup({fetch:sqlProjectsFetch(calls,items)}),$=id=>s.doc.getElementById(id);await openSqlProjects(s);await s.win.loadVideoProjects();const input=$('videoProjects').querySelector('input[type="number"]');for(const value of ['0','121']){input.value=value;$('videoProjects').querySelector('button').click();await new Promise(r=>setTimeout(r,0));assert.match($('videoStatus').textContent,/1〜120秒/);}assert.equal(calls.some(c=>c.kind==='patch'),false);s.dom.window.close();
+});
+
+test('SQL project list and seconds writes are guarded in secret mode',async()=>{
+  const calls=[],items=[sqlProject()];const s=setup({fetch:sqlProjectsFetch(calls,items)}),$=id=>s.doc.getElementById(id);await openSqlProjects(s);$('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoProjectsRefresh').disabled,true);await s.win.loadVideoProjects();assert.equal(calls.length,0);s.win.eval(`video.projects.set('${SQL_PROJECT_ID}',${JSON.stringify(items[0])});renderVideoProjects()`);assert.equal($('videoProjects').querySelector('button').disabled,true);await s.win.saveProjectDuration(SQL_PROJECT_ID,'30');assert.equal(calls.some(c=>c.kind==='patch'),false);s.dom.window.close();
 });

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import inspect
-import io
 import json
 import os
 from pathlib import Path
@@ -47,25 +46,24 @@ _PROFILE_16: Final = (
     5,
     True,
 )
-# 旧 UI は上の正式プロファイルの先頭 8/9 controls だけを公開していたものに限る。
-_LEGACY_COUNTS: Final = frozenset({8, 9})
-_CANONICAL_MARKERS: Final = (
-    ("source", "image"),
-    ("driven", "audio"),
-    ("preprocess",),
-    ("still",),
-    ("enhancer",),
-    ("batch",),
-    ("size",),
-    ("pose",),
-    ("facerender",),
-    ("exp",),
-    ("ref",),
-    ("ref", "video"),
-    ("ref",),
-    ("idle",),
-    ("length",),
-    ("blink",),
+# 公式16入力の既知の引数名だけを許可する。部分文字列で別APIを受理しない。
+_PARAMETER_NAMES: Final = (
+    frozenset({"source image"}),
+    frozenset({"driven audio"}),
+    frozenset({"preprocess", "preprocess type"}),
+    frozenset({"still mode", "is still mode"}),
+    frozenset({"enhancer", "use enhancer"}),
+    frozenset({"batch size"}),
+    frozenset({"size", "size of image"}),
+    frozenset({"pose style"}),
+    frozenset({"facerender"}),
+    frozenset({"exp scale", "exp weight", "expression scale"}),
+    frozenset({"use ref video"}),
+    frozenset({"ref video"}),
+    frozenset({"ref info"}),
+    frozenset({"use idle mode"}),
+    frozenset({"length of audio"}),
+    frozenset({"use blink", "blink every", "blink"}),
 )
 
 
@@ -86,7 +84,7 @@ def main() -> int:
     try:
         request = _parse_request(raw)
         # SDK や依存ライブラリの stdout/stderr はプロトコルを壊さないよう破棄する。
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
             _run(request)
     except WorkerError as error:
         _emit({"ok": False, "code": error.code})
@@ -216,11 +214,10 @@ def _make_client(space_id: str, timeout_seconds: int, token: str | None) -> Any:
             # httpx に必ず有限 timeout を設定する。redirect は SDK 側にも追わせない。
             "httpx_kwargs": {"timeout": network_timeout, "follow_redirects": False},
         }
-        if token:
-            if "token" in parameters:
-                kwargs["token"] = token
-            elif "hf_token" in parameters:
-                kwargs["hf_token"] = token
+        if "token" in parameters:
+            kwargs["token"] = token or False
+        elif "hf_token" in parameters:
+            kwargs["hf_token"] = token or False
         return Client(space_id, **kwargs)
     except WorkerError:
         raise
@@ -229,7 +226,7 @@ def _make_client(space_id: str, timeout_seconds: int, token: str | None) -> Any:
 
 
 def _checked_profile(client: Any, api_name: str, image_path: str, audio_path: str) -> tuple[object, ...]:
-    """view_api の辞書を確認して、既知の 16/8/9 入力だけを submit する。"""
+    """view_api の辞書を確認して、既知の16入力だけをsubmitする。"""
 
     try:
         info = client.view_api(return_format="dict", print_info=False)
@@ -249,9 +246,6 @@ def _checked_profile(client: Any, api_name: str, image_path: str, audio_path: st
     if count == 16:
         _validate_parameter_schema(parameters, 16)
         return (image_path, audio_path, *_PROFILE_16[2:])
-    if count in _LEGACY_COUNTS:
-        _validate_parameter_schema(parameters, count)
-        return (image_path, audio_path, *_PROFILE_16[2:count])
     raise WorkerError("protocol")
 
 
@@ -262,20 +256,16 @@ def _normalise_name(value: object) -> str:
 
 
 def _validate_parameter_schema(parameters: list[object], count: int) -> None:
-    """count だけで別アプリを SadTalker と誤認しない最低限の名前検査。"""
+    """公式プロファイルの引数名または定義済み別名と完全一致させる。"""
 
-    for index, parameter in enumerate(parameters[:count]):
+    if count != 16:
+        raise WorkerError("protocol")
+    for index, parameter in enumerate(parameters):
         if not isinstance(parameter, dict):
             raise WorkerError("protocol")
         name = _normalise_name(parameter.get("parameter_name"))
-        label = _normalise_name(parameter.get("label"))
-        candidate = name or label
-        markers = _CANONICAL_MARKERS[index]
-        # Gradio の parameter_name には source_image、label には Source image のどちらもあり得る。
-        if not candidate or not all(marker in candidate for marker in markers):
-            # name が component ID の場合に限り label を second source として許可する。
-            if not all(marker in label for marker in markers):
-                raise WorkerError("protocol")
+        if name not in _PARAMETER_NAMES[index]:
+            raise WorkerError("protocol")
 
 
 def _one_output_url(value: object) -> str:

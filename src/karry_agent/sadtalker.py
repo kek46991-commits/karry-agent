@@ -181,10 +181,7 @@ class SadTalkerAdapter:
         payload = json.dumps(request, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
         try:
             process = await asyncio.create_subprocess_exec(
-                sys.executable,
-                # ``-m karry_agent...`` は package __init__ の無関係なSDKまで import
-                # し得るため、短命worker自身だけを直接起動する。
-                str(Path(__file__).with_name("sadtalker_worker.py")),
+                *_worker_command(),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -226,15 +223,17 @@ def adapter_from_env() -> SadTalkerAdapter:
     )
 
 
+def _worker_command() -> list[str]:
+    # -I は親のPYTHONPATHとユーザーsite-packagesを無視する。
+    # package __init__ の無関係なSDKを読まず、必要なworkerだけを起動する。
+    return [sys.executable, "-I", str(Path(__file__).with_name("sadtalker_worker.py"))]
+
+
 def _worker_environment() -> dict[str, str]:
     """子プロセスに渡す環境を allow-list する。KARRY_* や認証情報はコピーしない。"""
 
-    package_root = str(Path(__file__).resolve().parents[1])
-    inherited_path = os.environ.get("PYTHONPATH", "")
-    pythonpath = package_root if not inherited_path else package_root + os.pathsep + inherited_path
     environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "PYTHONPATH": pythonpath,
         "LANG": os.environ.get("LANG", "C.UTF-8"),
     }
     token = os.environ.get("HF_TOKEN")

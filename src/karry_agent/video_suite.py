@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from . import task_persistence
+from . import lipsync, task_persistence
 
 ASPECT_RATIOS = ("16:9", "9:16")
 MIN_SECONDS, MAX_SECONDS = 1, 120
@@ -324,7 +324,9 @@ class LocalVideoRenderer:
         if not self.ffmpeg:
             raise VideoError("動画の合成エンジン（ffmpeg）がサーバーにありません。", 503, "video_configuration")
 
-    def render(self, prompt: str, aspect_ratio: str, seconds: int, image: bytes | None, narration: bytes | None) -> bytes:
+    def render(self, prompt: str, aspect_ratio: str, seconds: int, image: bytes | None, narration: bytes | None,
+               lip_sync: bool = False) -> bytes:
+        """One MP4. With ``lip_sync`` the photo's mouth follows the narration loudness (raises LipSyncError if impossible)."""
         if aspect_ratio not in LOCAL_SIZES:
             raise VideoError("縦横比は 16:9 か 9:16 を選んでください。", 422, "invalid_aspect_ratio")
         plan_segments(seconds, self.clip_lengths)
@@ -334,10 +336,16 @@ class LocalVideoRenderer:
                  f"fade=t=in:st=0:d={fade:.2f},fade=t=out:st={seconds - fade:.2f}:d={fade:.2f},format=yuv420p[v]")
         with tempfile.TemporaryDirectory(prefix="karry-video-") as work:
             frame, out = os.path.join(work, "frame.jpg"), os.path.join(work, "out.mp4")
+            base = compose_frame(aspect_ratio, prompt, image)
             with open(frame, "wb") as handle:
-                handle.write(compose_frame(aspect_ratio, prompt, image))
-            cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                   "-loop", "1", "-framerate", str(LOCAL_FPS), "-i", frame]
+                handle.write(base)
+            cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+            if lip_sync:
+                if image is None:
+                    raise lipsync.LipSyncError("no_photo")
+                cmd += ["-f", "concat", "-safe", "0", "-i", self._lipsync_script(work, base, narration, seconds)]
+            else:
+                cmd += ["-loop", "1", "-framerate", str(LOCAL_FPS), "-i", frame]
             if narration:
                 audio = os.path.join(work, "narration.wav")
                 with open(audio, "wb") as handle:
@@ -357,6 +365,23 @@ class LocalVideoRenderer:
                 raise VideoError("合成した動画の容量上限を超えました。", 413, "output_capacity")
             with open(out, "rb") as handle:
                 return handle.read()
+
+    @staticmethod
+    def _lipsync_script(work: str, base: bytes, narration: bytes | None, seconds: int) -> str:
+        if not narration:
+            raise lipsync.LipSyncError("no_narration")
+        if not lipsync.available():
+            raise lipsync.LipSyncError("unavailable")
+        poses = lipsync.mouth_poses(base, lipsync.find_mouth(base))
+        paths = []
+        for index, pose in enumerate(poses):
+            paths.append(os.path.join(work, f"mouth{index}.jpg"))
+            with open(paths[-1], "wb") as handle:
+                handle.write(pose)
+        script = os.path.join(work, "frames.ffconcat")
+        with open(script, "w", encoding="utf-8") as handle:
+            handle.write(lipsync.concat_script(paths, lipsync.loudness_levels(narration, LOCAL_FPS, seconds * LOCAL_FPS), LOCAL_FPS))
+        return script
 
 
 def normalize_lipsync_video(clip: bytes, narration: bytes, aspect_ratio: str, seconds: int) -> bytes:
@@ -598,7 +623,8 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
                                                      "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
                                                      **({"error": narration["error"]} if narration.get("error") else {}),
-                                                     **({"url": f"/api/video/jobs/{job['id']}/narration{q}"} if narration["status"] == "succeeded" else {})}}
+                                                     **({"url": f"/api/video/jobs/{job['id']}/narration{q}"} if narration["status"] == "succeeded" else {})},
+            "lipsync": job.get("lipsync")}
 
 
 def overall_status(segments: list[dict[str, Any]]) -> str:
