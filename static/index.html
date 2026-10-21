@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="voice-interrupt-20261019">
+  <meta name="karry-ui-version" content="video-suite-20261019">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -29,6 +29,7 @@
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     .composer-tools{padding:12px 15px;border-top:1px solid var(--line);background:#172239;scroll-margin-top:16px}.secret-controls{margin:0;flex-wrap:wrap;font-size:14px}.secret-controls input{appearance:none;position:relative;width:44px;height:26px;margin:0;background:#536078;border-radius:20px;cursor:pointer;flex:none}.secret-controls input::after{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:white;border-radius:50%;transition:transform .15s}.secret-controls input:checked{background:#bd416a}.secret-controls input:checked::after{transform:translateX(18px)}.secret-controls input:disabled{cursor:not-allowed;opacity:.7}.mode-status{padding:1px 8px;border-radius:20px;background:#263451;font-size:12px}.feature-jump{font-size:12px;margin-top:7px}.voice-options{flex-wrap:wrap}#voiceStatus{flex-basis:100%;overflow-wrap:anywhere}.mic-help{padding:0 15px 14px;color:var(--muted);font-size:13px}.mic-help summary{cursor:pointer;color:#a5cdff;font-weight:700}.mic-help ol{padding-left:20px}.mic-help button{padding:7px 12px;margin-top:5px}.mic-help a{display:inline-block;margin:8px 0}.ui-version{font-size:11px;color:var(--muted)}
+    .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}}
   </style>
 </head>
@@ -52,6 +53,19 @@
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
+        <details id="videoSuite" class="video-suite"><summary>🎬 動画を作る（画像・縦横比・長さ・ナレーション）</summary><div class="video-body">
+          <p id="videoConfig" class="hint">開くと利用設定を確認します。</p>
+          <label for="videoPrompt">どんな動画にするか</label><textarea id="videoPrompt" maxlength="2000" placeholder="例: 夕焼けの海辺をゆっくり歩くジミー、映画のような光" disabled></textarea>
+          <div class="video-row"><label for="videoImage">写真（任意）</label><input id="videoImage" type="file" accept="image/jpeg,image/png,image/webp" disabled></div>
+          <div class="video-row" role="radiogroup" aria-label="縦横比"><span>縦横比</span><label><input type="radio" name="videoAspect" value="16:9" checked disabled> 16:9 横</label><label><input type="radio" name="videoAspect" value="9:16" disabled> 9:16 縦</label></div>
+          <div class="video-row"><label for="videoDuration">長さ（秒）</label><input id="videoDuration" type="number" min="1" max="120" step="1" value="10" disabled><input id="videoDurationRange" type="range" min="1" max="120" step="1" value="10" aria-label="長さ（秒）" disabled></div>
+          <p id="videoPlan" class="hint">1本 10秒まで。長い動画は複数カットに分けて順に再生します。</p>
+          <label for="videoNarration">ナレーション（任意）</label><textarea id="videoNarration" maxlength="1000" placeholder="ジミーの声で読み上げる文章" disabled></textarea>
+          <div class="video-row"><label for="videoVoice">声</label><select id="videoVoice" disabled><option value="jimmy">ジミー（低めの男性）</option></select><button id="videoGenerate" type="button" disabled>動画を生成</button></div>
+          <div id="videoStatus" class="hint" aria-live="polite"></div>
+          <video id="videoPlayer" class="video-player" controls playsinline hidden></video>
+          <div id="videoJobs" class="video-jobs"></div>
+        </div></details>
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
     </section>
@@ -567,6 +581,86 @@
   $('imageFile').addEventListener('change',uploadSelectedImage);
   window.addEventListener('pagehide',()=>{viewVersion++;stopMicrophone();discardSecretConversations();});
   setBusy(false);
+</script>
+<script>
+  const video={session:null,config:null,submitting:false,jobs:new Map(),timers:new Map(),blobs:new Map(),play:null};
+  function videoClamp(value){const n=Math.round(Number(value));return Number.isFinite(n)?Math.min(120,Math.max(1,n)):10;}
+  function videoPlan(seconds){const lengths=video.config?.clip_lengths?.length?video.config.clip_lengths:[5,10];const longest=Math.max(...lengths);let left=seconds,cuts=0;while(left>0){left-=Math.min(left,longest);cuts++;}return cuts;}
+  function setVideoDuration(value){const seconds=videoClamp(value);$('videoDuration').value=seconds;$('videoDurationRange').value=seconds;const cuts=videoPlan(seconds);$('videoPlan').textContent=cuts>1?`${seconds}秒 → ${cuts}カットに分けて生成し、順に再生します。`:`${seconds}秒・1カットで生成します。`;return seconds;}
+  function videoReady(){return connected&&!!sessionId&&!isSecret&&!busy;}
+  function refreshVideoSuite(){
+    const ok=videoReady();
+    for(const id of ['videoPrompt','videoImage','videoDuration','videoDurationRange','videoNarration','videoVoice'])$(id).disabled=!ok;
+    for(const radio of document.querySelectorAll('input[name="videoAspect"]'))radio.disabled=!ok;
+    $('videoGenerate').disabled=!ok||video.submitting||video.config?.enabled===false;
+    if(video.session!==sessionId){video.session=sessionId;stopVideoPlayback();renderVideoJobs();if(ok&&$('videoSuite').open)loadVideoJobs();}
+  }
+  const baseRefreshControls=refreshControls;
+  refreshControls=function(){baseRefreshControls();refreshVideoSuite();};
+  async function loadVideoConfig(){
+    try{const config=await requestJson('/api/video/config');video.config=config;
+      $('videoVoice').replaceChildren(...config.voices.map(v=>{const o=document.createElement('option');o.value=v.id;o.textContent=v.label;return o;}));
+      $('videoConfig').textContent=config.enabled?`生成先: ${config.provider}・1カット ${Math.max(...config.clip_lengths)}秒まで${config.narration_available?'・ナレーション音声あり':'・ナレーションは端末の声で再生'}`:(config.reason||'動画生成は未設定です。');
+      setVideoDuration($('videoDuration').value);
+    }catch(error){$('videoConfig').textContent=error.message;}
+    refreshVideoSuite();
+  }
+  async function loadVideoJobs(){
+    const owner=sessionId;if(!owner)return;
+    try{const jobs=await requestJson('/api/video/jobs?session_id='+encodeURIComponent(owner));for(const job of jobs){video.jobs.set(job.id,{...job,owner});if(job.status==='processing')scheduleVideoPoll(job.id);}renderVideoJobs();}catch(error){$('videoStatus').textContent=error.message;}
+  }
+  function videoLabel(status){return {processing:'生成中…',succeeded:'完成',partial:'一部失敗',failed:'失敗'}[status]||status;}
+  function renderVideoJobs(){
+    const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>b.created_at-a.created_at);
+    $('videoJobs').replaceChildren(...list.map(job=>{
+      const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;
+      const done=job.segments.filter(s=>s.status==='succeeded').length;
+      const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${job.segments.length}カット｜${job.prompt}`;card.append(text);
+      if(job.narration){const n=document.createElement('div');n.className='hint';n.textContent='ナレーション: '+(job.narration.status==='succeeded'?'音声あり':'端末の声で再生');card.append(n);}
+      if(done){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
+      return card;}));
+  }
+  function scheduleVideoPoll(jobId){
+    if(video.timers.has(jobId))return;
+    video.timers.set(jobId,setTimeout(async()=>{video.timers.delete(jobId);const job=video.jobs.get(jobId);if(!job)return;
+      try{const fresh=await requestJson(`/api/video/jobs/${encodeURIComponent(jobId)}?session_id=${encodeURIComponent(job.owner)}`);video.jobs.set(jobId,{...fresh,owner:job.owner});renderVideoJobs();if(fresh.status==='processing')scheduleVideoPoll(jobId);}
+      catch(_){scheduleVideoPoll(jobId);}
+    },6000));
+  }
+  async function videoBlob(url){if(video.blobs.has(url))return video.blobs.get(url);const response=await fetch(url,{headers:authHeaders(),cache:'no-store'});if(!response.ok)throw new Error('動画ファイルを取得できませんでした');const link=URL.createObjectURL(await response.blob());video.blobs.set(url,link);return link;}
+  function stopVideoPlayback(){const run=video.play;video.play=null;if(run?.audio)run.audio.pause();const player=$('videoPlayer');player.pause?.();player.hidden=true;}
+  async function playVideoJob(jobId){
+    const job=video.jobs.get(jobId);if(!job)return;stopVideoPlayback();if(typeof stopSpeaking==='function')stopSpeaking();
+    const clips=job.segments.filter(s=>s.status==='succeeded');const run={job,clips,index:0};video.play=run;
+    const player=$('videoPlayer');player.dataset.aspect=job.aspect_ratio;player.hidden=false;$('videoStatus').textContent='動画を読み込み中…';
+    try{
+      const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds){player.ontimeupdate=null;run.index++;playClip();}};player.onended=()=>{player.ontimeupdate=null;run.index++;playClip();};await player.play?.()?.catch?.(()=>{});};
+      if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}
+      else if(job.narration?.text&&typeof speak==='function')speak(job.narration.text);
+      $('videoStatus').textContent=`${job.segments.length}カットを順に再生します。`;await playClip();
+    }catch(error){$('videoStatus').textContent=error.message;}
+  }
+  async function generateVideo(){
+    if(!videoReady()||video.submitting)return;
+    const prompt=$('videoPrompt').value.trim();if(!prompt){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}
+    const owner=sessionId,form=new FormData(),file=$('videoImage').files?.[0];
+    form.append('session_id',owner);form.append('prompt',prompt);form.append('aspect_ratio',document.querySelector('input[name="videoAspect"]:checked').value);
+    form.append('duration_seconds',String(setVideoDuration($('videoDuration').value)));form.append('narration_text',$('videoNarration').value.trim());form.append('voice',$('videoVoice').value||'jimmy');
+    form.append('request_id',window.crypto?.randomUUID?window.crypto.randomUUID():'00000000-0000-4000-8000-'+String(Date.now()).padStart(12,'0').slice(-12));
+    if(file){if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}form.append('image',file);}
+    video.submitting=true;refreshVideoSuite();$('videoStatus').textContent='生成を依頼しています…';
+    try{
+      const response=await fetch('/api/video/jobs',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}
+      if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'動画生成を依頼できませんでした');
+      video.jobs.set(data.id,{...data,owner});renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);
+      $('videoStatus').textContent='生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';
+    }catch(error){$('videoStatus').textContent=error.message;}
+    finally{video.submitting=false;refreshVideoSuite();}
+  }
+  $('videoDuration').addEventListener('change',event=>setVideoDuration(event.target.value));
+  $('videoDurationRange').addEventListener('input',event=>setVideoDuration(event.target.value));
+  $('videoGenerate').addEventListener('click',generateVideo);
+  $('videoSuite').addEventListener('toggle',()=>{if($('videoSuite').open&&connected){loadVideoConfig();if(sessionId)loadVideoJobs();}});
 </script>
 </body>
 </html>
