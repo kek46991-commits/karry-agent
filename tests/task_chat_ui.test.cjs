@@ -775,3 +775,45 @@ test('free preview is blocked before connection and while secret mode is active'
   await openProjectPreviewSuite(s);$('videoPrompt').value='Secret preview';const image=new s.win.File(['image'],'secret.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[image]});$('secretToggle').checked=true;await s.win.toggleSecretMode();assert.equal($('videoPreview').disabled,true);await s.win.generateVideoPreview();
   assert.equal(posts.length,0);assert.equal(s.calls.some(call=>call.url==='/api/video/projects'),false);assert.equal(s.calls.some(call=>call.url==='/api/video/generate/preview'),false);s.dom.window.close();
 });
+
+function lipsyncFetch(posts,lipsync){
+  const base=videoFetch(posts,'local');
+  return async(url,request={})=>{
+    if(url==='/api/video/config')return json({enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,modes:['static','talking'],lipsync,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]});
+    if(url==='/api/video/jobs'&&request.method==='POST'){
+      const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
+      return json({id:'job1',request_id:fields.request_id,status:'processing',mode:fields.mode,animation:fields.mode==='talking'?{status:'processing',engine:'gradio'}:null,prompt:fields.prompt,aspect_ratio:fields.aspect_ratio,duration_seconds:Number(fields.duration_seconds),provider:'local',with_image:!!fields.image,created_at:1,segments:[{index:0,status:'processing',clip_seconds:5,play_seconds:5}],narration:{text:fields.narration_text,voice:fields.voice,status:'failed',muxed:false}},202);
+    }
+    return base(url,request);
+  };
+}
+
+test('talking-head mode is selectable only when a lip-sync engine is configured and posts mode=talking',async()=>{
+  const posts=[];const s=setup({fetch:lipsyncFetch(posts,{available:true,engine:'gradio',reason:null})});const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  const talking=s.doc.querySelector('input[name="videoMode"][value="talking"]'),still=s.doc.querySelector('input[name="videoMode"][value="static"]');
+  assert.equal(still.checked,true,'0-yen static mode stays the default');assert.equal(talking.disabled,false);assert.match($('videoModeHint').textContent,/利用可能（gradio）/);
+  talking.checked=true;$('videoPrompt').value='話すジミー';
+  $('videoGenerate').click();await new Promise(r=>setTimeout(r,0));assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/顔が写った写真/);
+  const file=new s.win.File(['img'],'me.png',{type:'image/png'});Object.defineProperty($('videoImage'),'files',{value:[file]});
+  $('videoGenerate').click();await new Promise(r=>setTimeout(r,0));assert.equal(posts.length,0);assert.match($('videoStatus').textContent,/ナレーションの文章/);
+  $('videoNarration').value='まいど';$('videoGenerate').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(posts.length,1);assert.equal(posts[0].fields.mode,'talking');assert.equal(posts[0].fields.image,'FILE:me.png');
+  assert.match($('videoStatus').textContent,/人物アニメーションを依頼しました/);assert.match(s.doc.querySelector('.video-animation').textContent,/顔の動きを作っています/);
+  const job={id:'j',owner:s.doc.getElementById('session').textContent,status:'partial',mode:'talking',provider:'local',aspect_ratio:'9:16',duration_seconds:5,prompt:'p',created_at:2,segments:[{index:0,status:'succeeded',clip_seconds:5,play_seconds:5,url:'/api/video/jobs/j/clips/0'}],narration:null,animation:{status:'fallback',engine:'gradio',error:'lipsync_timeout'}};
+  s.win.eval(`video.jobs.clear();video.jobs.set('j',${JSON.stringify(job)});renderVideoJobs()`);
+  assert.match(s.doc.querySelector('.video-animation').textContent,/⚠ 人物アニメーションを作れませんでした（時間内に終わらなかったため）。代わりに「静止画＋音声」/);
+  s.win.eval(`video.jobs.set('j',${JSON.stringify({...job,status:'succeeded',animation:{status:'succeeded',engine:'gradio'}})});renderVideoJobs()`);
+  assert.match(s.doc.querySelector('.video-animation').textContent,/写真の人物が喋る動画（gradio）/);assert.ok(s.doc.querySelector('.video-save'));s.dom.window.close();
+});
+
+test('talking-head mode is disabled with the reason and static generation still works when no engine is set',async()=>{
+  const posts=[];const s=setup({fetch:lipsyncFetch(posts,{available:false,engine:null,reason:'人物アニメーションの実行先（SadTalker 等の GPU サーバー）が未設定です。'})});const $=id=>s.doc.getElementById(id);
+  s.authenticate();await s.win.connectSessions();
+  $('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,0));
+  const talking=s.doc.querySelector('input[name="videoMode"][value="talking"]');
+  assert.equal(talking.disabled,true);assert.match($('videoModeHint').textContent,/使えません: 人物アニメーションの実行先.*未設定/);assert.match($('videoModeHint').textContent,/静止画＋音声（0円・高速）」は使えます/);
+  $('videoPrompt').value='海辺';$('videoGenerate').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(posts.length,1);assert.equal(posts[0].fields.mode,'static');assert.equal($('send').disabled,false);s.dom.window.close();
+});
