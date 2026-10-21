@@ -696,7 +696,7 @@ test('video playback advances exactly one cut when timeupdate and ended both fir
   const sid=s.doc.getElementById('session').textContent;const sources=[];
   s.win.URL.createObjectURL=blob=>'blob:'+sources.length;
   const origFetch=s.win.fetch;s.win.fetch=async(url,request)=>String(url).includes('/clips/')?{ok:true,blob:async()=>({url})}:origFetch(url,request);
-  const player=$('videoPlayer');player.play=async()=>{sources.push(player.src);};player.pause=()=>{};
+  const player=$('videoPlayer');let paused=0;player.play=async()=>{sources.push(player.src);};player.pause=()=>{paused++;};
   const segments=[{index:0,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/c0'},{index:1,status:'succeeded',clip_seconds:10,play_seconds:10,url:'/clips/1'},{index:2,status:'succeeded',clip_seconds:5,play_seconds:3,url:'/clips/2'}];
   segments[0].url='/clips/0';
   s.win.eval(`video.jobs.set('j',${JSON.stringify({id:'j',owner:sid,status:'succeeded',aspect_ratio:'9:16',duration_seconds:23,prompt:'p',created_at:1,segments,narration:null})})`);
@@ -707,5 +707,5 @@ test('video playback advances exactly one cut when timeupdate and ended both fir
   player.currentTime=10;player.ontimeupdate();player.onended?.();await new Promise(r=>setTimeout(r,5));
   assert.equal(sources.length,3);
   player.currentTime=3;player.ontimeupdate();await new Promise(r=>setTimeout(r,5));
-  assert.match($('videoStatus').textContent,/再生が終わりました/);s.dom.window.close();
+  assert.match($('videoStatus').textContent,/再生が終わりました/);assert.ok(paused>=2,'last cut is paused at play_seconds');s.dom.window.close();
 });
