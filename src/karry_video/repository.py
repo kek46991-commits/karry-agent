@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .errors import VideoError
-from .models import VideoJob, VideoProject, utcnow
+from .models import GeneratedScript, VideoJob, VideoProject, utcnow
 
 ACTIVE = {"queued", "running", "awaiting_resume", "interrupted"}
 
@@ -49,6 +49,26 @@ class Repository:
             count = session.scalar(select(func.count()).select_from(VideoProject))
             rows = session.scalars(select(VideoProject).order_by(VideoProject.created_at.desc(), VideoProject.id).offset(offset).limit(limit)).all()
             return {"items": [_serialize(row) for row in rows], "total": count, "limit": limit, "offset": offset}
+
+    def create_script(self, fields):
+        with self.database.sessions.begin() as session:
+            row = GeneratedScript(**fields)
+            session.add(row)
+            session.flush()
+            return _serialize(row)
+
+    def list_scripts(self, limit=20, offset=0):
+        with self.database.sessions() as session:
+            count = session.scalar(select(func.count()).select_from(GeneratedScript))
+            rows = session.scalars(select(GeneratedScript).order_by(GeneratedScript.created_at.desc(), GeneratedScript.id.desc()).offset(offset).limit(limit)).all()
+            return {"items": [_serialize(row) for row in rows], "total": count, "limit": limit, "offset": offset}
+
+    def get_script(self, script_id):
+        with self.database.sessions() as session:
+            row = session.get(GeneratedScript, int(script_id))
+            if row is None:
+                raise VideoError("script_not_found", "指定された脚本が見つかりません。", 404)
+            return _serialize(row)
 
     def patch_project(self, project_id, version, values):
         with self.database.sessions.begin() as session:

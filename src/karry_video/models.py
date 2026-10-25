@@ -48,3 +48,14 @@ class VideoJob(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GeneratedScript(Base):
+    __tablename__ = "generated_scripts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200))
+    raw_input: Mapped[str] = mapped_column(Text)
+    narration_script: Mapped[str] = mapped_column(Text)
+    visual_prompt: Mapped[str] = mapped_column(Text)
+    scenes: Mapped[list[dict]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

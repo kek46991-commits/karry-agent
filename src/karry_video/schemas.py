@@ -49,3 +49,30 @@ class GenerateRequest(BaseModel):
 class ResumeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     acknowledge_unknown: bool = False
+
+
+class ScriptGenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    raw_input: str = Field(min_length=1, max_length=12_000)
+    scene_count: int = Field(default=4, ge=1, le=8)
+
+
+class ScriptScene(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    scene_number: int = Field(ge=1, le=8)
+    duration_seconds: int = Field(ge=1, le=60)
+    narration: str = Field(min_length=1, max_length=250)
+    visual_prompt: str = Field(min_length=1, max_length=1_500)
+
+
+class ScriptDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=200)
+    visual_prompt: str = Field(min_length=1, max_length=2_000)
+    scenes: list[ScriptScene] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def narration_fits_video_input(self):
+        if sum(len(scene.narration) for scene in self.scenes) + max(0, len(self.scenes) - 1) > 1_000:
+            raise ValueError("combined narration exceeds the video input limit")
+        return self
