@@ -270,3 +270,65 @@ def test_native_duration_rejected_before_job(client, monkeypatch):
     response = client.post('/api/video/generate/render', json={'project_id': project['project_id']}, headers=HEADERS)
     assert response.status_code == 422
     assert client.get(f"/api/video/projects/{project['project_id']}", headers=HEADERS).json()['status'] == 'draft'
+
+
+def test_generated_scripts_table_is_created_on_video_database_start(client):
+    from sqlalchemy import inspect
+
+    engine = client.app.state.video_service.database.engine
+    assert "generated_scripts" in inspect(engine).get_table_names()
+
+
+def test_script_generation_saves_history_and_exposes_structured_scenes(client, monkeypatch):
+    from karry_video import router
+
+    calls = []
+    def fake_generate(raw_input, scene_count):
+        calls.append((raw_input, scene_count))
+        return {
+            "title": "雨の駅",
+            "raw_input": raw_input,
+            "narration_script": "少女は古い駅で青い傘を見つけた。\n遠くで汽笛が鳴った。",
+            "visual_prompt": "雨の夜の小さな駅、青い傘、静かなシネマティックな画面。",
+            "scenes": [
+                {"scene_number": 1, "duration_seconds": 5, "narration": "少女は古い駅で青い傘を見つけた。", "visual_prompt": "雨のホームに青い傘が落ちている。"},
+                {"scene_number": 2, "duration_seconds": 4, "narration": "遠くで汽笛が鳴った。", "visual_prompt": "少女が傘を拾い、霧の向こうを見る。"},
+            ],
+        }
+
+    monkeypatch.setattr(router, "generate_script_breakdown", fake_generate)
+    assert client.get("/api/video/scripts").status_code == 401
+    response = client.post("/api/video/scripts/generate", json={"raw_input": "雨の夜、少女は駅に立っていた。", "scene_count": 2}, headers=HEADERS)
+    assert response.status_code == 201
+    script = response.json()
+    assert calls == [("雨の夜、少女は駅に立っていた。", 2)]
+    assert script["id"] > 0 and script["title"] == "雨の駅"
+    assert len(script["scenes"]) == 2 and script["scenes"][1]["duration_seconds"] == 4
+    assert "raw_input" in script and script["narration_script"].startswith("少女は")
+    assert "created_at" in script
+    listing = client.get("/api/video/scripts?limit=5", headers=HEADERS).json()
+    assert listing["total"] == 1 and listing["items"][0]["id"] == script["id"]
+    detail = client.get(f"/api/video/scripts/{script['id']}", headers=HEADERS)
+    assert detail.status_code == 200 and detail.json()["scenes"] == script["scenes"]
+
+
+@pytest.mark.parametrize("payload", [{"raw_input": "   "}, {"raw_input": "ok", "scene_count": 9}, {"raw_input": "x" * 12_001}])
+def test_script_generation_rejects_invalid_inputs_before_ai_call(client, monkeypatch, payload):
+    from karry_video import router
+
+    def unexpected_call(*_):
+        pytest.fail("AI should not run for invalid request data")
+
+    monkeypatch.setattr(router, "generate_script_breakdown", unexpected_call)
+    response = client.post("/api/video/scripts/generate", json=payload, headers=HEADERS)
+    assert response.status_code == 422
+
+
+def test_script_generator_requires_gemini_key(monkeypatch):
+    from karry_video.errors import VideoError
+    from karry_video.script_generation import generate_script_breakdown
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(VideoError) as error:
+        generate_script_breakdown("雨の駅", 2)
+    assert error.value.status_code == 503 and error.value.code == "script_ai_not_configured"

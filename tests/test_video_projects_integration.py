@@ -41,7 +41,7 @@ def create(client, **data):
 def test_project_api_registered_without_legacy_collision(configured):
     client, _ = configured
     paths = client.get("/openapi.json").json()["paths"]
-    for path in ("/api/video/projects", "/api/video/generate/preview", "/api/video/generate/render", "/api/video/project-jobs/{job_id}", "/api/video/jobs/{job_id}"):
+    for path in ("/api/video/projects", "/api/video/generate/preview", "/api/video/generate/render", "/api/video/project-jobs/{job_id}", "/api/video/scripts", "/api/video/scripts/generate", "/api/video/scripts/{script_id}", "/api/video/jobs/{job_id}"):
         assert path in paths
     routes = [(route.path, method) for route in web.app.routes for method in getattr(route, "methods", [])]
     assert len(routes) == len(set(routes))
@@ -53,10 +53,14 @@ def test_project_api_registered_without_legacy_collision(configured):
 def test_owner_auth_and_dynamic_rotation(configured, monkeypatch):
     client, _ = configured
     assert client.get("/api/video/projects").status_code == 401
+    assert client.get("/api/video/scripts").status_code == 401
+    assert client.post("/api/video/scripts/generate", content=b"not-json").status_code == 401
     assert client.get("/api/video/projects", headers={"Authorization": "Bearer must-not-bypass-owner"}).status_code == 401
     monkeypatch.setenv("KARRY_API_TOKEN", "rotated-owner-token")
     assert client.get("/api/video/projects", headers=AUTH).status_code == 401
+    assert client.get("/api/video/scripts", headers=AUTH).status_code == 401
     assert client.get("/api/video/projects", headers={"Authorization": "Bearer rotated-owner-token"}).status_code == 200
+    assert client.get("/api/video/scripts", headers={"Authorization": "Bearer rotated-owner-token"}).status_code == 200
     monkeypatch.delenv("KARRY_API_TOKEN")
     assert client.get("/api/video/projects", headers=AUTH).status_code == 503
 

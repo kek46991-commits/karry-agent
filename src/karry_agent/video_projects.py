@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _target(path):
-    return path == "/api/video/project-config" or any(path == root or path.startswith(root + "/") for root in ("/api/video/projects", "/api/video/project-jobs")) or path in {"/api/video/generate/preview", "/api/video/generate/render"}
+    return path == "/api/video/project-config" or any(path == root or path.startswith(root + "/") for root in ("/api/video/projects", "/api/video/project-jobs", "/api/video/scripts")) or path in {"/api/video/generate/preview", "/api/video/generate/render"}
 
 
 class KarryVideoGuard(VideoGuardMiddleware):
@@ -107,8 +107,10 @@ class VideoProjectRuntime:
     def config(self):
         settings = self.service.settings if self.service else Settings(database_url="sqlite:///:memory:", api_token="")
         tools = bool(shutil.which(settings.ffmpeg_bin) and shutil.which(settings.ffprobe_bin))
+        script_key = os.getenv("GEMINI_API_KEY", "").strip()
         return {"enabled": self.service is not None, "preview_available": self.service is not None and tools,
                 "tts_available": bool(self.service and shutil.which(settings.espeak_bin)),
+                "script_generation_available": bool(script_key and script_key not in {"your-gemini-api-key", "YOUR_GEMINI_API_KEY"}),
                 "reason": self.reason if not self.service else (None if tools else "サーバーにFFmpegとffprobeが必要です。"),
                 "max_seconds": 120, "job_prefix": "/api/video/project-jobs"}
 

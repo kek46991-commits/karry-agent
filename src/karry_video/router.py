@@ -12,7 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from .errors import VideoError
 from .middleware import auth_error
 from .repository import ACTIVE
-from .schemas import GenerateRequest, ProjectFields, ProjectPatch, ResumeRequest, TTSParameters
+from .schemas import GenerateRequest, ProjectFields, ProjectPatch, ResumeRequest, ScriptGenerationRequest, TTSParameters
+from .script_generation import generate_script_breakdown
 
 
 class SafeVideoRoute(APIRoute):
@@ -52,6 +53,10 @@ def public_job(job, job_prefix="/jobs"):
     value["lease_expired"] = job["status"] in ACTIVE and job["lease_until"] <= time.time()
     value["can_resume"] = value["lease_expired"] and not (job["kind"] == "render" and job["phase"] == "submitting" and not job["provider_job_id"])
     return value
+
+
+def public_script(script):
+    return {key: script[key] for key in ("id", "title", "raw_input", "narration_script", "visual_prompt", "scenes", "created_at")}
 
 
 def create_router(service, auth_dependency=None, *, job_prefix="/jobs"):
@@ -127,6 +132,22 @@ def create_router(service, auth_dependency=None, *, job_prefix="/jobs"):
     @router.get("/projects/{project_id}/status")
     async def project_status(project_id: UUID):
         return public_project(await service.call(repo.get_project, str(project_id)))
+
+    @router.post("/scripts/generate", status_code=201)
+    async def generate_script(body: ScriptGenerationRequest):
+        draft = await service.call(generate_script_breakdown, body.raw_input, body.scene_count)
+        script = await service.call(repo.create_script, draft)
+        return public_script(script)
+
+    @router.get("/scripts")
+    async def list_scripts(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
+        result = await service.call(repo.list_scripts, limit, offset)
+        result["items"] = [public_script(script) for script in result["items"]]
+        return result
+
+    @router.get("/scripts/{script_id}")
+    async def get_script(script_id: int):
+        return public_script(await service.call(repo.get_script, script_id))
 
     def protected_file(key, filename, media_type):
         if not key:
