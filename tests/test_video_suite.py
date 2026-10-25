@@ -341,6 +341,22 @@ def test_local_job_completes_free_with_narration_inside_mp4(local_env):
     assert config['enabled'] is True and config['provider'] == 'local' and config['clip_lengths'] == [120]
 
 
+def test_audio_mux_failure_never_retries_with_silent_video(local_env, monkeypatch):
+    client, _, queued = local_env
+    calls = []
+
+    def fail_audio_mux(self, prompt, aspect_ratio, seconds, image, narration, lip_sync=False):
+        calls.append(narration)
+        raise vs.VideoError('audio mux failed', 500, 'render_failed')
+
+    monkeypatch.setattr(vs.LocalVideoRenderer, 'render', fail_audio_mux)
+    job = create(client, duration_seconds='1', narration_text='テスト').json()
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'failed' and done['narration']['muxed'] is True
+    assert len(calls) == 1 and calls[0] is not None
+
+
 def test_local_job_without_any_tts_is_not_a_silent_success(local_env):
     client, narrator, queued = local_env
     narrator.fail = True
@@ -380,7 +396,7 @@ def test_free_narrator_converts_key_free_tts_to_wav():
     wav = vs.FreeNarrator(tts_factory=FakeGTTS).synthesize('まいど', 'jimmy')
     assert wav.startswith(b'RIFF') and FakeGTTS.calls == [('まいど', 'ja')]
     with wave.open(io.BytesIO(wav)) as w:
-        assert w.getnframes() / w.getframerate() > 0.5
+        assert 0.5 < w.getnframes() / w.getframerate() < 5
 
 
 def test_free_narrator_errors_are_masked():
@@ -391,6 +407,45 @@ def test_free_narrator_errors_are_masked():
         vs.FreeNarrator(tts_factory=Down).synthesize('x', 'jimmy')
     assert exc.value.code == 'tts_failed' and 'token' not in str(exc.value)
     assert vs.FreeNarrator(tts_factory=None, ffmpeg='').available is False
+
+
+def test_espeak_offline_tts_creates_normalized_japanese_wav(monkeypatch):
+    monkeypatch.setattr(vs.shutil, 'which', lambda _: '/usr/bin/espeak-ng')
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[0] == '/usr/bin/espeak-ng':
+            with open(command[-1], 'wb') as handle:
+                handle.write(wav_bytes(0.5))
+            return subprocess.CompletedProcess(command, 0, b'', b'')
+        with open(command[-1], 'wb') as handle:
+            handle.write(wav_bytes(0.5, rate=24000))
+        return subprocess.CompletedProcess(command, 0, b'', b'')
+
+    monkeypatch.setattr(vs.subprocess, 'run', fake_run)
+    narrator = vs.EspeakNarrator(ffmpeg='/usr/bin/ffmpeg')
+    output = narrator.synthesize('日本語のテストです', 'jimmy')
+    assert output.startswith(b'RIFF') and len(calls) == 2
+    assert calls[0][0][1:4] == ['-v', 'ja', '-s']
+    assert calls[0][1]['input'] == '日本語のテストです'.encode()
+    with wave.open(io.BytesIO(output)) as audio:
+        assert audio.getframerate() == 24000 and audio.getnchannels() == 1
+
+
+def test_narration_wav_validation_rejects_silence_and_bad_format():
+    silent = io.BytesIO()
+    with wave.open(silent, 'wb') as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(24000)
+        audio.writeframes(b'\x00\x00' * 12000)
+    with pytest.raises(vs.VideoError) as exc:
+        vs._validate_narration_wav(silent.getvalue())
+    assert exc.value.code == 'tts_invalid_audio'
+    with pytest.raises(vs.VideoError) as exc:
+        vs._validate_narration_wav(b'not a wav')
+    assert exc.value.code == 'tts_invalid_audio'
 
 
 def test_narrator_chain_prefers_gemini_then_falls_back_to_free():

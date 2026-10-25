@@ -116,13 +116,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 except Exception:
                     job["lipsync"] = {"status": "fallback", "error": "lipsync_failed"}
             if clip is None:
-                try:
-                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
-                except vs.VideoError:
-                    if wav is None:
-                        raise
-                    clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, None)
-                    job["narration"]["muxed"] = False
+                # An audio-mux failure must not be retried as a silent video.
+                clip = renderer.render(job["prompt"], job["aspect_ratio"], job["duration_seconds"], image, wav)
             store.put_blob(f"{job['id']}/0.mp4", clip, "video/mp4")
             segment["status"] = "succeeded"
         except vs.VideoError as exc:

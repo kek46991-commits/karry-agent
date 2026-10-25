@@ -527,15 +527,79 @@ class FreeNarrator:
         try:
             mp3 = io.BytesIO()
             self.tts_factory(text, lang="ja", timeout=20).write_to_fp(mp3)
-            result = subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "mp3", "-i", "pipe:0",
-                                     "-af", "atempo=1.2", "-ac", "1", "-ar", "24000", "-f", "wav", "pipe:1"],
-                                    input=mp3.getvalue(), capture_output=True, check=True, timeout=120)
-            wav = result.stdout
+            with tempfile.TemporaryDirectory(prefix="karry-gtts-") as work:
+                output = os.path.join(work, "speech.wav")
+                subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "mp3", "-i", "pipe:0",
+                                "-af", "atempo=1.2", "-ac", "1", "-ar", "24000", output],
+                               input=mp3.getvalue(), capture_output=True, check=True, timeout=120)
+                with open(output, "rb") as handle:
+                    wav = handle.read(MAX_AUDIO_BYTES + 1)
             if not wav.startswith(b"RIFF") or len(wav) > MAX_AUDIO_BYTES:
                 raise ValueError
+            _validate_narration_wav(wav)
             return wav
         except Exception:
             raise VideoError("無料の音声合成サービスに接続できませんでした。", 502, "tts_failed") from None
+
+
+class EspeakNarrator:
+    """Offline Japanese speech synthesis for hosts that provide eSpeak NG."""
+
+    name = "espeak-ng"
+
+    def __init__(self, ffmpeg: str | None = None, executable: str | None = None):
+        self.ffmpeg = ffmpeg if ffmpeg is not None else ffmpeg_exe()
+        self.executable = executable if executable is not None else shutil.which("espeak-ng")
+
+    @property
+    def available(self) -> bool:
+        return bool(self.ffmpeg and self.executable)
+
+    def synthesize(self, text: str, voice: str) -> bytes:
+        if not self.available:
+            raise VideoError("オフライン日本語音声を使えません。", 503, "tts_configuration")
+        try:
+            with tempfile.TemporaryDirectory(prefix="karry-espeak-") as work:
+                source = os.path.join(work, "speech.wav")
+                output = os.path.join(work, "normalized.wav")
+                subprocess.run([self.executable, "-v", "ja", "-s", "170", "--stdin", "-w", source],
+                               input=text.encode("utf-8"), capture_output=True, check=True, timeout=30)
+                with open(source, "rb") as handle:
+                    subprocess.run(
+                        [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", "pipe:0",
+                         "-af", "loudnorm=I=-18:TP=-2:LRA=7", "-ac", "1", "-ar", "24000", output],
+                        input=handle.read(), capture_output=True, check=True, timeout=30,
+                    )
+                with open(output, "rb") as handle:
+                    wav = handle.read(MAX_AUDIO_BYTES + 1)
+            if len(wav) > MAX_AUDIO_BYTES:
+                raise VideoError("オフライン音声の容量上限を超えました。", 413, "tts_invalid_audio")
+            _validate_narration_wav(wav)
+            return wav
+        except VideoError:
+            raise
+        except Exception:
+            raise VideoError("オフライン日本語音声を作成できませんでした。", 502, "tts_failed") from None
+
+
+def _validate_narration_wav(wav: bytes) -> None:
+    """Reject malformed, excessive, or effectively silent speech before muxing."""
+    import struct
+    import wave
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as audio:
+            frames = audio.readframes(audio.getnframes())
+            sample_width, channels, rate = audio.getsampwidth(), audio.getnchannels(), audio.getframerate()
+            if sample_width != 2 or channels not in (1, 2) or rate <= 0:
+                raise ValueError
+        duration = len(frames) / (sample_width * channels * rate)
+        if not 0.05 <= duration <= 600:
+            raise ValueError
+        peak = max((abs(sample[0]) for sample in struct.iter_unpack("<h", frames[:len(frames) // 2 * 2])), default=0)
+        if not peak or peak < 80:
+            raise ValueError
+    except Exception:
+        raise VideoError("音声ファイルの形式または音量を検証できませんでした。", 502, "tts_invalid_audio") from None
 
 
 class NarratorChain:
@@ -564,7 +628,7 @@ class NarratorChain:
 
 
 def narrator_from_env() -> NarratorChain:
-    return NarratorChain([GeminiNarrator(), FreeNarrator()])
+    return NarratorChain([GeminiNarrator(), FreeNarrator(), EspeakNarrator()])
 
 
 def placeholder_wav(rate: int = 24000) -> bytes:
