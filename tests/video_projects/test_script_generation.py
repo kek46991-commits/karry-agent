@@ -4,7 +4,7 @@ import pytest
 
 from karry_video.errors import VideoError
 from karry_video.schemas import ScriptDraft, ScriptScene
-from karry_video.script_generation import generate_script_breakdown
+from karry_video.script_generation import generate_script_breakdown, generate_script_from_image
 
 
 def _draft(scene_count=2):
@@ -89,3 +89,35 @@ def test_generator_reports_invalid_output_when_model_returns_short_runtime(monke
         generate_script_breakdown("雨の駅", 2)
     assert error.value.code == "script_generation_invalid_output"
     assert error.value.status_code == 502
+
+
+def test_image_generator_uses_sanitized_image_and_structured_gemini_output(monkeypatch):
+    import io
+    from PIL import Image
+    from google import genai
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (48, 32), "navy").save(image_bytes, "PNG")
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(parsed=_draft())
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: SimpleNamespace(models=FakeModels()))
+    result = generate_script_from_image(image_bytes.getvalue(), scene_count=2)
+
+    assert result["raw_input"] == "画像入力" and len(result["scenes"]) == 2
+    assert calls[0]["config"].response_schema is ScriptDraft
+    assert "画像" in calls[0]["contents"][0] and "必ず2個" in calls[0]["contents"][0]
+    part = calls[0]["contents"][1]
+    assert part.inline_data.mime_type == "image/jpeg" and part.inline_data.data
+
+
+def test_image_generator_rejects_invalid_or_animated_image_before_model_call(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    with pytest.raises(VideoError) as error:
+        generate_script_from_image(b"not an image", scene_count=3)
+    assert error.value.code == "invalid_image" and error.value.status_code == 422

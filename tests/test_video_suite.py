@@ -186,6 +186,92 @@ def test_app_upload_guard_covers_video_jobs(monkeypatch):
     assert client.post('/api/video/jobs', data={'session_id': 's', 'prompt': 'p'}).status_code == 401
     big = {'image': ('a.png', b'0' * (web.image_attachments.FORM_BODY_LIMIT + 10), 'image/png')}
     assert client.post('/api/video/jobs', data={'session_id': 's', 'prompt': 'p'}, files=big, headers=AUTH).status_code == 413
+    assert client.post('/api/video/autopilot', data={'session_id': 's', 'novel_text': 'story'}).status_code == 401
+    assert client.post('/api/video/autopilot', data={'session_id': 's', 'novel_text': 'story'}, files=big, headers=AUTH).status_code == 413
+
+
+@pytest.fixture
+def autopilot_env(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', TOKEN)
+    monkeypatch.setenv('GEMINI_API_KEY', 'synthetic-gemini-key')
+    vs._MEMORY_DOCS.clear()
+    vs._MEMORY_BLOBS.clear()
+    narrator, queued, rendered, generated = WavNarrator(), [], [], []
+    scenes = [
+        {'scene_number': i, 'duration_seconds': 5, 'narration': f'日本語ナレーション{i}。', 'visual_prompt': f'Cinematic scene {i}.'}
+        for i in range(1, 4)
+    ]
+    draft = {'title': '自動生成テスト', 'raw_input': 'テスト原文', 'narration_script': '\n'.join(s['narration'] for s in scenes),
+             'visual_prompt': 'A short cinematic animation.', 'scenes': scenes}
+    def text_generator(text, count):
+        generated.append(('text', text, count))
+        return draft
+    def image_generator(image, count):
+        generated.append(('image', image[:8], count))
+        return {**draft, 'raw_input': '画像入力'}
+    class Renderer:
+        def render(self, prompt, aspect_ratio, seconds, image, narration):
+            rendered.append((prompt, aspect_ratio, seconds, bool(image), bool(narration)))
+            return b'\x00\x00\x00\x18ftypmp42scene'
+    renderer = Renderer()
+    monkeypatch.setattr(vs, 'ffmpeg_exe', lambda: '/fake/ffmpeg')
+    monkeypatch.setattr(vs, 'concatenate_mp4_clips', lambda clips: b'\x00\x00\x00\x18ftypmp42final' if len(clips) == 3 else b'')
+    monkeypatch.setattr(vs, 'concatenate_wav_clips', lambda clips: b'RIFF' + b'final-audio')
+    test_app = web.FastAPI()
+    test_app.include_router(web.video_suite_api.build_router(
+        web.require_tool_auth, lambda sid: None, lambda: FakeAdapter(), lambda: narrator, queued.append,
+        autopilot_text_generator=text_generator, autopilot_image_generator=image_generator,
+        autopilot_renderer_factory=lambda: renderer))
+    return TestClient(test_app), narrator, queued, rendered, generated
+
+
+def test_autopilot_turns_text_into_narrated_scene_loop_and_one_mp4(autopilot_env):
+    client, narrator, queued, rendered, generated = autopilot_env
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1', 'novel_text': '夕焼けの海辺を歩く。'}, headers=AUTH)
+    assert response.status_code == 202
+    job = response.json()
+    assert job['mode'] == 'autopilot' and job['status'] == 'processing' and job['autopilot']['scene_count'] == 3
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['duration_seconds'] == 15
+    assert done['autopilot']['status'] == 'succeeded' and done['autopilot']['current_scene'] == 3
+    assert len(done['segments']) == 1 and done['segments'][0]['status'] == 'succeeded'
+    assert len(rendered) == 3 and all(item[1:] == ('16:9', 5, False, True) for item in rendered)
+    assert generated == [('text', '夕焼けの海辺を歩く。', 3)]
+    assert [call[0] for call in narrator.calls] == ['日本語ナレーション1。', '日本語ナレーション2。', '日本語ナレーション3。']
+    clip = client.get(done['segments'][0]['url'], headers=AUTH)
+    assert clip.status_code == 200 and clip.content.endswith(b'final')
+    audio = client.get(done['narration']['url'], headers=AUTH)
+    assert audio.status_code == 200 and audio.content.startswith(b'RIFF')
+
+
+def test_autopilot_accepts_one_image_without_text_and_rejects_empty_input(autopilot_env):
+    client, _, queued, rendered, generated = autopilot_env
+    empty = client.post('/api/video/autopilot', data={'session_id': 'task-1'}, headers=AUTH)
+    assert empty.status_code == 422 and empty.json()['code'] == 'autopilot_input_required'
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1'},
+                           files={'image': ('scene.png', png(), 'image/png')}, headers=AUTH)
+    assert response.status_code == 202 and response.json()['with_image'] is True
+    queued.pop()()
+    assert generated[0][0] == 'image' and all(item[3] for item in rendered)
+
+
+def test_autopilot_requires_owner_token(autopilot_env):
+    client, *_ = autopilot_env
+    assert client.post('/api/video/autopilot', data={'session_id': 'task-1', 'novel_text': 'secret'}).status_code == 401
+
+
+def test_autopilot_tts_failure_never_publishes_a_silent_success(autopilot_env):
+    client, narrator, queued, _, _ = autopilot_env
+    narrator.fail = True
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1', 'novel_text': '海辺の物語'}, headers=AUTH)
+    assert response.status_code == 202
+    job_id = response.json()['id']
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job_id}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'failed' and done['segments'][0]['status'] == 'failed'
+    assert done['narration']['status'] == 'failed' and done['narration']['muxed'] is False
+    assert 'url' not in done['segments'][0] and 'url' not in done['narration']
 
 
 def reply(status, body):
@@ -288,6 +374,18 @@ def test_local_renderer_outputs_real_mp4(aspect, size, seconds, with_image, with
     assert mp4[4:8] == b'ftyp'
     duration, actual, has_audio = probe(mp4)
     assert abs(duration - seconds) < 0.3 and actual == size and has_audio is with_audio
+
+
+def test_autopilot_concatenates_multiple_rendered_scenes_and_audio():
+    renderer = vs.LocalVideoRenderer()
+    narration = wav_bytes(0.8)
+    scenes = [renderer.render(f"Scene {index}", "16:9", 2, None, narration) for index in range(2)]
+    final_video = vs.concatenate_mp4_clips(scenes)
+    final_audio = vs.concatenate_wav_clips([narration, narration])
+    duration, size, has_audio = probe(final_video)
+    assert abs(duration - 4) < 0.4 and size == (1280, 720) and has_audio
+    with wave.open(io.BytesIO(final_audio), 'rb') as audio:
+        assert abs(audio.getnframes() / audio.getframerate() - 1.6) < 0.1
 
 
 def test_local_renderer_rejects_bad_input_and_missing_ffmpeg(monkeypatch):
