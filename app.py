@@ -151,7 +151,7 @@ class ImageUploadGuard:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload", "/api/video/jobs"}:
+        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload", "/api/video/jobs", "/api/video/autopilot"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         token = os.getenv("KARRY_API_TOKEN")

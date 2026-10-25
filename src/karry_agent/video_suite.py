@@ -602,6 +602,82 @@ def _validate_narration_wav(wav: bytes) -> None:
         raise VideoError("音声ファイルの形式または音量を検証できませんでした。", 502, "tts_invalid_audio") from None
 
 
+def concatenate_mp4_clips(clips: list[bytes]) -> bytes:
+    """Join compatible locally-rendered scene clips into one bounded MP4."""
+    if not 1 <= len(clips) <= 8 or any(not isinstance(clip, bytes) or not clip or len(clip) > MAX_CLIP_BYTES
+                                         or b"ftyp" not in clip[:32] for clip in clips):
+        raise VideoError("シーン動画を検証できませんでした。", 502, "invalid_scene_video")
+    if len(clips) == 1:
+        return clips[0]
+    ffmpeg = ffmpeg_exe()
+    if not ffmpeg:
+        raise VideoError("動画の結合エンジン（ffmpeg）がありません。", 503, "video_configuration")
+    with tempfile.TemporaryDirectory(prefix="karry-autopilot-video-") as work:
+        entries = []
+        for index, clip in enumerate(clips):
+            name = f"scene_{index:02d}.mp4"
+            with open(os.path.join(work, name), "wb") as handle:
+                handle.write(clip)
+            entries.append(f"file '{name}'\n")
+        with open(os.path.join(work, "scenes.ffconcat"), "w", encoding="utf-8") as handle:
+            handle.writelines(entries)
+        output = os.path.join(work, "final.mp4")
+        command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "1",
+                   "-i", "scenes.ffconcat", "-c", "copy", "-movflags", "+faststart", output]
+        try:
+            with _RENDER_SLOT:
+                subprocess.run(command, check=True, capture_output=True, timeout=120, cwd=work)
+            size = os.path.getsize(output)
+            if not 0 < size <= MAX_CLIP_BYTES:
+                raise VideoError("完成動画が容量上限を超えました。", 413, "output_capacity")
+            with open(output, "rb") as handle:
+                result = handle.read(MAX_CLIP_BYTES + 1)
+        except VideoError:
+            raise
+        except (OSError, subprocess.SubprocessError):
+            raise VideoError("シーン動画を1本に結合できませんでした。", 502, "video_concat_failed") from None
+    if b"ftyp" not in result[:32]:
+        raise VideoError("結合後の動画を検証できませんでした。", 502, "invalid_scene_video")
+    return result
+
+
+def concatenate_wav_clips(clips: list[bytes]) -> bytes:
+    """Join generated narration WAVs without exposing a path or FFmpeg diagnostic."""
+    if not 1 <= len(clips) <= 8:
+        raise VideoError("ナレーション音声の数が不正です。", 502, "tts_invalid_audio")
+    for clip in clips:
+        _validate_narration_wav(clip)
+    if len(clips) == 1:
+        return clips[0]
+    ffmpeg = ffmpeg_exe()
+    if not ffmpeg:
+        raise VideoError("音声の結合エンジン（ffmpeg）がありません。", 503, "video_configuration")
+    with tempfile.TemporaryDirectory(prefix="karry-autopilot-audio-") as work:
+        entries = []
+        for index, clip in enumerate(clips):
+            name = f"voice_{index:02d}.wav"
+            with open(os.path.join(work, name), "wb") as handle:
+                handle.write(clip)
+            entries.append(f"file '{name}'\n")
+        with open(os.path.join(work, "voices.ffconcat"), "w", encoding="utf-8") as handle:
+            handle.writelines(entries)
+        output = os.path.join(work, "narration.wav")
+        command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "1",
+                   "-i", "voices.ffconcat", "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", output]
+        try:
+            subprocess.run(command, check=True, capture_output=True, timeout=90, cwd=work)
+            if not 0 < os.path.getsize(output) <= MAX_AUDIO_BYTES:
+                raise VideoError("結合後の音声が容量上限を超えました。", 413, "tts_invalid_audio")
+            with open(output, "rb") as handle:
+                result = handle.read(MAX_AUDIO_BYTES + 1)
+        except VideoError:
+            raise
+        except (OSError, subprocess.SubprocessError):
+            raise VideoError("ナレーション音声を結合できませんでした。", 502, "tts_invalid_audio") from None
+    _validate_narration_wav(result)
+    return result
+
+
 class NarratorChain:
     """Tries each narrator in order (Gemini → free TTS) and remembers which one spoke."""
 
@@ -720,6 +796,8 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             **({"lip_sync": {key: value for key, value in job["lip_sync"].items()
                              if key in {"requested", "status", "engine", "fallback_reason"}}} if job.get("lip_sync") else {}),
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
+            **({"autopilot": {key: value for key, value in job["autopilot"].items()
+                               if key in {"status", "title", "scene_count", "current_scene", "error"}}} if job.get("autopilot") else {}),
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
                                                      "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
                                                      **({"error": narration["error"]} if narration.get("error") else {}),
