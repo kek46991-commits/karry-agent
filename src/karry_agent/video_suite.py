@@ -418,6 +418,40 @@ class LocalVideoRenderer:
                 return handle.read()
 
 
+def normalize_lipsync_video(clip: bytes, narration: bytes, aspect_ratio: str, seconds: int) -> bytes:
+    """外部の口パク映像を、元の音声・指定サイズ・指定秒数でMP4に整える。"""
+    ffmpeg = ffmpeg_exe()
+    if not ffmpeg:
+        raise VideoError("口パク動画を整える合成エンジンがありません。", 503, "video_configuration")
+    if aspect_ratio not in LOCAL_SIZES or not MIN_SECONDS <= seconds <= MAX_SECONDS:
+        raise VideoError("口パク動画のサイズ・秒数が不正です。", 422, "invalid_duration")
+    if len(clip) > MAX_CLIP_BYTES or b"ftyp" not in clip[:32]:
+        raise VideoError("外部の口パク動画を検証できません。", 502, "sadtalker_output")
+    width, height = LOCAL_SIZES[aspect_ratio]
+    with tempfile.TemporaryDirectory(prefix="karry-lipsync-mux-") as work:
+        source, audio, output = [os.path.join(work, name) for name in ("source.mp4", "voice.wav", "output.mp4")]
+        for path, data in ((source, clip), (audio, narration)):
+            with open(path, "wb") as handle:
+                handle.write(data)
+        video_filter = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+                        f"tpad=stop_mode=clone:stop_duration={seconds},format=yuv420p")
+        command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", "1",
+                   "-i", source, "-i", audio, "-vf", video_filter, "-af", "apad", "-map", "0:v:0", "-map", "1:a:0",
+                   "-t", str(seconds), "-r", str(LOCAL_FPS), "-filter_threads", "1", "-c:v", "libx264",
+                   "-preset", "ultrafast", "-crf", "28", "-threads", "1", "-c:a", "aac", "-b:a", "96k",
+                   "-movflags", "+faststart", output]
+        try:
+            with _RENDER_SLOT:
+                subprocess.run(command, check=True, capture_output=True, timeout=120)
+            if os.path.getsize(output) > MAX_CLIP_BYTES:
+                raise VideoError("口パク動画の容量上限を超えました。", 413, "output_capacity")
+            with open(output, "rb") as handle:
+                return handle.read()
+        except (OSError, subprocess.SubprocessError):
+            raise VideoError("口パク動画の合成に失敗しました。", 502, "sadtalker_output") from None
+
+
 def adapter_from_env() -> VideoAdapter | LocalVideoRenderer:
     provider = os.getenv("KARRY_VIDEO_PROVIDER", "local").strip().lower() or "local"
     if provider == "local":
@@ -493,15 +527,79 @@ class FreeNarrator:
         try:
             mp3 = io.BytesIO()
             self.tts_factory(text, lang="ja", timeout=20).write_to_fp(mp3)
-            result = subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "mp3", "-i", "pipe:0",
-                                     "-af", "atempo=1.2", "-ac", "1", "-ar", "24000", "-f", "wav", "pipe:1"],
-                                    input=mp3.getvalue(), capture_output=True, check=True, timeout=120)
-            wav = result.stdout
+            with tempfile.TemporaryDirectory(prefix="karry-gtts-") as work:
+                output = os.path.join(work, "speech.wav")
+                subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "mp3", "-i", "pipe:0",
+                                "-af", "atempo=1.2", "-ac", "1", "-ar", "24000", output],
+                               input=mp3.getvalue(), capture_output=True, check=True, timeout=120)
+                with open(output, "rb") as handle:
+                    wav = handle.read(MAX_AUDIO_BYTES + 1)
             if not wav.startswith(b"RIFF") or len(wav) > MAX_AUDIO_BYTES:
                 raise ValueError
+            _validate_narration_wav(wav)
             return wav
         except Exception:
             raise VideoError("無料の音声合成サービスに接続できませんでした。", 502, "tts_failed") from None
+
+
+class EspeakNarrator:
+    """Offline Japanese speech synthesis for hosts that provide eSpeak NG."""
+
+    name = "espeak-ng"
+
+    def __init__(self, ffmpeg: str | None = None, executable: str | None = None):
+        self.ffmpeg = ffmpeg if ffmpeg is not None else ffmpeg_exe()
+        self.executable = executable if executable is not None else shutil.which("espeak-ng")
+
+    @property
+    def available(self) -> bool:
+        return bool(self.ffmpeg and self.executable)
+
+    def synthesize(self, text: str, voice: str) -> bytes:
+        if not self.available:
+            raise VideoError("オフライン日本語音声を使えません。", 503, "tts_configuration")
+        try:
+            with tempfile.TemporaryDirectory(prefix="karry-espeak-") as work:
+                source = os.path.join(work, "speech.wav")
+                output = os.path.join(work, "normalized.wav")
+                subprocess.run([self.executable, "-v", "ja", "-s", "170", "--stdin", "-w", source],
+                               input=text.encode("utf-8"), capture_output=True, check=True, timeout=30)
+                with open(source, "rb") as handle:
+                    subprocess.run(
+                        [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", "pipe:0",
+                         "-af", "loudnorm=I=-18:TP=-2:LRA=7", "-ac", "1", "-ar", "24000", output],
+                        input=handle.read(), capture_output=True, check=True, timeout=30,
+                    )
+                with open(output, "rb") as handle:
+                    wav = handle.read(MAX_AUDIO_BYTES + 1)
+            if len(wav) > MAX_AUDIO_BYTES:
+                raise VideoError("オフライン音声の容量上限を超えました。", 413, "tts_invalid_audio")
+            _validate_narration_wav(wav)
+            return wav
+        except VideoError:
+            raise
+        except Exception:
+            raise VideoError("オフライン日本語音声を作成できませんでした。", 502, "tts_failed") from None
+
+
+def _validate_narration_wav(wav: bytes) -> None:
+    """Reject malformed, excessive, or effectively silent speech before muxing."""
+    import struct
+    import wave
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as audio:
+            frames = audio.readframes(audio.getnframes())
+            sample_width, channels, rate = audio.getsampwidth(), audio.getnchannels(), audio.getframerate()
+            if sample_width != 2 or channels not in (1, 2) or rate <= 0:
+                raise ValueError
+        duration = len(frames) / (sample_width * channels * rate)
+        if not 0.05 <= duration <= 600:
+            raise ValueError
+        peak = max((abs(sample[0]) for sample in struct.iter_unpack("<h", frames[:len(frames) // 2 * 2])), default=0)
+        if not peak or peak < 80:
+            raise ValueError
+    except Exception:
+        raise VideoError("音声ファイルの形式または音量を検証できませんでした。", 502, "tts_invalid_audio") from None
 
 
 class NarratorChain:
@@ -530,7 +628,7 @@ class NarratorChain:
 
 
 def narrator_from_env() -> NarratorChain:
-    return NarratorChain([GeminiNarrator(), FreeNarrator()])
+    return NarratorChain([GeminiNarrator(), FreeNarrator(), EspeakNarrator()])
 
 
 def placeholder_wav(rate: int = 24000) -> bytes:
@@ -619,6 +717,8 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             "animation": None if not animation else {k: animation[k] for k in ("status", "engine", "error") if animation.get(k)},
             "id": job["id"], "request_id": job["request_id"], "status": job["status"], "prompt": job["prompt"],
             "aspect_ratio": job["aspect_ratio"], "duration_seconds": job["duration_seconds"], "provider": job["provider"],
+            **({"lip_sync": {key: value for key, value in job["lip_sync"].items()
+                             if key in {"requested", "status", "engine", "fallback_reason"}}} if job.get("lip_sync") else {}),
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
                                                      "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
