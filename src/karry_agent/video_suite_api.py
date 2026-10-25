@@ -341,11 +341,15 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                         draft = generate_script_from_image(image_bytes, scene_count)
                 else:
                     raise vs.VideoError("文章か画像を1つ以上入力してください。", 422, "autopilot_input_required")
-            except Exception:
+            except Exception as exc:
                 draft = None
+                fallback_reason = str(getattr(exc, "code", "") or "script_generation_failed")[:64]
+            else:
+                fallback_reason = None
             if not _valid_autopilot_draft(draft, scene_count):
                 from karry_video.script_generation import fallback_script_breakdown
-                logger.warning("Autopilot script generation failed validation or provider call; using safe fallback")
+                fallback_reason = fallback_reason or "script_generation_invalid_output"
+                logger.warning("Autopilot script generation unavailable (%s); using safe fallback", fallback_reason)
                 draft = fallback_script_breakdown(source_text, scene_count, image_input=bool(image_bytes and not source_text))
                 fallback_used = True
 
@@ -356,7 +360,8 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             job["duration_seconds"] = total_seconds
             job["narration"] = {"text": narration_text_all, "voice": "jimmy", "status": "processing", "muxed": True}
             job["autopilot"] = {"status": "processing", "title": str(draft.get("title") or "自動生成動画")[:200],
-                                "scene_count": scene_count, "current_scene": 0, "fallback_used": fallback_used}
+                                "scene_count": scene_count, "current_scene": 0, "fallback_used": fallback_used,
+                                "fallback_reason": fallback_reason if fallback_used else None}
             job["segments"] = [{"index": 0, "clip_seconds": total_seconds, "play_seconds": total_seconds, "status": "processing"}]
             store.save(job)
 

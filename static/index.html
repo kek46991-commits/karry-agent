@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="video-autopilot-simple-20261025-r2">
+  <meta name="karry-ui-version" content="video-autopilot-gemini-script-20261025-r3">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -656,6 +656,7 @@
   }
   const LIPSYNC_REASONS={no_face:'写真から顔を見つけられませんでした',no_photo:'写真がありません',no_narration:'ナレーション音声がありません',unavailable:'サーバーで口パク機能を使えません',invalid_audio:'ナレーション音声を読めませんでした'};
   function videoLipsyncLabel(l){if(l.status==='succeeded')return '👄 口パク: 音声に合わせて口を動かしました（簡易）';if(l.status==='fallback')return '⚠ 口パクできませんでした（'+(LIPSYNC_REASONS[l.error]||'口パク処理に失敗しました')+'）。静止画＋音声の動画にしました。';return '👄 口パク: 処理中…';}
+  const AUTOPILOT_SCRIPT_REASONS={script_ai_not_configured:'サーバーにGEMINI_API_KEYが未設定です',script_ai_auth_failed:'GEMINI_API_KEYが無効か、モデルの権限がありません',script_ai_rate_limited:'Gemini APIの利用上限に達しました',script_generation_invalid_output:'AIの出力が条件を満たしませんでした',script_generation_failed:'Gemini APIに接続できませんでした'};
   function videoJobLamp(status){return {processing:'processing',succeeded:'online',partial:'warn',failed:'error'}[status]||'idle';}
   function renderVideoJobs(){
     const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>Number(b.created_at)-Number(a.created_at));
@@ -732,7 +733,7 @@
           if(!safeProjectStatusUrl(current.status_url)){current.poll_stopped=true;current.poll_error='プレビュー状態URLを確認できません。';renderVideoJobs();return;}
           fresh=await requestJson(current.status_url);if(current.poll_epoch!==video.epoch)return;updated=normalisePreviewJob(current.project,fresh,current.owner,current.created_at,{jobId:current.id,statusUrl:current.status_url});
         }else{fresh=await requestJson(`/api/video/jobs/${encodeURIComponent(jobId)}?session_id=${encodeURIComponent(current.owner)}`);if(current.poll_epoch!==video.epoch)return;updated={...fresh,owner:current.owner};}
-        updated.poll_started_at=started;updated.poll_epoch=current.poll_epoch;video.jobs.set(jobId,updated);if(updated.mode==='autopilot'&&updated.status==='succeeded'&&video.autopilotJobId===jobId){const fallback=updated.autopilot?.fallback_used?'Gemini脚本を利用できなかったため、簡易脚本で生成しました。':'動画を再生または保存できます。';setAutopilotStatus(`「${updated.autopilot?.title||'自動生成動画'}」が完成しました。${fallback}`);await showAutopilotVideo(updated,{owner:current.owner,version:viewVersion,token:ownerToken(),epoch:current.poll_epoch});}if(updated.mode==='autopilot'&&updated.status==='failed'&&video.autopilotJobId===jobId){setAutopilotStatus('自動生成に失敗しました。TTSまたは動画合成エンジンが利用可能か確認して再試行してください。');}renderVideoJobs();if(updated.status==='processing')scheduleVideoPoll(jobId);
+        updated.poll_started_at=started;updated.poll_epoch=current.poll_epoch;video.jobs.set(jobId,updated);if(updated.mode==='autopilot'&&updated.status==='succeeded'&&video.autopilotJobId===jobId){const fallback=updated.autopilot?.fallback_used?`Gemini脚本を利用できなかったため（${AUTOPILOT_SCRIPT_REASONS[updated.autopilot.fallback_reason]||'Gemini APIに接続できませんでした'}）、簡易脚本で生成しました。`:'動画を再生または保存できます。';setAutopilotStatus(`「${updated.autopilot?.title||'自動生成動画'}」が完成しました。${fallback}`);await showAutopilotVideo(updated,{owner:current.owner,version:viewVersion,token:ownerToken(),epoch:current.poll_epoch});}if(updated.mode==='autopilot'&&updated.status==='failed'&&video.autopilotJobId===jobId){setAutopilotStatus('自動生成に失敗しました。TTSまたは動画合成エンジンが利用可能か確認して再試行してください。');}renderVideoJobs();if(updated.status==='processing')scheduleVideoPoll(jobId);
       }catch(error){
         if(error?.status>=400&&error.status<500){current.poll_stopped=true;current.poll_error='状態確認を停止しました。タスクまたは認証を確認してください。';renderVideoJobs();return;}
         scheduleVideoPoll(jobId);

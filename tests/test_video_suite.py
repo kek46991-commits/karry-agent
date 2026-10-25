@@ -273,6 +273,7 @@ def test_autopilot_script_provider_failure_or_invalid_json_falls_back_and_finish
     done = client.get(f"/api/video/jobs/{job_id}", params={'session_id': 'task-1'}, headers=AUTH).json()
     assert done['status'] == 'succeeded'
     assert done['autopilot']['status'] == 'succeeded' and done['autopilot']['fallback_used'] is True
+    assert done['autopilot']['fallback_reason'] == ('script_generation_failed' if source.startswith('[raise]') else 'script_generation_invalid_output')
     assert len(rendered) == 3 and all(scene[2] == 5 for scene in rendered)
     assert done['narration']['status'] == 'succeeded' and done['narration']['muxed'] is True
     assert len(narrator.calls) == 3 and all(call[0] for call in narrator.calls)
