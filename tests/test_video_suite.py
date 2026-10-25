@@ -319,7 +319,7 @@ def test_replicate_adapter_request_shape_and_secret_safety():
     token = 'r8_' + 'synthetic' * 3
     session = Mock()
     session.request.return_value = reply(201, {'id': 'abc123', 'status': 'starting'})
-    adapter = vs.ReplicateVideoAdapter(token=token, session=session)
+    adapter = vs.ReplicateVideoAdapter(token=token, model='kwaivgi/kling-v2.5-turbo-pro', session=session)
     result = adapter.submit('海', '16:9', 10, 'data:image/jpeg;base64,AAAA')
     method, url = session.request.call_args.args
     kwargs = session.request.call_args.kwargs
@@ -336,6 +336,89 @@ def test_replicate_adapter_request_shape_and_secret_safety():
     with pytest.raises(vs.VideoError) as exc:
         adapter.submit('海', '16:9', 5, None)
     assert exc.value.code == 'provider_credit' and 'クレジット' in exc.value.message and token not in exc.value.message
+
+
+def test_replicate_default_is_cheap_wan_image_to_video(monkeypatch):
+    monkeypatch.delenv('KARRY_VIDEO_REPLICATE_MODEL', raising=False)
+    session = Mock()
+    session.request.return_value = reply(201, {'id': 'wan1', 'status': 'starting'})
+    adapter = vs.ReplicateVideoAdapter(token='r8_' + 'synthetic', session=session)
+    assert adapter.model == 'wan-video/wan-2.2-i2v-fast' and adapter.clip_lengths == (5,)
+    adapter.submit('波が揺れる', '16:9', 5, 'data:image/jpeg;base64,AAAA')
+    method, url = session.request.call_args.args
+    assert (method, url) == ('POST', 'https://api.replicate.com/v1/models/wan-video/wan-2.2-i2v-fast/predictions')
+    assert session.request.call_args.kwargs['json'] == {'input': {
+        'prompt': '波が揺れる', 'image': 'data:image/jpeg;base64,AAAA', 'num_frames': 81,
+        'frames_per_second': 16, 'resolution': '480p', 'go_fast': True}}
+    assert session.request.call_args.kwargs['headers']['Cancel-After'] == '15m'
+    with pytest.raises(vs.VideoError) as exc:
+        adapter.submit('波', '16:9', 5, None)
+    assert exc.value.code == 'image_required' and exc.value.status_code == 422
+
+
+@pytest.mark.parametrize('model', ['../secret', 'owner/name/predictions', 'https://evil/x', 'noslash'])
+def test_replicate_model_name_is_validated(model):
+    with pytest.raises(vs.VideoError) as exc:
+        vs.ReplicateVideoAdapter(token='r8_x', model=model, session=Mock())
+    assert exc.value.code == 'video_configuration'
+
+
+def test_image_data_uri_crops_to_aspect_and_fits_replicate_limit():
+    noisy = Image.effect_noise((3000, 3000), 100).convert('RGB')
+    out = io.BytesIO()
+    noisy.save(out, 'PNG')
+    uri = vs.image_data_uri(out.getvalue(), max_bytes=vs.WAN_MAX_IMAGE_BYTES, aspect_ratio='9:16')
+    body = base64.b64decode(uri.split(',', 1)[1])
+    assert len(body) <= vs.WAN_MAX_IMAGE_BYTES
+    with Image.open(io.BytesIO(body)) as image:
+        assert abs(image.width / image.height - 9 / 16) < 0.01
+
+
+class ScriptedI2V:
+    name, clip_lengths, max_image_bytes = 'replicate', (5,), vs.WAN_MAX_IMAGE_BYTES
+
+    def __init__(self, states, clip=b'\x00\x00\x00\x18ftypmp42' + b'\x00' * 32):
+        self.states, self.clip, self.submitted, self.downloaded = list(states), clip, [], []
+
+    def submit(self, prompt, aspect_ratio, seconds, image_data_uri):
+        self.submitted.append((prompt, aspect_ratio, seconds, image_data_uri))
+        return vs.Submission('pred1', 'processing')
+
+    def poll(self, pid):
+        status = self.states.pop(0)
+        return vs.Submission(pid, status, 'https://replicate.delivery/o.mp4' if status == 'succeeded' else None,
+                             'prediction_failed' if status == 'failed' else None)
+
+    def download(self, url):
+        self.downloaded.append(url)
+        return self.clip
+
+
+def test_image_to_video_polls_until_mp4_is_ready():
+    adapter, sleeps = ScriptedI2V(['processing', 'processing', 'succeeded']), []
+    clip = vs.image_to_video(png((640, 480)), '海辺', '16:9', adapter=adapter, sleep=sleeps.append)
+    assert vs.is_mp4(clip) and adapter.downloaded == ['https://replicate.delivery/o.mp4']
+    prompt, ratio, seconds, uri = adapter.submitted[0]
+    assert (prompt, ratio, seconds) == ('海辺', '16:9', 5) and uri.startswith('data:image/jpeg;base64,')
+    assert sleeps == [5, 5, 5]
+
+
+@pytest.mark.parametrize('states, clip, code', [
+    (['failed'], None, 'prediction_failed'),
+    (['succeeded'], b'<html>not a video</html>', 'output_invalid'),
+])
+def test_image_to_video_reports_provider_failures(states, clip, code):
+    adapter = ScriptedI2V(states, clip) if clip else ScriptedI2V(states)
+    with pytest.raises(vs.VideoError) as exc:
+        vs.image_to_video(png(), adapter=adapter, sleep=lambda _: None)
+    assert exc.value.code == code
+
+
+def test_image_to_video_times_out():
+    adapter, now = ScriptedI2V(['processing'] * 10), iter(range(0, 1000, 100))
+    with pytest.raises(vs.VideoError) as exc:
+        vs.image_to_video(png(), adapter=adapter, timeout=250, sleep=lambda _: None, clock=lambda: next(now))
+    assert exc.value.code == 'provider_timeout' and exc.value.status_code == 504
 
 
 def test_runway_adapter_maps_ratio_and_model():
