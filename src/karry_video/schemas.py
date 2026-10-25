@@ -75,4 +75,7 @@ class ScriptDraft(BaseModel):
     def narration_fits_video_input(self):
         if sum(len(scene.narration) for scene in self.scenes) + max(0, len(self.scenes) - 1) > 1_000:
             raise ValueError("combined narration exceeds the video input limit")
+        total_duration = sum(scene.duration_seconds for scene in self.scenes)
+        if not 15 <= total_duration <= 30:
+            raise ValueError("combined scene duration must be between 15 and 30 seconds")
         return self

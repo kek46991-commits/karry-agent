@@ -10,10 +10,10 @@ from karry_video.script_generation import generate_script_breakdown
 def _draft(scene_count=2):
     return ScriptDraft(
         title="雨の駅",
-        visual_prompt="雨の夜の小さな駅、青い傘、静かなシネマティックな色調。",
+        visual_prompt="A small station on a rainy night, a vivid blue umbrella, cinematic lighting.",
         scenes=[
-            ScriptScene(scene_number=8, duration_seconds=5, narration="少女は傘を見つけた。", visual_prompt="雨のホームに青い傘。"),
-            ScriptScene(scene_number=7, duration_seconds=4, narration="遠くで汽笛が鳴る。", visual_prompt="少女が霧の向こうを見る。"),
+            ScriptScene(scene_number=8, duration_seconds=8, narration="少女は傘を見つけた。", visual_prompt="A blue umbrella lies on a rain-soaked platform."),
+            ScriptScene(scene_number=7, duration_seconds=7, narration="遠くで汽笛が鳴る。", visual_prompt="The girl looks into the fog as a train whistle echoes."),
         ][:scene_count],
     )
 
@@ -42,12 +42,46 @@ def test_generator_uses_gemini_structured_output_and_normalizes_scene_order(monk
     assert calls[0]["config"].response_mime_type == "application/json"
     assert calls[0]["config"].response_schema is ScriptDraft
     assert "必ず2個" in calls[0]["contents"]
+    assert "15〜30秒" in calls[0]["contents"]
+    assert "英語visual_prompt" in calls[0]["contents"]
+    assert sum(scene["duration_seconds"] for scene in result["scenes"]) == 15
+    assert result["visual_prompt"].startswith("A small station")
 
 
 def test_generator_rejects_wrong_scene_count_without_saving(monkeypatch):
     from google import genai
 
-    fake_client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: SimpleNamespace(parsed=_draft(scene_count=1))))
+    short_draft = ScriptDraft(title="雨の駅", visual_prompt="A rainy station.", scenes=[ScriptScene(scene_number=1, duration_seconds=15, narration="雨の駅。", visual_prompt="A rainy station platform.")])
+    fake_client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: SimpleNamespace(parsed=short_draft)))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
+
+    with pytest.raises(VideoError) as error:
+        generate_script_breakdown("雨の駅", 2)
+    assert error.value.code == "script_generation_invalid_output"
+    assert error.value.status_code == 502
+
+
+@pytest.mark.parametrize("durations", [[9, 5], [16, 15]])
+def test_script_draft_requires_total_duration_between_15_and_30_seconds(durations):
+    from pydantic import ValidationError
+
+    scenes = [
+        ScriptScene(scene_number=index, duration_seconds=seconds, narration="短いナレーション。", visual_prompt="A cinematic animated scene.")
+        for index, seconds in enumerate(durations, start=1)
+    ]
+    with pytest.raises(ValidationError, match="between 15 and 30 seconds"):
+        ScriptDraft(title="短編アニメ", visual_prompt="A short cinematic animation.", scenes=scenes)
+
+
+def test_generator_reports_invalid_output_when_model_returns_short_runtime(monkeypatch):
+    from google import genai
+
+    invalid = {"title": "雨の駅", "visual_prompt": "A rainy station.", "scenes": [
+        {"scene_number": 1, "duration_seconds": 4, "narration": "少女は立っていた。", "visual_prompt": "A girl stands at a station."},
+        {"scene_number": 2, "duration_seconds": 5, "narration": "汽笛が鳴った。", "visual_prompt": "A train whistle echoes."},
+    ]}
+    fake_client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: SimpleNamespace(parsed=invalid)))
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
 

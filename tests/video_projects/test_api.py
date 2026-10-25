@@ -289,10 +289,10 @@ def test_script_generation_saves_history_and_exposes_structured_scenes(client, m
             "title": "雨の駅",
             "raw_input": raw_input,
             "narration_script": "少女は古い駅で青い傘を見つけた。\n遠くで汽笛が鳴った。",
-            "visual_prompt": "雨の夜の小さな駅、青い傘、静かなシネマティックな画面。",
+            "visual_prompt": "A small station on a rainy night, a blue umbrella, cinematic lighting.",
             "scenes": [
-                {"scene_number": 1, "duration_seconds": 5, "narration": "少女は古い駅で青い傘を見つけた。", "visual_prompt": "雨のホームに青い傘が落ちている。"},
-                {"scene_number": 2, "duration_seconds": 4, "narration": "遠くで汽笛が鳴った。", "visual_prompt": "少女が傘を拾い、霧の向こうを見る。"},
+                {"scene_number": 1, "duration_seconds": 8, "narration": "少女は古い駅で青い傘を見つけた。", "visual_prompt": "A blue umbrella lies on a rain-soaked platform."},
+                {"scene_number": 2, "duration_seconds": 7, "narration": "遠くで汽笛が鳴った。", "visual_prompt": "The girl looks into the fog as a train whistle echoes."},
             ],
         }
 
@@ -303,7 +303,9 @@ def test_script_generation_saves_history_and_exposes_structured_scenes(client, m
     script = response.json()
     assert calls == [("雨の夜、少女は駅に立っていた。", 2)]
     assert script["id"] > 0 and script["title"] == "雨の駅"
-    assert len(script["scenes"]) == 2 and script["scenes"][1]["duration_seconds"] == 4
+    assert len(script["scenes"]) == 2 and script["scenes"][1]["duration_seconds"] == 7
+    assert sum(scene["duration_seconds"] for scene in script["scenes"]) == 15
+    assert script["visual_prompt"].startswith("A small station")
     assert "raw_input" in script and script["narration_script"].startswith("少女は")
     assert "created_at" in script
     listing = client.get("/api/video/scripts?limit=5", headers=HEADERS).json()
