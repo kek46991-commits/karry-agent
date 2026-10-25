@@ -11,6 +11,47 @@ DEFAULT_MODEL = "gemini-3.5-flash"
 MAX_SOURCE_CHARS = 12_000
 
 
+def fallback_script_breakdown(raw_input: str, scene_count: int = 3, *, image_input: bool = False) -> dict:
+    """Build a bounded, deterministic three-scene plan when Gemini is unavailable."""
+    if not isinstance(scene_count, int) or isinstance(scene_count, bool) or not 1 <= scene_count <= 8:
+        raise VideoError("invalid_scene_count", "シーン数が不正です。", 422)
+    source = raw_input.strip()[:MAX_SOURCE_CHARS] if isinstance(raw_input, str) else ""
+    if image_input and not source:
+        narration = [
+            "この一枚に映る情景から、物語が静かに始まる。",
+            "光や表情の奥に、小さな変化が見えてくる。",
+            "余韻を残しながら、物語は次の一歩へ進む。",
+        ]
+        narration = [narration[min(index, len(narration) - 1)] for index in range(scene_count)]
+    else:
+        text = source[:1000].strip() or "物語が静かに始まる。"
+        # Divide at character boundaries so even a single short sentence yields a valid script.
+        narration = [text[index * len(text) // scene_count:(index + 1) * len(text) // scene_count].strip()
+                     for index in range(scene_count)]
+        narration = [part or text for part in narration]
+
+    shots = [
+        "Wide establishing shot, introduce the setting and atmosphere",
+        "Medium shot, reveal a gentle change and draw attention to a detail",
+        "Close-up, end on a calm emotional beat with a lingering final frame",
+    ]
+    scenes = [{
+        "scene_number": index + 1,
+        "duration_seconds": 15 // scene_count + (1 if index < 15 % scene_count else 0),
+        "narration": narration[index],
+        "visual_prompt": f"{shots[min(index, len(shots) - 1)]}, cohesive short animated film, cinematic lighting, smooth camera motion.",
+    } for index in range(scene_count)]
+    return {
+        "title": "簡易脚本（AIフォールバック）",
+        "raw_input": source or ("画像入力" if image_input else ""),
+        "narration_script": "\n".join(scene["narration"] for scene in scenes),
+        "visual_prompt": "Cohesive short animated film, cinematic lighting, gentle pacing, expressive composition.",
+        "scenes": scenes,
+        "fallback_used": True,
+        "fallback_reason": "script_generation_unavailable",
+    }
+
+
 def generate_script_breakdown(raw_input: str, scene_count: int) -> dict:
     """Turn source prose into Japanese narration and an English short-animation scene plan."""
     text = raw_input.strip() if isinstance(raw_input, str) else ""

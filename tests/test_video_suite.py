@@ -205,9 +205,15 @@ def autopilot_env(monkeypatch):
              'visual_prompt': 'A short cinematic animation.', 'scenes': scenes}
     def text_generator(text, count):
         generated.append(('text', text, count))
+        if text.startswith('[raise]'):
+            raise RuntimeError('synthetic script provider failure')
+        if text.startswith('[invalid]'):
+            return {'title': 'broken', 'scenes': []}
         return draft
     def image_generator(image, count):
         generated.append(('image', image[:8], count))
+        if image.endswith(b'FAIL'):
+            raise RuntimeError('synthetic vision provider failure')
         return {**draft, 'raw_input': '画像入力'}
     class Renderer:
         def render(self, prompt, aspect_ratio, seconds, image, narration):
@@ -254,6 +260,34 @@ def test_autopilot_accepts_one_image_without_text_and_rejects_empty_input(autopi
     assert response.status_code == 202 and response.json()['with_image'] is True
     queued.pop()()
     assert generated[0][0] == 'image' and all(item[3] for item in rendered)
+
+
+@pytest.mark.parametrize('source', ['[raise] 海辺を歩く物語。', '[invalid] 星を見上げる夜。'])
+def test_autopilot_script_provider_failure_or_invalid_json_falls_back_and_finishes_video(autopilot_env, monkeypatch, source):
+    client, narrator, queued, rendered, generated = autopilot_env
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1', 'novel_text': source}, headers=AUTH)
+    assert response.status_code == 202
+    job_id = response.json()['id']
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{job_id}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded'
+    assert done['autopilot']['status'] == 'succeeded' and done['autopilot']['fallback_used'] is True
+    assert len(rendered) == 3 and all(scene[2] == 5 for scene in rendered)
+    assert done['narration']['status'] == 'succeeded' and done['narration']['muxed'] is True
+    assert len(narrator.calls) == 3 and all(call[0] for call in narrator.calls)
+    assert done['segments'][0]['status'] == 'succeeded' and 'url' in done['segments'][0]
+
+
+def test_autopilot_image_generation_failure_uses_generic_storyboard_with_image(autopilot_env):
+    client, _, queued, rendered, _ = autopilot_env
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1'},
+                           files={'image': ('scene.png', png() + b'FAIL', 'image/png')}, headers=AUTH)
+    assert response.status_code == 202
+    queued.pop()()
+    done = client.get(f"/api/video/jobs/{response.json()['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+    assert done['status'] == 'succeeded' and done['autopilot']['fallback_used'] is True
+    assert all(scene[3] for scene in rendered)
 
 
 def test_autopilot_requires_owner_token(autopilot_env):

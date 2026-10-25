@@ -4,7 +4,7 @@ import pytest
 
 from karry_video.errors import VideoError
 from karry_video.schemas import ScriptDraft, ScriptScene
-from karry_video.script_generation import generate_script_breakdown, generate_script_from_image
+from karry_video.script_generation import fallback_script_breakdown, generate_script_breakdown, generate_script_from_image
 
 
 def _draft(scene_count=2):
@@ -121,3 +121,17 @@ def test_image_generator_rejects_invalid_or_animated_image_before_model_call(mon
     with pytest.raises(VideoError) as error:
         generate_script_from_image(b"not an image", scene_count=3)
     assert error.value.code == "invalid_image" and error.value.status_code == 422
+
+
+def test_fallback_script_is_bounded_valid_and_uses_source_as_narration():
+    result = fallback_script_breakdown("夕焼けの海辺を歩き、未来について語り始めた。", 3)
+    assert result["fallback_used"] is True
+    assert result["narration_script"].replace("\n", "") == "夕焼けの海辺を歩き、未来について語り始めた。"
+    assert len(result["scenes"]) == 3 and sum(scene["duration_seconds"] for scene in result["scenes"]) == 15
+    assert all(scene["narration"] and scene["visual_prompt"].isascii() for scene in result["scenes"])
+
+
+def test_fallback_script_for_image_only_has_default_narration_and_valid_duration():
+    result = fallback_script_breakdown("", 3, image_input=True)
+    assert result["raw_input"] == "画像入力" and len(result["scenes"]) == 3
+    assert result["narration_script"] and sum(scene["duration_seconds"] for scene in result["scenes"]) == 15

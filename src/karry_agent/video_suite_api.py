@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import os
 import threading
 import time
@@ -18,6 +19,7 @@ from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
 SessionId = Annotated[str, Query(min_length=1, max_length=100)]
+logger = logging.getLogger(__name__)
 
 
 def _json(value: Any, status_code: int = 200) -> JSONResponse:
@@ -26,6 +28,30 @@ def _json(value: Any, status_code: int = 200) -> JSONResponse:
 
 def _error(exc: vs.VideoError) -> JSONResponse:
     return _json({"detail": exc.message, "code": exc.code}, exc.status_code)
+
+
+def _valid_autopilot_draft(draft: Any, scene_count: int) -> bool:
+    if not isinstance(draft, dict):
+        return False
+    scenes = draft.get("scenes")
+    narration_script = draft.get("narration_script")
+    if not isinstance(scenes, list) or len(scenes) != scene_count:
+        return False
+    if not isinstance(narration_script, str) or not narration_script.strip() or len(narration_script) > 1000:
+        return False
+    if not isinstance(draft.get("visual_prompt"), str) or not draft["visual_prompt"].strip():
+        return False
+    for scene in scenes:
+        if not isinstance(scene, dict):
+            return False
+        seconds = scene.get("duration_seconds")
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or not 1 <= seconds <= 60:
+            return False
+        if not isinstance(scene.get("narration"), str) or not scene["narration"].strip():
+            return False
+        if not isinstance(scene.get("visual_prompt"), str) or not scene["visual_prompt"].strip():
+            return False
+    return 15 <= sum(scene["duration_seconds"] for scene in scenes) <= 30
 
 
 def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
@@ -299,6 +325,7 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
     def run_autopilot(store: vs.VideoJobStore, job: dict[str, Any], source_text: str, image_bytes: bytes | None) -> None:
         try:
             scene_count = 3
+            fallback_used = False
             try:
                 if source_text:
                     if autopilot_text_generator:
@@ -314,30 +341,22 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                         draft = generate_script_from_image(image_bytes, scene_count)
                 else:
                     raise vs.VideoError("文章か画像を1つ以上入力してください。", 422, "autopilot_input_required")
-            except Exception as exc:
-                from karry_video.errors import VideoError as ScriptVideoError
-                if isinstance(exc, ScriptVideoError):
-                    raise vs.VideoError(exc.message, exc.status_code, exc.code) from None
-                raise
+            except Exception:
+                draft = None
+            if not _valid_autopilot_draft(draft, scene_count):
+                from karry_video.script_generation import fallback_script_breakdown
+                logger.warning("Autopilot script generation failed validation or provider call; using safe fallback")
+                draft = fallback_script_breakdown(source_text, scene_count, image_input=bool(image_bytes and not source_text))
+                fallback_used = True
 
-            scenes = draft.get("scenes") if isinstance(draft, dict) else None
-            if not isinstance(scenes, list) or len(scenes) != scene_count:
-                raise vs.VideoError("脚本生成のシーン構成を検証できませんでした。", 502, "script_generation_invalid_output")
-            if any(not isinstance(scene, dict) or isinstance(scene.get("duration_seconds"), bool)
-                   or not isinstance(scene.get("duration_seconds"), int) or not 1 <= scene["duration_seconds"] <= 60
-                   for scene in scenes):
-                raise vs.VideoError("シーンの長さを検証できませんでした。", 502, "script_generation_invalid_output")
+            scenes = draft["scenes"]
             total_seconds = sum(scene["duration_seconds"] for scene in scenes)
-            if not 15 <= total_seconds <= 30:
-                raise vs.VideoError("生成された動画尺が15〜30秒の範囲外です。", 502, "script_generation_invalid_output")
-            narration_text_all = draft.get("narration_script")
-            if not isinstance(narration_text_all, str) or not narration_text_all.strip() or len(narration_text_all) > 1000:
-                raise vs.VideoError("ナレーションを検証できませんでした。", 502, "script_generation_invalid_output")
+            narration_text_all = draft["narration_script"]
             job["prompt"] = str(draft.get("visual_prompt") or "").strip()[:2000]
             job["duration_seconds"] = total_seconds
             job["narration"] = {"text": narration_text_all, "voice": "jimmy", "status": "processing", "muxed": True}
             job["autopilot"] = {"status": "processing", "title": str(draft.get("title") or "自動生成動画")[:200],
-                                "scene_count": scene_count, "current_scene": 0}
+                                "scene_count": scene_count, "current_scene": 0, "fallback_used": fallback_used}
             job["segments"] = [{"index": 0, "clip_seconds": total_seconds, "play_seconds": total_seconds, "status": "processing"}]
             store.save(job)
 
@@ -401,10 +420,6 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
             if not source_text and not body:
                 raise vs.VideoError("小説テキストまたは画像を入力してください。", 422, "autopilot_input_required")
-            if source_text and not autopilot_text_generator and not os.getenv("GEMINI_API_KEY", "").strip():
-                raise vs.VideoError("自動脚本の生成にはGEMINI_API_KEYの設定が必要です。", 503, "script_ai_not_configured")
-            if not source_text and body and not autopilot_image_generator and not os.getenv("GEMINI_API_KEY", "").strip():
-                raise vs.VideoError("画像から脚本を作るにはGEMINI_API_KEYの設定が必要です。", 503, "script_ai_not_configured")
             if not narrators().available:
                 raise vs.VideoError("音声合成エンジンを利用できません。", 503, "tts_configuration")
             if not vs.ffmpeg_exe():
