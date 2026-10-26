@@ -1,6 +1,6 @@
 """Public-portfolio gate for experimental features.
 
-Video generation, the media DB API and Optimus self-evolution are still
+Video generation, the media DB API, Optimus self-evolution and the self-correction loop are still
 experimental. They stay off (404, hidden from the UI and /docs) unless the
 deployment sets ``KARRY_EXPERIMENTAL_FEATURES=1``, e.g. on a sandbox service.
 """
@@ -10,7 +10,7 @@ import os
 
 from starlette.responses import JSONResponse
 
-EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus")
+EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction")
 
 
 def experimental_enabled() -> bool:
