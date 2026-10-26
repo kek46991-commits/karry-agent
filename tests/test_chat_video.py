@@ -81,3 +81,19 @@ def test_attached_image_is_passed_to_autopilot():
     result = chat_video.run(lambda *args: seen.append(args) or ({"id": "e" * 32}, 202), "s", "この画像で動画を作って",
                             [{"data": b"png-bytes", "mime_type": "image/png"}])
     assert seen[0][2] == b"png-bytes" and result.trace[0].arguments["with_image"] is True
+
+
+def test_video_request_does_not_need_the_model_but_private_fallback_still_builds_it(chat, monkeypatch):
+    client, sid, _, started = chat
+    built = []
+
+    def factory():
+        built.append(1)
+        raise ValueError("GEMINI_API_KEY is not set in environment variables.")
+
+    web.app.dependency_overrides[web.get_agent] = factory
+    body = client.post("/api/chat", json={"prompt": "海辺の動画を作って", "session_id": sid}, headers=AUTH).json()
+    assert body["status"] == "completed" and started and built == []
+    monkeypatch.setattr(web, "_private_mode", lambda *_: True)
+    assert client.post("/api/chat", json={"prompt": "海辺の動画を作って", "session_id": sid}, headers=AUTH).status_code >= 400
+    assert built == [1] and len(started) == 1

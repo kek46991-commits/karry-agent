@@ -924,7 +924,11 @@ def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) 
         lock.release()
 
 
-def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | None = None) -> RunResponse:
+def _chat_video_request(prompt: str) -> bool:
+    return feature_flags.experimental_enabled() and chat_video.is_video_request(prompt)
+
+
+def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[dict] | None = None) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
@@ -938,9 +942,11 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         if images and _calendar_confirmation(request.prompt) and session_id in _PENDING_CALENDAR:
             raise ValueError("予定確認時は画像の添付を外してください。")
         result = _pending_calendar_result(session_id, request.prompt)
-        if result is None and not private_mode and feature_flags.experimental_enabled() and chat_video.is_video_request(request.prompt):
+        if result is None and not private_mode and _chat_video_request(request.prompt):
             result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id)
         if result is None:
+            if agent is None:
+                agent = app.dependency_overrides.get(get_agent, get_agent)()
             result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
@@ -1408,9 +1414,9 @@ def task_chat(request: MessageRequest):
         with _STATE_LOCK:
             if request.session_id not in _SESSIONS:
                 raise HTTPException(status_code=404, detail="Session not found")
-    # Do not initialize the model for list/create/detail/unknown-session requests.
+    # Do not initialize the model for list/create/detail/unknown-session requests or chat video requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-    agent = agent_factory()
+    agent = None if _chat_video_request(request.prompt) else agent_factory()
     run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id, image_ids=request.image_ids)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
