@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="portfolio-core-20261026">
+  <meta name="karry-ui-version" content="chat-video-20261026">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -32,7 +32,7 @@
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     .composer-tools{padding:12px 15px;border-top:1px solid var(--line);background:#172239;scroll-margin-top:16px}.secret-controls{margin:0;flex-wrap:wrap;font-size:14px}.secret-controls input{appearance:none;position:relative;width:44px;height:26px;margin:0;background:#536078;border-radius:20px;cursor:pointer;flex:none}.secret-controls input::after{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:white;border-radius:50%;transition:transform .15s}.secret-controls input:checked{background:#bd416a}.secret-controls input:checked::after{transform:translateX(18px)}.secret-controls input:disabled{cursor:not-allowed;opacity:.7}.mode-status{padding:1px 8px;border-radius:20px;background:#263451;font-size:12px}.feature-jump{font-size:12px;margin-top:7px}.voice-options{flex-wrap:wrap}#voiceStatus{flex-basis:100%;overflow-wrap:anywhere}.mic-help{padding:0 15px 14px;color:var(--muted);font-size:13px}.mic-help summary{cursor:pointer;color:#a5cdff;font-weight:700}.mic-help ol{padding-left:20px}.mic-help button{padding:7px 12px;margin-top:5px}.mic-help a{display:inline-block;margin:8px 0}.ui-version{font-size:11px;color:var(--muted)}
-    .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}
+    .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.chat-video{display:grid;gap:6px;margin-top:8px}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}
     .video-projects-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}.video-projects-heading h3{margin:0;font-size:14px}.video-projects{display:grid;gap:8px}.video-project{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-project button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-project-title{font-weight:700;overflow-wrap:anywhere}.video-project-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;color:var(--muted);font-size:12px}.video-project-duration{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:7px}.video-project-duration input{width:82px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}
     .video-script{display:grid;gap:8px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0d1629}.video-script h3{margin:0;font-size:15px}.video-script textarea{width:100%;min-height:100px}.video-script-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.video-script-row input{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-script-row button,.video-script button{min-height:34px;padding:0 12px}.video-scripts{display:grid;gap:8px}.video-script-card{border:1px solid #263451;border-radius:10px;padding:10px;background:#10192c;overflow-wrap:anywhere}.video-script-card h4{margin:0 0 4px;font-size:14px}.video-script-card details{margin-top:7px}.video-script-scene{border-left:2px solid #4378c7;padding:6px 9px;margin:7px 0;background:#0b1425}.video-script-scene p{margin:3px 0}.video-script-meta{color:var(--muted);font-size:12px}
     .autopilot-container{margin:6px 0 10px;padding:20px;background:#1e1e2e;color:#fff;border:1px solid #45475a;border-radius:12px}.autopilot-container h2{margin:0;color:#89b4fa;font-size:20px}.autopilot-container>p{margin:7px 0 14px;color:#bac2de;font-size:13px}.autopilot-container form{display:grid;gap:14px;margin-top:12px;padding:0;border:0}.autopilot-field{display:grid;gap:5px}.autopilot-field label{font-weight:700}.autopilot-container textarea{width:100%;min-height:84px;padding:10px;border-radius:6px;background:#313244;color:#cdd6f4;border:1px solid #45475a}.autopilot-container input[type="file"]{width:100%;color:#cdd6f4}.autopilot-container button{width:100%;min-height:46px;padding:10px 12px;border-radius:6px;background:#a6e3a1;color:#11111b;font-size:16px;font-weight:800}.autopilot-result{margin-top:16px;padding:12px;background:#181825;border-radius:8px}.autopilot-result[hidden],#autopilot-video[hidden]{display:none}.autopilot-result #autopilot-status{color:#f9e2af;font-weight:700;margin-bottom:10px}.autopilot-result video{width:100%;max-height:420px;border-radius:8px;background:#000}
@@ -59,11 +59,7 @@
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
-        <details id="videoSuite" class="video-suite" hidden><summary>🎬 動画を作る</summary><div class="video-body">
-          <p id="videoConfig" class="hint">文章または画像から、脚本・ナレーション・動画を自動で作成します。</p>
-          <section class="autopilot-container" aria-labelledby="autopilot-heading"><h2 id="autopilot-heading">🎬 ジミー 全自動動画生成</h2><p>小説の文章やプロンプトを入れるだけで、脚本・ナレーション・映像を自動で組み上げます。文章か画像のどちらか、または両方を指定できます。</p><form id="autopilot-form"><div class="autopilot-field"><label for="auto-prompt">① 小説の文章・台詞（画像だけの場合は空欄で可）</label><textarea id="auto-prompt" maxlength="12000" rows="3" placeholder="例：夕焼けの海辺をゆっくり歩きながら、彼は静かに語り始めた。" disabled></textarea></div><div class="autopilot-field"><label for="auto-image">② キャラクター・背景画像（任意・JPG / PNG / WEBP、4 MiBまで）</label><input type="file" id="auto-image" accept="image/jpeg,image/png,image/webp" disabled></div><button type="submit" id="btn-run-autopilot" disabled>✨ ワンクリックで自動動画を作る</button></form><div id="autopilot-result" class="autopilot-result" hidden><div id="autopilot-status" role="status" aria-live="polite"></div><video id="autopilot-video" controls playsinline hidden></video></div></section>
-          <div id="videoStatus" class="hint" aria-live="polite"></div><video id="videoPlayer" class="video-player" controls playsinline hidden></video><div id="videoJobs" class="video-jobs" aria-live="polite"></div>
-        </div></details>
+        <p id="videoChatHint" class="hint chat-video-hint" hidden>🎬 「夕焼けの海辺を歩く少女の動画を作って」のようにチャットで頼むと、脚本・ナレーション・映像を自動で組み立てた動画をこのチャットに表示します（画像を添付するとその画像から作ります）。</p>
       </div>
       <aside class="panel"><h2>実行モニター</h2><div class="metric"><span>ステップ</span><strong id="steps">—</strong></div><div class="metric"><span>ツール呼び出し</span><strong id="toolCalls">—</strong></div><div class="metric"><span>API 呼び出し</span><strong id="apiCalls">—</strong></div><div class="metric"><span>トークン</span><strong id="tokens">—</strong></div><div class="metric"><span>実行時間</span><strong id="elapsed">—</strong></div><div class="trace"><h2>実行トレース</h2><div id="trace" class="trace-list"><div class="hint">まだ実行されていません。</div></div></div><div class="session">Session: <span id="session">未選択</span></div><p class="hint">API ドキュメントは <a href="/docs" target="_blank" rel="noopener">/docs</a> で確認できます。</p></aside>
     </section>
@@ -252,7 +248,7 @@
   function addMessage(kind,text){
     $('empty')?.remove();const el=document.createElement('div');el.className=`message ${kind}`;
     el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`;
-    $('messages').appendChild(el);if(kind==='agent')addSpeakButton(el,text);$('messages').scrollTop=$('messages').scrollHeight;return el;
+    $('messages').appendChild(el);if(kind==='agent'){addSpeakButton(el,text);if(typeof attachChatVideo==='function')attachChatVideo(el,text);}$('messages').scrollTop=$('messages').scrollHeight;return el;
   }
   const SECRET_PATTERNS=[/\b(sk-(?:ant-|proj-)?)[A-Za-z0-9_-]{16,}/g,/\b(AIza)[0-9A-Za-z_-]{30,}/g,/\b(github_pat_)[A-Za-z0-9_]{20,}/g,/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g,/\b(xox[abpr]-)[A-Za-z0-9-]{10,}/g,/\b(rnd_)[A-Za-z0-9]{16,}/g,/\b(r8_)[A-Za-z0-9]{16,}/g,/\b(AKIA)[0-9A-Z]{16}\b/g,/\b(ya29\.)[A-Za-z0-9_-]{20,}/g];
   function maskSecrets(text){let out=String(text);const token=ownerToken();if(token&&token.length>=8)out=out.split(token).join('[REDACTED]');for(const re of SECRET_PATTERNS)out=out.replace(re,(m,p)=>`${p}...${m.slice(-4)}`);return out.replace(/((?:postgres(?:ql)?|mysql|redis|rediss|mongodb(?:\+srv)?):\/\/)[^\s\/@:]+:[^\s\/@]+@/gi,'$1[REDACTED]@').replace(/(bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/gi,'$1[REDACTED]');}
@@ -328,7 +324,7 @@
     if(!url)return;
     try{const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))return;$('latestUrl').href=parsed.href;$('latestBox').hidden=false;}catch(_){}
   }
-  function clearView(){
+  function clearView(){if(typeof resetVideoSuite==='function')resetVideoSuite();
     selectedImages=[];imageUrls.clear();imageVersion++;$('imagePreviews').replaceChildren();$('imageFile').value='';$('prompt').required=true;
     $('imageStatus').textContent='JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
     $('messages').replaceChildren();const empty=document.createElement('div');empty.id='empty';empty.className='empty';empty.textContent='このタスクへの指示を入力してください。';$('messages').appendChild(empty);
@@ -586,215 +582,52 @@
   setBusy(false);
 </script>
 <script>
-  const VIDEO_POLL_MS=6000,VIDEO_POLL_LIMIT_MS=5*60*1000,VIDEO_AUTOPILOT_POLL_LIMIT_MS=60*60*1000,VIDEO_TALKING_POLL_LIMIT_MS=65*60*1000;
-  const video={session:null,config:null,projectConfig:null,submitting:false,previewSubmitting:false,scriptSubmitting:false,autopilotSubmitting:false,autopilotJobId:null,scriptsLoading:false,scripts:[],projectsLoading:false,projects:new Map(),projectSaving:new Set(),jobs:new Map(),timers:new Map(),blobs:new Map(),play:null,epoch:0};
-  function videoMaxSeconds(){const n=Math.floor(Number(video.projectConfig?.max_seconds));return Number.isFinite(n)?Math.min(120,Math.max(1,n)):120;}
-  function videoClamp(value){const n=Math.round(Number(value));return Number.isFinite(n)?Math.min(videoMaxSeconds(),Math.max(1,n)):10;}
-  function videoPlan(seconds){const lengths=video.config?.clip_lengths?.length?video.config.clip_lengths:[5,10];const longest=Math.max(...lengths);let left=seconds,cuts=0;while(left>0){left-=Math.min(left,longest);cuts++;}return cuts;}
-  function setVideoDuration(value){const seconds=videoClamp(value);$('videoDuration').max=String(videoMaxSeconds());$('videoDurationRange').max=String(videoMaxSeconds());$('videoDuration').value=seconds;$('videoDurationRange').value=seconds;const cuts=videoPlan(seconds);$('videoPlan').textContent=video.config?.provider==='local'?`${seconds}秒の MP4 をサーバー内で1本に合成します（0円）。`:cuts>1?`${seconds}秒 → ${cuts}カットに分けて生成し、順に再生します。`:`${seconds}秒・1カットで生成します。`;return seconds;}
-  function videoReady(){return connected&&!!sessionId&&!isSecret&&!busy;}
-  function videoBusy(){return video.submitting||video.previewSubmitting||video.scriptSubmitting||video.autopilotSubmitting;}
-  function videoContext(){return {owner:sessionId,version:viewVersion,token:ownerToken(),epoch:video.epoch};}
-  function isCurrentVideoContext(context){return !!context&&context.epoch===video.epoch&&context.version===viewVersion&&context.owner===sessionId&&context.token===ownerToken()&&videoReady();}
-  function isUuid(value){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value||''));}
-  function safeProjectStatusUrl(url){return /^\/api\/video\/project-jobs\/[0-9a-f-]{36}$/i.test(String(url||''));}
-  function safeProjectDownloadUrl(url){return /^\/api\/video\/project-jobs\/[0-9a-f-]{36}\/download$/i.test(String(url||''));}
-  function resetVideoSuite(){
-    video.epoch++;for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear();for(const url of video.blobs.values())try{URL.revokeObjectURL?.(url);}catch(_){}video.blobs.clear();video.jobs.clear();video.session=null;video.config=null;video.projectConfig=null;video.submitting=false;video.previewSubmitting=false;video.scriptSubmitting=false;video.autopilotSubmitting=false;video.autopilotJobId=null;stopVideoPlayback();$('videoJobs')?.replaceChildren();$('auto-prompt').value='';$('auto-image').value='';if($('autopilot-status'))$('autopilot-status').textContent='';if($('autopilot-result'))$('autopilot-result').hidden=true;if($('autopilot-video')){$('autopilot-video').pause?.();$('autopilot-video').removeAttribute('src');$('autopilot-video').hidden=true;}if($('videoStatus'))$('videoStatus').textContent='';
+  const CHAT_VIDEO_RE=/動画ジョブID: ([a-f0-9]{32})/,CHAT_VIDEO_POLL_MS=6000,CHAT_VIDEO_POLL_LIMIT_MS=60*60*1000;
+  const chatVideo={timers:new Map(),blobs:[],epoch:0};
+  function videoProcessing(){return chatVideo.timers.size>0;}
+  function resetVideoSuite(){chatVideo.epoch++;for(const timer of chatVideo.timers.values())clearTimeout(timer);chatVideo.timers.clear();for(const url of chatVideo.blobs)try{URL.revokeObjectURL?.(url);}catch(_){}chatVideo.blobs=[];updateStatusLamp();}
+  function chatVideoLabel(job){
+    const auto=job.autopilot||{};
+    if(job.status==='processing')return auto.current_scene?`🎬 動画を作成中…（シーン ${auto.current_scene}/${auto.scene_count||3}）`:'🎬 脚本を作成中…';
+    if(job.status==='failed')return `動画の作成に失敗しました（${auto.error||job.segments?.[0]?.error||'不明なエラー'}）。`;
+    const title=auto.title?`「${auto.title}」`:'動画';
+    const note=job.status==='partial'?'（ナレーションの一部を仮の音にしています）':auto.fallback_used?'（AI脚本を使えなかったため簡易脚本で作りました）':'';
+    return `${title}が完成しました${note}。`;
   }
-  function safeEngineLabel(value){return /^[a-z0-9_-]{1,32}$/i.test(String(value||''))?String(value):'設定済みの実行先';}
-  function videoMode(){const value=document.querySelector('input[name="videoMode"]:checked')?.value;return value==='talking'||value==='mouth'?value:'static';}
-  function sadTalkerConfigured(){return video.config?.sadtalker?.configured===true||video.config?.talking?.available===true;}
-  function sadTalkerCanFallback(){return video.config?.sadtalker?.local_fallback_available===true;}
-  function talkingSelectable(){return video.config?.talking?.available===true||sadTalkerCanFallback();}
-  function cpuLipSyncRequested(){return videoMode()==='mouth';}
-  function sadTalkerRequested(){return videoMode()==='talking';}
-  function renderVideoLipSyncUi(){const mode=videoMode(),talking=mode==='talking',configured=sadTalkerConfigured(),fallback=sadTalkerCanFallback();$('videoLipsync').checked=mode==='mouth';$('videoLipSync').checked=talking;$('videoLipsync').setAttribute('aria-checked',String(mode==='mouth'));$('videoLipSync').setAttribute('aria-checked',String(talking));$('videoLipSyncPreviewHint').hidden=!(mode==='mouth'||talking);$('videoLipSyncState').textContent=talking?(video.config?.talking?.available===true?`SadTalkerを選択中（${safeEngineLabel(video.config.talking.engine)}）。実行先の稼働状況は生成時に確認します。`:fallback?'接続先未設定でも、失敗時は静止画＋音声が完成します。':'人物を喋らせる: 実行先を確認中'):'人物を喋らせる: OFF（静止画＋音声）';}
-  function setVideoMode(mode){const target=mode==='talking'||mode==='mouth'?mode:'static';const radio=document.querySelector(`input[name="videoMode"][value="${target}"]`);if(!radio||radio.disabled)return;radio.checked=true;renderVideoLipSyncUi();renderVideoConfig();refreshVideoSuite();}
-  function refreshVideoSuite(){
-    const ok=videoReady();$('auto-prompt').disabled=!ok||videoBusy();$('auto-image').disabled=!ok||videoBusy();$('btn-run-autopilot').disabled=!ok||videoBusy()||!video.config?.narration_available;
-    if(video.session!==sessionId){video.session=sessionId;stopVideoPlayback();renderVideoJobs();if(ok&&$('videoSuite').open)loadVideoJobs();}
+  function attachChatVideo(element,text){
+    const match=CHAT_VIDEO_RE.exec(String(text||''));if(!match||!sessionId||isSecret)return;
+    const card=document.createElement('div');card.className='chat-video';card.dataset.jobId=match[1];
+    const status=document.createElement('div');status.className='hint chat-video-status';status.setAttribute('aria-live','polite');status.textContent='🎬 動画の状態を確認中…';
+    card.append(status);element.appendChild(card);
+    pollChatVideo(card,match[1],sessionId,chatVideo.epoch,Date.now());
+  }
+  async function pollChatVideo(card,jobId,owner,epoch,started){
+    chatVideo.timers.delete(card);
+    const current=()=>epoch===chatVideo.epoch&&owner===sessionId&&card.isConnected;
+    if(!current())return;
+    const status=card.querySelector('.chat-video-status');let job;
+    try{job=await requestJson(`/api/video/jobs/${encodeURIComponent(jobId)}?session_id=${encodeURIComponent(owner)}`);}
+    catch(error){if(current())status.textContent=`動画の状態を取得できませんでした: ${error.message}`;updateStatusLamp();return;}
+    if(!current())return;
+    status.textContent=chatVideoLabel(job);
+    if(job.status==='processing'){
+      if(Date.now()-started<CHAT_VIDEO_POLL_LIMIT_MS)chatVideo.timers.set(card,setTimeout(()=>pollChatVideo(card,jobId,owner,epoch,started),CHAT_VIDEO_POLL_MS));
+      else status.textContent='動画の作成に時間がかかっています。あとでこのタスクを開き直してください。';
+      updateStatusLamp();return;
+    }
     updateStatusLamp();
-  }
-  const baseRefreshControls=refreshControls;
-  refreshControls=function(){baseRefreshControls();refreshVideoSuite();};
-  function renderVideoConfig(){const config=video.config;$('videoConfig').textContent=config?.enabled===false&&!config?.narration_available?'自動動画生成を利用できません。音声・動画生成の設定を確認してください。':'入力から脚本・ナレーション・動画を自動生成します。生成中はこの画面で進捗を確認できます。';}
-
-  function renderVideoEngines(){
-    const config=video.config,box=$('videoEngines');if(!box)return;if(!config){box.replaceChildren();return;}
-    const engine=(name,state,detail)=>{const item=document.createElement('span');item.dataset.engine=name;item.append(lampFor(state),`${name}: ${detail}`);return item;};const lipsyncAvailable=config.lipsync_available===true||talkingSelectable();
-    box.replaceChildren(
-      engine('合成',!config.enabled&&!sadTalkerCanFallback()?'error':videoProcessing()?'processing':'online',!config.enabled&&!sadTalkerCanFallback()?'停止中':videoProcessing()?'処理中':'待機中'),
-      engine('ナレーション',config.narration_available?'online':'warn',config.narration_available?'音声入り':'端末の声'),
-      engine('口パク',lipsyncAvailable?'online':'idle',config.lipsync_available&&talkingSelectable()?'簡易口パク / SadTalkerを選択可':config.lipsync_available?'簡易口パクを選択可':talkingSelectable()?'SadTalkerの失敗時も静止画＋音声':'使えません'));
-  }
-  async function loadVideoConfig(){
-    const context=videoContext();let project=null,config=null;
-    try{project=await requestJson('/api/video/project-config');}catch(_){}
-    if(!isCurrentVideoContext(context))return;
-    video.projectConfig=project&&typeof project==='object'?project:null;
-    try{config=await requestJson('/api/video/config');}catch(_){}
-    if(!isCurrentVideoContext(context))return;
-    video.config=config&&typeof config==='object'?config:null;
-    renderVideoConfig();refreshVideoSuite();
-  }
-  async function loadVideoJobs(){
-    const context=videoContext(),owner=context.owner;if(!owner)return;
-    try{const jobs=await requestJson('/api/video/jobs?session_id='+encodeURIComponent(owner));if(!isCurrentVideoContext(context))return;for(const job of jobs){video.jobs.set(job.id,{...job,owner,poll_epoch:video.epoch});if(job.status==='processing')scheduleVideoPoll(job.id);}renderVideoJobs();}catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}
-  }
-  function videoLabel(status){return {processing:'生成中…',succeeded:'完成',partial:'一部失敗',failed:'失敗'}[status]||status;}
-  function videoNarrationLabel(n){
-    if(n.status==='succeeded')return 'ナレーション: 音声入り（'+(n.engine==='gemini'?'ジミーの声 / Gemini':n.engine==='free'?'無料の音声合成':'音声合成')+'）';
-    if(n.status==='placeholder')return '⚠ ナレーション音声を作れませんでした（'+(n.error==='tts_configuration'?'音声のキーが未設定で、無料の音声合成も使えません':'音声合成サービスに接続できませんでした')+'）。動画には仮の合図音を入れ、再生時は端末の声で読み上げます。';
-    return 'ナレーション: 端末の声で再生';
-  }
-  function videoAnimationLabel(a){
-    if(a.status==='succeeded')return '人物アニメーション: 写真の人物が喋る動画（'+safeEngineLabel(a.engine)+'）';
-    if(a.status==='processing')return '人物アニメーション: 顔の動きを作っています（数分〜十数分）';
-    const reason={narration_unavailable:'ナレーション音声を作れなかったため',lipsync_configuration:'実行先が未設定のため',lipsync_timeout:'時間内に終わらなかったため',provider_timeout:'時間内に終わらなかったため',lipsync_rejected:'実行先に拒否されたため',lipsync_busy:'実行先が混み合っていたため',lipsync_unavailable:'実行先に接続できなかったため'}[a.error||a.fallback_reason]||'実行先でエラーになったため';
-    return '⚠ 人物アニメーションを作れませんでした（'+reason+'）。代わりに「静止画＋音声」の動画にしました。';
-  }
-  const LIPSYNC_REASONS={no_face:'写真から顔を見つけられませんでした',no_photo:'写真がありません',no_narration:'ナレーション音声がありません',unavailable:'サーバーで口パク機能を使えません',invalid_audio:'ナレーション音声を読めませんでした'};
-  function videoLipsyncLabel(l){if(l.status==='succeeded')return '👄 口パク: 音声に合わせて口を動かしました（簡易）';if(l.status==='fallback')return '⚠ 口パクできませんでした（'+(LIPSYNC_REASONS[l.error]||'口パク処理に失敗しました')+'）。静止画＋音声の動画にしました。';return '👄 口パク: 処理中…';}
-  const AUTOPILOT_SCRIPT_REASONS={script_ai_not_configured:'サーバーにGEMINI_API_KEYが未設定です',script_ai_auth_failed:'GEMINI_API_KEYが無効か、モデルの権限がありません',script_ai_rate_limited:'Gemini APIの利用上限に達しました',script_generation_invalid_output:'AIの出力が条件を満たしませんでした',script_generation_failed:'Gemini APIに接続できませんでした'};
-  function videoJobLamp(status){return {processing:'processing',succeeded:'online',partial:'warn',failed:'error'}[status]||'idle';}
-  function renderVideoJobs(){
-    const list=[...video.jobs.values()].filter(job=>job.owner===sessionId).sort((a,b)=>Number(b.created_at)-Number(a.created_at));
-    $('videoJobs').replaceChildren(...list.map(job=>{
-      const card=document.createElement('div');card.className='video-job';card.dataset.jobId=job.id;const segments=Array.isArray(job.segments)?job.segments:[];
-      const done=segments.filter(s=>s.status==='succeeded').length;const text=document.createElement('div');text.textContent=`${videoLabel(job.status)}｜${job.aspect_ratio}・${job.duration_seconds}秒・${done}/${segments.length}カット｜${job.prompt}`;text.prepend(lampFor(videoJobLamp(job.status)));card.dataset.lamp=videoJobLamp(job.status);card.append(text);
-      if(job.autopilot){const note=document.createElement('div');note.className='hint';note.textContent=`全自動生成「${job.autopilot.title||'動画'}」：${job.autopilot.current_scene||0}/${job.autopilot.scene_count||3}シーン`;card.append(note);}
-      if(job.source==='project-preview'){const note=document.createElement('div');note.className='hint';note.textContent=job.preview_tts?'0円プレビュー・英語TTS付き（簡易口パク・SadTalkerとも未使用）':'0円プレビュー・写真1枚のローカル動画（簡易口パク・SadTalkerとも未使用）';card.append(note);}
-      else if(job.narration){const n=document.createElement('div');n.className='hint video-narration';n.textContent=videoNarrationLabel(job.narration);card.append(n);}
-      const animation=job.lip_sync||job.animation;if(animation&&job.source!=='project-preview'){const n=document.createElement('div');n.className='hint video-animation';n.textContent=videoAnimationLabel(animation);card.append(n);}
-      if(job.lipsync){const l=document.createElement('div');l.className='hint video-lipsync';l.textContent=videoLipsyncLabel(job.lipsync);card.append(l);}
-      if(job.poll_error){const n=document.createElement('div');n.className='hint';n.textContent=job.poll_error;card.append(n);}
-      if(segments.some(s=>s.status==='succeeded'&&s.url)){const play=document.createElement('button');play.type='button';play.textContent='▶ 再生';play.addEventListener('click',()=>playVideoJob(job.id));card.append(play);}
-      if(job.provider==='local'&&done){const save=document.createElement('button');save.type='button';save.className='video-save';save.textContent='⬇ MP4を保存';save.addEventListener('click',()=>saveVideoJob(job.id));card.append(save);}
-      return card;}));
-    updateStatusLamp();renderVideoEngines();
-  }
-  function projectStatusInfo(status){if(status==='draft')return {lamp:'idle',label:'未生成',busy:false};if(status==='queued'||status==='running')return {lamp:'processing',label:'生成中',busy:true};if(status==='succeeded')return {lamp:'online',label:'完了',busy:false};if(status==='failed')return {lamp:'error',label:'エラー',busy:false};return {lamp:'error',label:'要確認',busy:false};}
-  function renderVideoProjects(){
-    const box=$('videoProjects');if(!box)return;const projects=[...video.projects.values()].sort((x,y)=>String(y.updated_at||'').localeCompare(String(x.updated_at||'')));if(!projects.length){box.replaceChildren();return;}
-    box.replaceChildren(...projects.map(project=>{const id=String(project.project_id||''),info=projectStatusInfo(project.status),saving=video.projectSaving.has(id),blocked=!videoReady()||videoBusy()||saving||info.busy||!!project.active_job_id;const card=document.createElement('article');card.className='video-project';card.dataset.projectId=id;card.dataset.lamp=info.lamp;const title=document.createElement('div');title.className='video-project-title';title.textContent=String(project.title||'無題の動画');const meta=document.createElement('div');meta.className='video-project-meta';const lamp=lampFor(info.lamp);lamp.setAttribute('aria-label',info.label);const state=document.createElement('span');state.textContent=info.label;state.setAttribute('aria-label','状態: '+info.label);const aspect=document.createElement('span');aspect.textContent=String(project.aspect_ratio||'—');aspect.setAttribute('aria-label','縦横比: '+aspect.textContent);meta.append(lamp,state,aspect);const row=document.createElement('div');row.className='video-project-duration';const label=document.createElement('label');label.htmlFor='videoProjectDuration-'+id;label.textContent=`長尺指定（秒、1〜${videoMaxSeconds()}）`;const input=document.createElement('input');input.type='number';input.id='videoProjectDuration-'+id;input.min='1';input.max=String(videoMaxSeconds());input.step='1';input.value=String(project.duration_seconds??'');input.setAttribute('aria-label',`${title.textContent} の長尺指定（秒、1〜${videoMaxSeconds()}）`);input.disabled=blocked;const save=document.createElement('button');save.type='button';save.textContent=saving?'保存中…':'秒数を保存';save.disabled=blocked;save.setAttribute('aria-label',`${title.textContent} の秒数を保存`);save.addEventListener('click',()=>saveProjectDuration(id,input.value));row.append(label,input,save);card.append(title,meta,row);return card;}));
-  }
-  async function loadVideoProjects(){
-    if(!videoReady()||videoBusy()||video.projectsLoading)return;const context=videoContext();video.projectsLoading=true;refreshVideoSuite();$('videoStatus').textContent='動画プロジェクト一覧を読み込み中…';
-    try{const data=await requestJson('/api/video/projects');if(!isCurrentVideoContext(context))return;if(!data||!Array.isArray(data.items))throw new Error('動画プロジェクト一覧の応答形式が不正です');video.projects.clear();for(const project of data.items)if(isUuid(project?.project_id))video.projects.set(project.project_id,project);renderVideoProjects();$('videoStatus').textContent=`動画プロジェクト一覧を更新しました（${Number.isFinite(Number(data.total))?Number(data.total):video.projects.size}件）。`;}
-    catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}finally{if(context.epoch===video.epoch){video.projectsLoading=false;refreshVideoSuite();}}
-  }
-  function renderVideoScripts(){
-    const box=$('videoScripts');if(!box)return;if(!video.scripts.length){box.textContent=video.scriptsLoading?'保存済み脚本を読み込み中…':'保存済みの脚本はありません。';return;}
-    box.replaceChildren(...video.scripts.map(script=>{const card=document.createElement('article');card.className='video-script-card';card.dataset.scriptId=String(script.id);const title=document.createElement('h4');title.textContent=String(script.title||'脚本');const meta=document.createElement('div');meta.className='video-script-meta';const date=Date.parse(script.created_at||'');meta.textContent=`${Array.isArray(script.scenes)?script.scenes.length:0}シーン${Number.isFinite(date)?' ・ '+new Date(date).toLocaleString('ja-JP'):''}`;const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='ナレーション・シーン構成・原文を表示';details.append(summary);const overall=document.createElement('p');overall.textContent='全体の映像イメージ: '+String(script.visual_prompt||'');details.append(overall);const narration=document.createElement('p');narration.textContent='ナレーション: '+String(script.narration_script||'');details.append(narration);for(const [index,scene] of (Array.isArray(script.scenes)?script.scenes:[]).entries()){const sceneBox=document.createElement('div');sceneBox.className='video-script-scene';const heading=document.createElement('strong');heading.textContent=`シーン ${Number(scene.scene_number)||index+1}（${Number(scene.duration_seconds)||0}秒）`;const line=document.createElement('p');line.textContent='ナレーション: '+String(scene.narration||'');const visual=document.createElement('p');visual.textContent='映像案: '+String(scene.visual_prompt||'');sceneBox.append(heading,line,visual);details.append(sceneBox);}const sourceDetails=document.createElement('details');const sourceSummary=document.createElement('summary');sourceSummary.textContent='入力した原文';const source=document.createElement('p');source.textContent=String(script.raw_input||'');sourceDetails.append(sourceSummary,source);const apply=document.createElement('button');apply.type='button';apply.textContent='動画設定へ反映';apply.disabled=!videoReady()||videoBusy();apply.addEventListener('click',()=>applyGeneratedScript(script.id));card.append(title,meta,details,sourceDetails,apply);return card;}));
-  }
-  async function loadVideoScripts(){
-    if(!videoReady()||video.scriptsLoading)return;const context=videoContext();video.scriptsLoading=true;renderVideoScripts();refreshVideoSuite();try{const data=await requestJson('/api/video/scripts?limit=20');if(!isCurrentVideoContext(context))return;if(!data||!Array.isArray(data.items))throw new Error('脚本履歴の応答形式が不正です');video.scripts=data.items;renderVideoScripts();$('videoScriptStatus').textContent=`保存済み脚本を読み込みました（${Number.isFinite(Number(data.total))?Number(data.total):video.scripts.length}件）。`;}catch(error){if(isCurrentVideoContext(context))$('videoScriptStatus').textContent=error.message;}finally{if(context.epoch===video.epoch){video.scriptsLoading=false;renderVideoScripts();refreshVideoSuite();}}
-  }
-  async function generateVideoScript(){
-    if(!videoReady()||videoBusy())return;const rawInput=$('videoScriptInput').value.trim(),sceneCount=Number($('videoScriptSceneCount').value);if(!rawInput){$('videoScriptStatus').textContent='脚本に分解する原文を入力してください。';return;}if(rawInput.length>12000){$('videoScriptStatus').textContent='原文は12,000文字以内で入力してください。';return;}if(!Number.isInteger(sceneCount)||sceneCount<1||sceneCount>8){$('videoScriptStatus').textContent='シーン数は1〜8の整数で指定してください。';return;}const context=videoContext();video.scriptSubmitting=true;refreshVideoSuite();$('videoScriptStatus').textContent='AIがナレーションとシーン構成を作成しています…';
-    try{const script=await requestJson('/api/video/scripts/generate',{method:'POST',body:JSON.stringify({raw_input:rawInput,scene_count:sceneCount})});if(!isCurrentVideoContext(context))return;if(!Number.isInteger(Number(script?.id))||!Array.isArray(script.scenes)||typeof script.narration_script!=='string'||typeof script.visual_prompt!=='string')throw new Error('脚本生成の応答形式が不正です');$('auto-narration').value=script.narration_script;$('auto-visual-prompt').value=script.visual_prompt;video.scripts=[script,...video.scripts.filter(item=>Number(item.id)!==Number(script.id))].slice(0,20);renderVideoScripts();$('videoScriptStatus').textContent=`「${String(script.title||'脚本')}」を${script.scenes.length}シーンに分解し、履歴へ保存しました。`;
-    }catch(error){if(isCurrentVideoContext(context))$('videoScriptStatus').textContent=error.message;}finally{if(context.epoch===video.epoch){video.scriptSubmitting=false;renderVideoScripts();}refreshVideoSuite();}
-  }
-  function setAutopilotStatus(message){$('autopilot-result').hidden=false;$('autopilot-status').textContent=message;}
-  async function showAutopilotVideo(job,context){
-    const clip=job.segments?.find(segment=>segment.status==='succeeded'&&segment.url);if(!clip)return;try{const url=await videoBlob(clip.url);if(!isCurrentVideoContext(context)||video.autopilotJobId!==job.id)return;$('autopilot-video').src=url;$('autopilot-video').hidden=false;$('autopilot-video').load();}catch(_){if(isCurrentVideoContext(context))setAutopilotStatus('生成は完了しましたが、動画ファイルを読み込めませんでした。ジョブ一覧から再試行してください。');}
-  }
-  async function generateVideoAutopilot(){
-    if(!videoReady()||videoBusy())return;const novelText=$('auto-prompt').value.trim(),file=$('auto-image').files?.[0];if(!novelText&&!file){setAutopilotStatus('小説・シーンの文章を入力するか、画像を1枚選んでください。');return;}if(novelText.length>12000){setAutopilotStatus('文章は12,000文字以内で入力してください。');return;}if(file&&file.size>4*1024*1024){setAutopilotStatus('画像は4 MiBまでです。');return;}
-    const context=videoContext(),form=new FormData();form.append('session_id',context.owner);form.append('novel_text',novelText);form.append('request_id',videoRequestId());if(file)form.append('image',file);video.autopilotSubmitting=true;refreshVideoSuite();$('autopilot-video').pause?.();$('autopilot-video').removeAttribute('src');$('autopilot-video').hidden=true;setAutopilotStatus('脚本・ナレーション・シーン映像を自動生成して1本に結合しています。完了まで数分かかる場合があります。');
-    try{const response=await fetch('/api/video/autopilot',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'自動動画生成を開始できませんでした');if(!isCurrentVideoContext(context))return;if(!data.id||data.mode!=='autopilot')throw new Error('自動動画生成の応答形式が不正です');data={...data,owner:context.owner,poll_epoch:video.epoch};video.autopilotJobId=data.id;video.jobs.set(data.id,data);renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);setAutopilotStatus('オートパイロットを開始しました。処理状況は下のジョブ一覧にも表示されます。');}
-    catch(error){if(isCurrentVideoContext(context))setAutopilotStatus(error.message);}
-    finally{if(context.epoch===video.epoch)video.autopilotSubmitting=false;refreshVideoSuite();}
-  }
-  function applyGeneratedScript(scriptId){
-    const script=video.scripts.find(item=>Number(item.id)===Number(scriptId));if(!script||!videoReady())return;if(String(script.visual_prompt||'').length>2000||String(script.narration_script||'').length>1000){$('videoScriptStatus').textContent='この脚本は現在の動画入力欄の文字数上限を超えるため反映できません。';return;}$('auto-narration').value=String(script.narration_script||'');$('auto-visual-prompt').value=String(script.visual_prompt||'');$('videoPrompt').value=String(script.visual_prompt||'');$('videoNarration').value=String(script.narration_script||'');$('videoStatus').textContent=`「${String(script.title||'脚本')}」の映像イメージとナレーションを動画設定へ反映しました。`;document.querySelector('#videoPrompt')?.scrollIntoView?.({block:'center',behavior:'smooth'});
-  }
-  async function saveProjectDuration(projectId,rawValue){
-    const project=video.projects.get(projectId);if(!project||!videoReady()||videoBusy()||video.projectSaving.has(projectId))return;const info=projectStatusInfo(project.status),max=videoMaxSeconds(),seconds=Number(rawValue);if(info.busy||project.active_job_id){$('videoStatus').textContent='生成中のプロジェクトは秒数を更新できません。';return;}if(!Number.isInteger(seconds)||seconds<1||seconds>max){$('videoStatus').textContent=`長尺指定は1〜${max}秒の整数で入力してください。`;return;}const version=Number(project.version);if(!Number.isInteger(version)||version<1){$('videoStatus').textContent='プロジェクトのバージョンを確認できません。一覧を更新してください。';return;}
-    const context=videoContext();video.projectSaving.add(projectId);renderVideoProjects();try{const updated=await requestJson('/api/video/projects/'+encodeURIComponent(projectId),{method:'PATCH',body:JSON.stringify({version,duration_seconds:seconds})});if(!isCurrentVideoContext(context))return;if(!updated||!isUuid(updated.project_id)||!Number.isInteger(Number(updated.version)))throw new Error('プロジェクト更新の応答形式が不正です');video.projects.set(projectId,{...project,...updated});renderVideoProjects();$('videoStatus').textContent='長尺指定を保存しました。動画プロジェクト一覧を更新しました。';}catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error?.status===409?'別の更新と競合しました。一覧を更新してからもう一度保存してください。':error.message;}finally{if(context.epoch===video.epoch){video.projectSaving.delete(projectId);renderVideoProjects();refreshVideoSuite();}}
-  }
-  function previewJobStatus(status){return status==='queued'||status==='running'?'processing':status;}
-  function normalisePreviewJob(project,job,owner,createdAt=Date.now(),previous={}){
-    const jobId=job?.job_id||previous.jobId,statusUrl=job?.status_url||previous.statusUrl;if(!isUuid(jobId)||!['queued','running','succeeded','failed'].includes(job.status))throw new Error('プレビュー生成ジョブの応答形式が不正です');
-    if(!safeProjectStatusUrl(statusUrl))throw new Error('プレビュー生成ジョブの状態URLが不正です');
-    const downloadUrl=job.download_url==null?null:String(job.download_url);if(downloadUrl&&!safeProjectDownloadUrl(downloadUrl))throw new Error('プレビュー動画のURLが不正です');
-    const status=previewJobStatus(job.status),seconds=videoClamp(project.duration_seconds),title=String(project.title||'無題の動画');
-    return {id:jobId,source:'project-preview',owner,status,status_url:statusUrl,project:{...project},prompt:title,aspect_ratio:project.aspect_ratio,duration_seconds:seconds,created_at:createdAt,preview_tts:!!project.tts?.text,segments:[{index:0,status,clip_seconds:seconds,play_seconds:seconds,url:downloadUrl}]};
-  }
-  function scheduleVideoPoll(jobId){
-    if(video.timers.has(jobId))return;const job=video.jobs.get(jobId);if(!job||job.poll_stopped||job.status!=='processing')return;
-    const started=Number(job.poll_started_at)||Date.now();job.poll_started_at=started;job.poll_epoch=job.poll_epoch??video.epoch;
-    const limit=job.mode==='talking'?VIDEO_TALKING_POLL_LIMIT_MS:job.mode==='autopilot'?VIDEO_AUTOPILOT_POLL_LIMIT_MS:VIDEO_POLL_LIMIT_MS;
-    if(Date.now()-started>=limit){job.poll_stopped=true;job.poll_error=`自動状態確認は${Math.round(limit/60000)}分で停止しました。後で画面を開き直してください。`;renderVideoJobs();return;}
-    video.timers.set(jobId,setTimeout(async()=>{video.timers.delete(jobId);const current=video.jobs.get(jobId);if(!current||current.poll_epoch!==video.epoch)return;
-      try{
-        let fresh,updated;if(current.source==='project-preview'){
-          if(!safeProjectStatusUrl(current.status_url)){current.poll_stopped=true;current.poll_error='プレビュー状態URLを確認できません。';renderVideoJobs();return;}
-          fresh=await requestJson(current.status_url);if(current.poll_epoch!==video.epoch)return;updated=normalisePreviewJob(current.project,fresh,current.owner,current.created_at,{jobId:current.id,statusUrl:current.status_url});
-        }else{fresh=await requestJson(`/api/video/jobs/${encodeURIComponent(jobId)}?session_id=${encodeURIComponent(current.owner)}`);if(current.poll_epoch!==video.epoch)return;updated={...fresh,owner:current.owner};}
-        updated.poll_started_at=started;updated.poll_epoch=current.poll_epoch;video.jobs.set(jobId,updated);if(updated.mode==='autopilot'&&updated.status==='succeeded'&&video.autopilotJobId===jobId){const fallback=updated.autopilot?.fallback_used?`Gemini脚本を利用できなかったため（${AUTOPILOT_SCRIPT_REASONS[updated.autopilot.fallback_reason]||'Gemini APIに接続できませんでした'}）、簡易脚本で生成しました。`:'動画を再生または保存できます。';setAutopilotStatus(`「${updated.autopilot?.title||'自動生成動画'}」が完成しました。${fallback}`);await showAutopilotVideo(updated,{owner:current.owner,version:viewVersion,token:ownerToken(),epoch:current.poll_epoch});}if(updated.mode==='autopilot'&&updated.status==='failed'&&video.autopilotJobId===jobId){setAutopilotStatus('自動生成に失敗しました。TTSまたは動画合成エンジンが利用可能か確認して再試行してください。');}renderVideoJobs();if(updated.status==='processing')scheduleVideoPoll(jobId);
-      }catch(error){
-        if(error?.status>=400&&error.status<500){current.poll_stopped=true;current.poll_error='状態確認を停止しました。タスクまたは認証を確認してください。';renderVideoJobs();return;}
-        scheduleVideoPoll(jobId);
-      }
-    },VIDEO_POLL_MS));
-  }
-  async function videoBlob(url){if(video.blobs.has(url))return video.blobs.get(url);const response=await fetch(url,{headers:authHeaders(),cache:'no-store'});if(!response.ok)throw new Error('動画ファイルを取得できませんでした');const link=URL.createObjectURL(await response.blob());video.blobs.set(url,link);return link;}
-  function stopVideoPlayback(){const run=video.play;video.play=null;if(run?.audio)run.audio.pause();const player=$('videoPlayer');if(player){player.pause?.();player.hidden=true;}}
-  async function playVideoJob(jobId){
-    const job=video.jobs.get(jobId);if(!job)return;stopVideoPlayback();if(typeof stopSpeaking==='function')stopSpeaking();
-    const clips=(job.segments||[]).filter(s=>s.status==='succeeded'&&s.url);if(!clips.length){$('videoStatus').textContent='再生できる動画ファイルを確認中です。';return;}const run={job,clips,index:0};video.play=run;
-    const player=$('videoPlayer');player.dataset.aspect=job.aspect_ratio;player.hidden=false;$('videoStatus').textContent='動画を読み込み中…';
+    const url=job.segments?.[0]?.url;if(job.status==='failed'||!url||!/^\/api\/video\/jobs\/[a-f0-9]{32}\/clips\/0\?/.test(url))return;
     try{
-      const playClip=async()=>{if(video.play!==run)return;const clip=run.clips[run.index];if(!clip){player.pause?.();$('videoStatus').textContent='再生が終わりました。';return;}player.src=await videoBlob(clip.url);let advanced=false;const next=()=>{if(advanced||video.play!==run)return;advanced=true;player.ontimeupdate=null;player.onended=null;run.index++;playClip();};player.ontimeupdate=()=>{if(player.currentTime>=clip.play_seconds)next();};player.onended=next;await player.play?.()?.catch?.(()=>{});};
-      if(job.narration?.muxed&&job.narration.status==='succeeded'){/* narration is already inside the MP4 */}else if(job.narration?.url){run.audio=new Audio(await videoBlob(job.narration.url));run.audio.play().catch(()=>{});}else if(job.narration?.text&&typeof speak==='function')speak(job.narration.text);
-      $('videoStatus').textContent=`${clips.length}カットを順に再生します。`;await playClip();
-    }catch(error){$('videoStatus').textContent=error.message;}
+      const response=await fetch(url,{headers:authHeaders(),cache:'no-store'});if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':'動画を読み込めませんでした');
+      const blob=await response.blob();if(!current())return;
+      const src=URL.createObjectURL(blob);chatVideo.blobs.push(src);
+      const player=document.createElement('video');player.className='video-player';player.controls=true;player.playsInline=true;player.src=src;player.setAttribute('aria-label',status.textContent);
+      const save=document.createElement('a');save.className='image-link';save.href=src;save.download=`karry-video-${jobId.slice(0,8)}.mp4`;save.textContent='MP4を保存';
+      card.append(player,save);
+    }catch(error){if(current())status.textContent+=` ${error.message}`;}
   }
-  async function saveVideoJob(jobId){
-    const job=video.jobs.get(jobId);const clip=job?.segments.find(s=>s.status==='succeeded');if(!clip)return;
-    try{const link=document.createElement('a');link.href=await videoBlob(clip.url);link.download=`karry-video-${job.aspect_ratio.replace(':','x')}-${job.duration_seconds}s.mp4`;document.body.append(link);link.click();link.remove();$('videoStatus').textContent='MP4を保存しました。';}
-    catch(error){$('videoStatus').textContent=error.message;}
-  }
-  function videoRequestId(){return window.crypto?.randomUUID?window.crypto.randomUUID():'00000000-0000-4000-8000-'+String(Date.now()).padStart(12,'0').slice(-12);}
-  async function generateVideo(){
-    if(!videoReady()||videoBusy())return;
-    const prompt=$('videoPrompt').value.trim();if(!prompt){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}
-    const context=videoContext(),owner=context.owner,form=new FormData(),file=$('videoImage').files?.[0],mode=videoMode(),sadtalker=mode==='talking';
-    if(mode==='talking'&&!file){$('videoStatus').textContent='人物を喋らせるには、顔が写った写真を選んでください。';return;}
-    if(mode==='talking'&&!$('videoNarration').value.trim()){$('videoStatus').textContent='人物を喋らせるには、ナレーションの文章を入れてください。';return;}
-    form.append('mode',mode);form.append('sadtalker',String(sadtalker));form.append('lip_sync',String(mode==='mouth'||sadtalker));
-    form.append('session_id',owner);form.append('prompt',prompt);form.append('aspect_ratio',document.querySelector('input[name="videoAspect"]:checked').value);
-    form.append('duration_seconds',String(setVideoDuration($('videoDuration').value)));form.append('narration_text',$('videoNarration').value.trim());form.append('voice',$('videoVoice').value||'jimmy');form.append('request_id',videoRequestId());
-    if(file){if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}form.append('image',file);}
-    video.submitting=true;refreshVideoSuite();$('videoStatus').textContent='生成を依頼しています…';
-    try{
-      const response=await fetch('/api/video/jobs',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let data={};try{data=await response.json();}catch(_){}
-      if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'動画生成を依頼できませんでした');if(!isCurrentVideoContext(context))return;
-      video.jobs.set(data.id,{...data,owner,poll_epoch:video.epoch});renderVideoJobs();if(data.status==='processing')scheduleVideoPoll(data.id);$('videoStatus').textContent=mode==='talking'?'人物アニメーションを依頼しました。実行先の失敗時も静止画＋音声を完成させます。数分〜十数分かかります。':data.provider==='local'?'サーバー内で合成を始めました（0円）。長い動画は数分かかります。ほかの操作を続けて大丈夫です。':'生成を始めました。数分かかります。ほかの操作を続けて大丈夫です。';
-    }catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}
-    finally{if(context.epoch===video.epoch)video.submitting=false;refreshVideoSuite();}
-  }
-  async function generateVideoPreview(){
-    if(!videoReady()||videoBusy())return;if(video.projectConfig?.preview_available!==true){$('videoStatus').textContent='0円プレビューは利用できません。';return;}
-    const title=$('videoPrompt').value.trim(),file=$('videoImage').files?.[0];if(!title){$('videoStatus').textContent='どんな動画にするか入力してください。';return;}if(!file){$('videoStatus').textContent='0円プレビューには写真を1枚選んでください。';return;}if(file.size>4*1024*1024){$('videoStatus').textContent='写真は4 MiBまでです。';return;}
-    const context=videoContext(),aspectRatio=document.querySelector('input[name="videoAspect"]:checked').value,durationSeconds=setVideoDuration($('videoDuration').value),narration=$('videoNarration').value.trim(),tts={text:$('videoPreviewTts').checked?narration:'',voice:'en'};
-    const form=new FormData();form.append('title',title);form.append('aspect_ratio',aspectRatio);form.append('duration_seconds',String(durationSeconds));form.append('tts',JSON.stringify(tts));form.append('render_prompt',title);form.append('image',file);
-    video.previewSubmitting=true;refreshVideoSuite();$('videoStatus').textContent='0円プレビューを準備しています…';
-    try{
-      const response=await fetch('/api/video/projects',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});let project={};try{project=await response.json();}catch(_){}
-      if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof project.detail==='string'?project.detail:'0円プレビューを作成できませんでした');if(!isCurrentVideoContext(context))return;
-      if(!isUuid(project.project_id))throw new Error('プレビュープロジェクトの応答形式が不正です');const projectRecord={...project,title:typeof project.title==='string'?project.title:title,aspect_ratio:project.aspect_ratio||aspectRatio,duration_seconds:project.duration_seconds??durationSeconds,tts};
-      const queued=await requestJson('/api/video/generate/preview',{method:'POST',body:JSON.stringify({project_id:project.project_id,request_id:videoRequestId()})});if(!isCurrentVideoContext(context))return;
-      const job=normalisePreviewJob(projectRecord,queued,context.owner,Date.now());job.poll_epoch=video.epoch;video.jobs.set(job.id,job);renderVideoJobs();if(job.status==='processing')scheduleVideoPoll(job.id);$('videoStatus').textContent='0円プレビューを開始しました（簡易口パク・SadTalkerとも行いません）。ほかの操作を続けて大丈夫です。';
-    }catch(error){if(isCurrentVideoContext(context))$('videoStatus').textContent=error.message;}
-    finally{if(context.epoch===video.epoch)video.previewSubmitting=false;refreshVideoSuite();}
-  }
-  $('autopilot-form').addEventListener('submit',event=>{event.preventDefault();generateVideoAutopilot();});
-  async function loadFeatures(){let features=null;try{const response=await fetch('/api/features',{cache:'no-store'});features=response&&response.ok?await response.json():null;}catch(_){}const suite=globalThis.document?.getElementById('videoSuite');if(suite)suite.hidden=features?.experimental!==true;}
+  async function loadFeatures(){let features=null;try{const response=await fetch('/api/features',{cache:'no-store'});features=response&&response.ok?await response.json():null;}catch(_){}const hint=globalThis.document?.getElementById('videoChatHint');if(hint)hint.hidden=features?.experimental!==true;}
   loadFeatures();
-  $('videoSuite').addEventListener('toggle',()=>{if($('videoSuite').open&&connected){loadVideoConfig();if(sessionId)loadVideoJobs();}});
 </script>
 </body>
 </html>
