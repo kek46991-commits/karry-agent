@@ -5,7 +5,7 @@ const {JSDOM}=require('jsdom');
 const html=fs.readFileSync('static/index.html','utf8');
 
 function setup(options={}){
-  const calls=[];
+  const calls=[],featureCalls=[];
   const data=new Map(options.sessions||[]);
   let counter=data.size;
   const dom=new JSDOM(html,{url:'https://example.onrender.com/',runScripts:'dangerously',beforeParse(window){
@@ -37,6 +37,7 @@ function setup(options={}){
     }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
+      if(url==='/api/features'){featureCalls.push(url);return json({experimental:options.experimental===true});}
       calls.push({url,request});
       if(options.fetch){const result=await options.fetch(url,request);if(result)return result;}
       const body=request.body?JSON.parse(request.body):{};
@@ -73,7 +74,7 @@ function setup(options={}){
   }});
   const win=dom.window,doc=win.document;
   function authenticate(){doc.getElementById('apiToken').value='synthetic-owner';doc.getElementById('apiToken').dispatchEvent(new win.Event('input'));}
-  return {dom,win,doc,calls,data,authenticate};
+  return {dom,win,doc,calls,featureCalls,data,authenticate};
 }
 function json(data,status=200){return {ok:status>=200&&status<300,status,json:async()=>JSON.parse(JSON.stringify(data))};}
 function record(id,title,content){return {session_id:id,title,messages:content?[{role:'assistant',content}]:[],latest_url:'',last_run:null,persistence:'durable'};}
@@ -690,4 +691,9 @@ test('video autopilot can submit an image without text and never runs in secret 
 test('video autopilot fetches its private final MP4 and shows the result player',async()=>{
   let s;const fetch=async(url,request={})=>{if(url==='/api/video/project-config')return json({enabled:true,preview_available:false,tts_available:true,script_generation_available:true,max_seconds:120});if(url==='/api/video/config')return json({enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],narration_available:true,lipsync_available:false,voices:[]});if(url.startsWith('/api/video/jobs?'))return json([]);if(url==='/api/video/autopilot'&&request.method==='POST')return json({id:'autopilot-result',mode:'autopilot',status:'processing',request_id:'request-3',prompt:'processing',aspect_ratio:'16:9',duration_seconds:15,provider:'local',with_image:false,created_at:1,segments:[],autopilot:{status:'processing',title:'result',scene_count:3,current_scene:0}},202);if(url==='/api/video/jobs/autopilot-result/clips/0?session_id=task-1')return {ok:true,blob:async()=>new s.win.Blob(['mp4'],{type:'video/mp4'})};};
   s=setup({fetch});s.win.URL.createObjectURL=()=> 'blob:autopilot-test';const $=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));$('auto-prompt').value='星空の下の物語。';$('btn-run-autopilot').click();await new Promise(r=>setTimeout(r,5));const context=s.win.eval('videoContext()');await s.win.showAutopilotVideo({id:'autopilot-result',segments:[{status:'succeeded',url:'/api/video/jobs/autopilot-result/clips/0?session_id=task-1'}]},context);assert.equal($('autopilot-video').hidden,false,`status=${$('autopilot-status').textContent}; job=${s.win.eval('video.autopilotJobId')}; owner=${context.owner}`);assert.match($('autopilot-video').src,/^blob:/);s.win.eval('for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear()');s.dom.window.close();
+});
+
+test('portfolio mode hides the experimental video suite unless the server enables it',async()=>{
+  const core=setup();await new Promise(r=>setTimeout(r,5));assert.equal(core.featureCalls.length,1);assert.equal(core.doc.getElementById('videoSuite').hidden,true);assert.equal(core.calls.length,0);core.dom.window.close();
+  const sandbox=setup({experimental:true});await new Promise(r=>setTimeout(r,5));assert.equal(sandbox.doc.getElementById('videoSuite').hidden,false);sandbox.dom.window.close();
 });
