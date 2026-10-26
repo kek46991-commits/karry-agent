@@ -27,10 +27,11 @@ def test_experimental_features_are_off_by_default(client, monkeypatch):
     assert client.get("/health").status_code == 200
 
 
-def test_core_ui_hides_video_suite_until_features_allow_it(client, monkeypatch):
+def test_core_ui_has_no_video_form_and_hides_chat_video_hint(client, monkeypatch):
     monkeypatch.delenv("KARRY_EXPERIMENTAL_FEATURES", raising=False)
     html = client.get("/").text
-    assert '<details id="videoSuite" class="video-suite" hidden>' in html
+    assert 'id="videoSuite"' not in html and 'id="autopilot-form"' not in html
+    assert '<p id="videoChatHint" class="hint chat-video-hint" hidden>' in html
     assert "loadFeatures()" in html
 
 

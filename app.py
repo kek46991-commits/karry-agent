@@ -47,7 +47,7 @@ from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import video_suite_api, video_projects
-from karry_agent import feature_flags
+from karry_agent import feature_flags, chat_video
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -938,6 +938,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         if images and _calendar_confirmation(request.prompt) and session_id in _PENDING_CALENDAR:
             raise ValueError("予定確認時は画像の添付を外してください。")
         result = _pending_calendar_result(session_id, request.prompt)
+        if result is None and not private_mode and feature_flags.experimental_enabled() and chat_video.is_video_request(request.prompt):
+            result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id)
         if result is None:
             result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
@@ -1254,7 +1256,8 @@ def _media_session(session_id: str) -> None:
     _image_service(session_id).document()
 
 
-app.include_router(video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id)))
+_VIDEO_ROUTER = video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id))
+app.include_router(_VIDEO_ROUTER)
 
 
 def _media_json(value: Any, status_code: int = 200):
