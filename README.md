@@ -25,6 +25,19 @@ flowchart LR
     API --> Core
 ```
 
+## 公開モードと実験機能
+
+本番（`main`）は安定したコア機能（タスク管理・チャット・ReAct 実行モニター・Calendar・Web ページ生成・Knowledge Sync/RAG）だけを公開します。
+動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core は **実験機能** として既定で無効です。
+無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
+
+| 環境 | 設定 | 用途 |
+| --- | --- | --- |
+| 本番（`main`） | `KARRY_EXPERIMENTAL_FEATURES` 未設定 | 公開・ポートフォリオ用のコア機能のみ |
+| サンドボックス | `KARRY_EXPERIMENTAL_FEATURES=1` | 動画生成などの実験 |
+
+画面は `GET /api/features`（認証不要・`{"experimental": bool}` のみ）を見て、実験機能の表示を切り替えます。
+
 ## Core Capabilities
 
 | 領域 | 内容 | 主な実装 |
@@ -159,6 +172,8 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
 
 ### Creative Video Suite（画像→動画・ナレーション）
+
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
 チャット下の「🎬 動画を作る」から、写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して動画を作ります。既定は **0円ローカル合成モード**（`KARRY_VIDEO_PROVIDER=local`）で、Replicate などの有料動画APIは一切呼ばず、サーバー内の ffmpeg（`imageio-ffmpeg` 同梱）で写真またはタイトルカードにゆっくりしたパンとフェードを付け、ナレーション音声を重ねた1本の MP4 を合成して非公開ストレージに保存します。ナレーションは Gemini TTS（低めの男性声 `Charon`、既存の `GEMINI_API_KEY`）で作り、キー未設定や失敗時はキー不要の無料音声合成（gTTS）で作って MP4 の音声トラックに入れます。どちらも使えないときは無音で「成功」にせず、仮の合図音を入れて `partial`（一部失敗）として画面に理由を出します。Replicate Kling / Runway は `KARRY_VIDEO_PROVIDER` と `KARRY_VIDEO_GENERATION_ENABLED=1` を明示したときだけ使う任意機能です。APIはすべて所有者トークン必須で、キー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
 
 フォームの「動画の種類」で **静止画＋音声（0円・高速）**（既定）、**簡易口パク（0円・サーバー内の OpenCV で口元だけ開閉）**、**人物を喋らせる（SadTalker・GPU）** を選べます。SadTalker は写真の顔全体をナレーションに合わせて動かすリップシンクで、SadTalker 等の GPU モデルを Render の外（自分の Colab / Hugging Face Space）で動かし、`KARRY_LIPSYNC_PROVIDER=http|gradio` で接続します（既定は無効・有料APIへのフォールバックなし）。実行先が失敗したときは静止画＋音声の MP4 に戻して `partial` と理由を表示します。手順は [tools/lipsync_server/README.md](tools/lipsync_server/README.md)。
@@ -266,6 +281,8 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 
 ### Optimus Core（自己進化・クローン生成）
 
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
+
 `/api/optimus/*` で、クローン「ケリーエージェント」（2号以降）の生成・実行と、自己コードの変更案 → GitHub PR → CI成功後のマージ（Render自動デプロイ）を行います。変更案はプレビューとSHA-256確認が必須で、認証・秘密情報・CI・Render設定は書き換え禁止です。マージは `KARRY_OPTIMUS_AUTO_MERGE=1` の場合のみ実行します。詳しくは [docs/optimus-core.md](docs/optimus-core.md) を参照してください。
 
 ### ジミーのCore Context
@@ -279,5 +296,7 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 `schema.ts`のDrizzle定義とMigrationで`media_files`を作成し、Python/FastAPIから同じPostgreSQLへ画像を保存します。所有者認証付きの`/api/media/upload`、FLUX生成・状態照会、非公開一覧・読取を追加しています。旧チャット画像添付のR2/Gemini経路は維持します。管理者がDATABASE_URLを秘密設定へ登録して`npm run db:migrate`を適用してください。生成はREPLICATE_API_TOKENと明示有効化が必要で、既定では課金APIを呼びません。接続先・保存・再送・本番未適用の詳細は[メディアDBガイド](docs/media-postgres.md)を参照してください。
 
 ## SQL動画プロジェクトと0円プレビュー
+
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
 
 動画プロジェクトCRUD（SQLite／PostgreSQL）と、アップロード画像＋ローカルTTSによるMP4プレビューを本体へ追加しました。動画UIの「0円プレビュー」は外部生成APIなしで動作し、既存のAI動画UIは保持します。要求された`/api/video/projects`と`/api/video/generate/*`を提供し、新しいジョブは既存ルートと衝突しない`/api/video/project-jobs/*`へ配置します。KARRY_API_TOKEN認証、OSツール、Renderネイティブ／Dockerの違い、永続ストレージ、AI最大10秒、日本語TTSの制約は[動画プロジェクトガイド](docs/video-projects.md)を参照してください。

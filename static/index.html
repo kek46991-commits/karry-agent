@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="video-autopilot-gemini-script-20261025-r3">
+  <meta name="karry-ui-version" content="portfolio-core-20261026">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -59,7 +59,7 @@
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
-        <details id="videoSuite" class="video-suite"><summary>🎬 動画を作る</summary><div class="video-body">
+        <details id="videoSuite" class="video-suite" hidden><summary>🎬 動画を作る</summary><div class="video-body">
           <p id="videoConfig" class="hint">文章または画像から、脚本・ナレーション・動画を自動で作成します。</p>
           <section class="autopilot-container" aria-labelledby="autopilot-heading"><h2 id="autopilot-heading">🎬 ジミー 全自動動画生成</h2><p>小説の文章やプロンプトを入れるだけで、脚本・ナレーション・映像を自動で組み上げます。文章か画像のどちらか、または両方を指定できます。</p><form id="autopilot-form"><div class="autopilot-field"><label for="auto-prompt">① 小説の文章・台詞（画像だけの場合は空欄で可）</label><textarea id="auto-prompt" maxlength="12000" rows="3" placeholder="例：夕焼けの海辺をゆっくり歩きながら、彼は静かに語り始めた。" disabled></textarea></div><div class="autopilot-field"><label for="auto-image">② キャラクター・背景画像（任意・JPG / PNG / WEBP、4 MiBまで）</label><input type="file" id="auto-image" accept="image/jpeg,image/png,image/webp" disabled></div><button type="submit" id="btn-run-autopilot" disabled>✨ ワンクリックで自動動画を作る</button></form><div id="autopilot-result" class="autopilot-result" hidden><div id="autopilot-status" role="status" aria-live="polite"></div><video id="autopilot-video" controls playsinline hidden></video></div></section>
           <div id="videoStatus" class="hint" aria-live="polite"></div><video id="videoPlayer" class="video-player" controls playsinline hidden></video><div id="videoJobs" class="video-jobs" aria-live="polite"></div>
@@ -792,6 +792,8 @@
     finally{if(context.epoch===video.epoch)video.previewSubmitting=false;refreshVideoSuite();}
   }
   $('autopilot-form').addEventListener('submit',event=>{event.preventDefault();generateVideoAutopilot();});
+  async function loadFeatures(){let features=null;try{const response=await fetch('/api/features',{cache:'no-store'});features=response&&response.ok?await response.json():null;}catch(_){}const suite=globalThis.document?.getElementById('videoSuite');if(suite)suite.hidden=features?.experimental!==true;}
+  loadFeatures();
   $('videoSuite').addEventListener('toggle',()=>{if($('videoSuite').open&&connected){loadVideoConfig();if(sessionId)loadVideoJobs();}});
 </script>
 </body>

@@ -1,0 +1,49 @@
+import pytest
+from fastapi.testclient import TestClient
+
+import app as app_module
+
+EXPERIMENTAL = ["/api/video/config", "/api/video/jobs", "/api/video/autopilot", "/api/media", "/api/optimus/status"]
+
+
+@pytest.fixture
+def client(monkeypatch):
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner")
+    return TestClient(app_module.app)
+
+
+AUTH = {"Authorization": "Bearer synthetic-owner"}
+
+
+def test_experimental_features_are_off_by_default(client, monkeypatch):
+    monkeypatch.delenv("KARRY_EXPERIMENTAL_FEATURES", raising=False)
+    assert client.get("/api/features").json() == {"experimental": False}
+    for path in EXPERIMENTAL:
+        assert client.get(path, headers=AUTH).status_code == 404, path
+        assert client.post(path, headers=AUTH).status_code == 404, path
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not [p for p in paths if p.startswith(("/api/video", "/api/media", "/api/optimus"))]
+    assert "/api/sessions" in paths and "/api/chat" in paths
+    assert client.get("/health").status_code == 200
+
+
+def test_core_ui_hides_video_suite_until_features_allow_it(client, monkeypatch):
+    monkeypatch.delenv("KARRY_EXPERIMENTAL_FEATURES", raising=False)
+    html = client.get("/").text
+    assert '<details id="videoSuite" class="video-suite" hidden>' in html
+    assert "loadFeatures()" in html
+
+
+def test_sandbox_flag_restores_experimental_routes(client, monkeypatch):
+    monkeypatch.setenv("KARRY_EXPERIMENTAL_FEATURES", "1")
+    assert client.get("/api/features").json() == {"experimental": True}
+    assert client.get("/api/video/config", headers=AUTH).status_code == 200
+    assert client.get("/api/video/config").status_code == 401
+    assert any(p.startswith("/api/video") for p in client.get("/openapi.json").json()["paths"])
+
+
+def test_gate_does_not_match_lookalike_paths():
+    from karry_agent.feature_flags import is_experimental_path
+
+    assert is_experimental_path("/api/video") and is_experimental_path("/api/optimus/clones/1/run")
+    assert not is_experimental_path("/api/videos-public") and not is_experimental_path("/api/mediation")

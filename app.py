@@ -47,6 +47,7 @@ from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import video_suite_api, video_projects
+from karry_agent import feature_flags
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -1017,6 +1018,12 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "karry-agent"}
 
 
+@app.get("/api/features")
+def features() -> dict[str, bool]:
+    """公開してよい機能フラグだけを返す（認証不要・秘密情報なし）。"""
+    return feature_flags.public_features()
+
+
 @app.get("/health/calendar")
 def calendar_health() -> dict[str, Any]:
     """Calendar 用 Secret の有無と形式だけを返す。値は返さない。"""
@@ -1657,6 +1664,20 @@ def evolution_status(pr_number: Annotated[int, Path_(ge=1)]) -> dict[str, Any]:
 @app.post("/api/optimus/evolutions/{pr_number}/deploy", dependencies=[Depends(require_tool_auth)])
 def deploy_evolution(pr_number: Annotated[int, Path_(ge=1)], request: EvolutionDeploy) -> dict[str, Any]:
     return _OPTIMUS.deploy(pr_number, request.confirmed)
+
+
+def _public_openapi() -> dict[str, Any]:
+    schema = FastAPI.openapi(app)
+    if feature_flags.experimental_enabled():
+        return schema
+    filtered = dict(schema)
+    filtered["paths"] = {path: ops for path, ops in schema.get("paths", {}).items() if not feature_flags.is_experimental_path(path)}
+    return filtered
+
+
+app.openapi = _public_openapi
+# Added last so it wraps every other middleware (video/image guards included).
+app.add_middleware(feature_flags.ExperimentalFeatureGate)
 
 
 if __name__ == "__main__":
