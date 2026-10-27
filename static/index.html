@@ -302,7 +302,7 @@
     for(const button of $('taskList').querySelectorAll('.task-delete'))button.disabled=busy||isSecret||inFlight.has(button.dataset.deleteId);
     updateSecretUi();
   }
-  function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').trim();}
+  function ownerToken(){return $('apiToken').value.trim().replace(/^Bearer\s+/i,'').replace(/\s+/g,'');}
   function connectionNotice(message,error=false){$('connectionNotice').textContent=message;$('connectionNotice').dataset.level=error?'error':'info';}
   function setConnectionStatus(message){$('status').textContent=message;document.body.dataset.connection=message==='オンライン'?'online':/エラー|できません|失敗/.test(message)?'error':'idle';updateStatusLamp();}
   const LAMP_LABELS={idle:'未接続',online:'オンライン',processing:'処理中',warn:'注意',error:'エラー'};

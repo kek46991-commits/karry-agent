@@ -696,3 +696,8 @@ test('failed chat video shows the reason and never fetches a clip',async()=>{
   assert.match(s.doc.querySelector('.chat-video-status').textContent,/失敗しました（tts_configuration）/);assert.equal(s.doc.querySelector('.chat-video video'),null);assert.ok(!seen.some(url=>url.includes('/clips/')));
   s.dom.window.close();
 });
+
+test('owner token input ignores a Bearer prefix and any stray spaces or line breaks',()=>{
+  const s=setup();s.doc.getElementById('apiToken').value='  Bearer synthetic- owner\n';
+  assert.equal(s.win.eval('ownerToken()'),'synthetic-owner');assert.equal(s.win.eval('authHeaders()').Authorization,'Bearer synthetic-owner');s.dom.window.close();
+});
