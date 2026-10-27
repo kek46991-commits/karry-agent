@@ -7,7 +7,8 @@ from pathlib import Path
 class Settings:
     root: Path = field(default_factory=lambda: Path(os.getenv("VIDEO_STORAGE_ROOT", "./data/video")))
     database_url: str = field(default_factory=lambda: os.getenv("VIDEO_DATABASE_URL") or os.getenv("DATABASE_URL") or "sqlite:///./data/video_projects.db", repr=False)
-    api_token: str = field(default_factory=lambda: os.getenv("VIDEO_API_TOKEN") or os.getenv("KARRY_API_TOKEN", ""), repr=False)
+    api_token: str = field(default_factory=lambda: "".join((os.getenv("VIDEO_API_TOKEN") or "").split())
+                           or "".join((os.getenv("KARRY_API_TOKEN") or "").split()), repr=False)
     allow_unauthenticated: bool = False
     max_upload_bytes: int = 8 * 1024 * 1024
     max_pixels: int = 16_000_000

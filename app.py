@@ -49,6 +49,7 @@ from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import video_suite_api, video_projects
 from karry_agent import feature_flags, chat_video
+from karry_agent.auth_token import configured_token, token_matches
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -156,9 +157,9 @@ class ImageUploadGuard:
         if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload", "/api/video/jobs", "/api/video/autopilot"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
-        token = os.getenv("KARRY_API_TOKEN")
-        scheme, _, supplied = headers.get(b"authorization", b"").partition(b" ")
-        if not token or scheme.lower() != b"bearer" or not secrets.compare_digest(supplied, token.encode()):
+        token = configured_token()
+        scheme, _, supplied = headers.get(b"authorization", b"").strip().partition(b" ")
+        if not token or scheme.lower() != b"bearer" or not token_matches(supplied, token):
             status = 503 if not token else 401
             return await JSONResponse({"detail": "KARRY_API_TOKEN is not configured" if not token else "Invalid bearer token"}, status_code=status)(scope, receive, send)
         try:
@@ -430,18 +431,18 @@ _BEARER = HTTPBearer(auto_error=False)
 
 def require_api_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
     """Preserve existing default API behavior, but require auth when a token or shell is enabled."""
-    token = os.getenv("KARRY_API_TOKEN")
+    token = configured_token()
     if not token and task_persistence.mode() == "s3":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for persistent task access")
     if not token and os.getenv("KARRY_ALLOW_SHELL") == "1":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for shell execution")
-    if token and (credentials is None or not secrets.compare_digest(credentials.credentials, token)):
+    if token and (credentials is None or not token_matches(credentials.credentials, token)):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
 def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
     """New direct tool routes always fail closed when no owner token is configured."""
-    if not os.getenv("KARRY_API_TOKEN"):
+    if not configured_token():
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
     require_api_auth(credentials)
 
@@ -809,7 +810,7 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
 
 
 def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
-    if not os.getenv("KARRY_API_TOKEN"):
+    if not configured_token():
         raise HTTPException(status_code=503, detail="シークレットには所有者認証の設定が必要です。")
     if request.image_ids:
         raise HTTPException(status_code=400, detail="シークレットでは画像保存を行わないため、テキストだけを送信してください。")

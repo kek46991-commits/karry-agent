@@ -1,8 +1,6 @@
 """``/api/knowledge/sync-context``: owner-only real-time knowledge sync endpoints."""
 from __future__ import annotations
 
-import os
-import secrets
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path
@@ -10,7 +8,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import task_persistence
-from .knowledge_sync_service import MAX_CONTENT_CHARS, ContextType, KnowledgeSyncService, Priority, summary
+from .auth_token import configured_token, token_matches
+from .knowledge_sync_service import (
+    MAX_CONTENT_CHARS,
+    ContextType,
+    KnowledgeSyncService,
+    Priority,
+    summary,
+)
 
 NO_STORE = {"Cache-Control": "no-store"}
 
@@ -20,12 +25,12 @@ def require_owner(
     x_owner_token: Annotated[str | None, Header()] = None,
 ) -> None:
     """Accept ``X-Owner-Token: <token>`` or ``Authorization: Bearer <token>``; fail closed without a token."""
-    expected = os.getenv("KARRY_API_TOKEN", "")
+    expected = configured_token()
     if not expected:
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
-    scheme, _, bearer = (authorization or "").partition(" ")
-    supplied = x_owner_token or (bearer.strip() if scheme.lower() == "bearer" else "")
-    if not supplied or not secrets.compare_digest(supplied.encode(), expected.encode()):
+    scheme, _, bearer = (authorization or "").strip().partition(" ")
+    supplied = x_owner_token or (bearer if scheme.lower() == "bearer" else "")
+    if not token_matches(supplied, expected):
         raise HTTPException(status_code=401, detail="Invalid owner token", headers={"WWW-Authenticate": "Bearer"})
 
 
