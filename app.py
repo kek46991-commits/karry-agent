@@ -39,6 +39,7 @@ from karry_agent import instant_website
 from karry_agent import website_artifacts
 from karry_agent import website_storage
 from karry_agent import task_persistence
+from karry_agent import cloning_api
 from karry_agent import image_attachments
 from karry_agent import media_repository, media_generation
 from karry_agent import image_generation
@@ -1175,6 +1176,7 @@ def search_knowledge_api(q: Annotated[str, Query(min_length=1, max_length=500)],
 
 
 app.include_router(knowledge_sync_api.router)
+app.include_router(cloning_api.router)
 
 
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
