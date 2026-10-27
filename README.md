@@ -28,8 +28,8 @@ flowchart LR
 ## 公開モードと実験機能
 
 本番（`main`）は安定したコア機能（タスク管理・チャット・ReAct 実行モニター・Calendar・Web ページ生成・Knowledge Sync/RAG）だけを公開します。
-動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core は **実験機能** として既定で無効です。
-無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
+動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core、自己修正ループ（[docs/self-correction.md](docs/self-correction.md)）は **実験機能** として既定で無効です。
+無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*`・`/api/agent/self-correction` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
 
 | 環境 | 設定 | 用途 |
 | --- | --- | --- |

@@ -35,6 +35,7 @@ from karry_agent.tools import add_calendar_event, build_default_registry
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
+from karry_agent import self_correction
 from karry_agent import instant_website
 from karry_agent import website_artifacts
 from karry_agent import website_storage
@@ -193,6 +194,12 @@ try:
     _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
 except Exception as exc:
     _REPAIR_PIPELINE = None
+    healing_engine.analyze_and_heal(exc, {"source": "repair_configuration"})
+
+try:
+    _SELF_CORRECTION = self_correction.configure_self_correction(healing_engine, Path(__file__).parent)
+except Exception as exc:
+    _SELF_CORRECTION = None
     healing_engine.analyze_and_heal(exc, {"source": "repair_configuration"})
 
 
@@ -1593,6 +1600,38 @@ def healing_status() -> dict[str, Any]:
 @app.get("/api/agent/healing/incidents", dependencies=[Depends(require_tool_auth)])
 def healing_incidents() -> dict[str, Any]:
     return {"incidents": healing_engine.error_logs}
+
+
+class SelfCorrectionRequest(BaseModel):
+    tests: list[str] | None = Field(default=None, max_length=10)
+
+
+def _self_correction_loop() -> self_correction.SelfCorrectionLoop:
+    if _SELF_CORRECTION is None:
+        raise HTTPException(status_code=503, detail="自己修正は無効です（KARRY_SELF_CORRECTION=1 で有効化）。")
+    return _SELF_CORRECTION
+
+
+@app.post("/api/agent/self-correction", status_code=202, dependencies=[Depends(require_tool_auth)])
+def start_self_correction(body: SelfCorrectionRequest | None = None) -> dict[str, Any]:
+    """隔離コピーでテスト→Gemini修正→書き換え→再実行を回す。本体のファイルは変更しない。"""
+    try:
+        return _self_correction_loop().submit((body or SelfCorrectionRequest()).tests)
+    except self_correction.SelfCorrectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@app.get("/api/agent/self-correction", dependencies=[Depends(require_tool_auth)])
+def list_self_corrections() -> dict[str, Any]:
+    return {"jobs": _self_correction_loop().jobs()}
+
+
+@app.get("/api/agent/self-correction/{job_id}", dependencies=[Depends(require_tool_auth)])
+def self_correction_status(job_id: str) -> dict[str, Any]:
+    job = _self_correction_loop().job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="self-correction job not found")
+    return job
 
 
 _OPTIMUS = optimus_core.OptimusCore(Path(__file__).parent)
