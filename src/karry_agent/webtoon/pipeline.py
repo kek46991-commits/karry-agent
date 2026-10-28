@@ -30,7 +30,8 @@ def gemini_image(prompt: str, panel: dict[str, Any], manager: CharacterManager) 
 
     from ..core import get_client
     from ..image_generation import DEFAULT_MODEL, _inline_image
-    response = get_client().models.generate_content(
+    client = get_client()  # keep a reference: a garbage-collected Client closes its HTTP session
+    response = client.models.generate_content(
         model=os.getenv("GEMINI_IMAGE_MODEL", DEFAULT_MODEL), contents=prompt,
         config=types.GenerateContentConfig(response_modalities=["IMAGE"], image_config=types.ImageConfig(aspect_ratio="9:16")))
     found = _inline_image(response)
