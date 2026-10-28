@@ -14,7 +14,11 @@
 
 **フォント**: `KARRY_WEBTOON_FONT` → システムの Noto CJK → 固定版の Noto Sans JP（SHA-256 検証付きでダウンロードし `~/.cache/karry-agent/fonts` に保存）の順に探します。見つからなければ `font_unavailable` を返します（文字化けした画像は作りません）。
 
-## API（所有者トークン必須・`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）
+## チャットから使う
+
+`KARRY_WEBTOON=1`（マンガだけを公開）または `KARRY_EXPERIMENTAL_FEATURES=1` のとき、チャットで1行目に「この小説をマンガにして」、2行目以降に本文（12,000文字まで）を送るとジョブを開始します（`src/karry_agent/chat_webtoon.py`）。「4コマで」のようにコマ数も指定できます（1〜12、既定6）。返答の `マンガジョブID: <id>` を画面が見つけて進み具合を表示し、完成したコマ画像と「ZIPを保存」ボタンをチャット内に出します。
+
+## API（所有者トークン必須・`KARRY_WEBTOON=1` または `KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）
 
 - `POST /api/webtoon/jobs` `{"novel_text": "...", "max_panels": 6}` → 202
 - `GET /api/webtoon/jobs/{job_id}` → 状態・登場人物・各コマの吹き出し配置・`consistent_prompts`

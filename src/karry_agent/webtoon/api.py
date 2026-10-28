@@ -15,6 +15,11 @@ from . import publisher
 from .pipeline import WebtoonError, run_pipeline
 
 MAX_JOBS = 10
+BUSY_MESSAGE = "別のマンガを生成中です。完了後にもう一度お試しください。"
+
+
+class WebtoonBusy(RuntimeError):
+    pass
 
 
 class WebtoonRequest(BaseModel):
@@ -49,17 +54,24 @@ def build_router(auth: Callable[..., Any], runner: Callable[[Callable[[], None]]
         except Exception:  # noqa: BLE001
             job.update(status="failed", error="webtoon_failed")
 
-    @router.post("/jobs", status_code=202)
-    def create(body: WebtoonRequest) -> dict[str, Any]:
+    def start_job(novel_text: str, max_panels: int = 6) -> dict[str, Any]:
+        body = WebtoonRequest(novel_text=novel_text, max_panels=max_panels)
         with lock:
             if any(j["status"] == "processing" for j in jobs.values()):
-                raise HTTPException(409, "別のマンガを生成中です。完了後にもう一度お試しください。")
+                raise WebtoonBusy(BUSY_MESSAGE)
             while len(jobs) >= MAX_JOBS:
                 jobs.pop(next(iter(jobs)))
             job = {"id": uuid.uuid4().hex, "status": "processing", "progress": {"done": 0, "total": None}, "created_at": time.time()}
             jobs[job["id"]] = job
         run(lambda: work(job, body))
         return view(job)
+
+    @router.post("/jobs", status_code=202)
+    def create(body: WebtoonRequest) -> dict[str, Any]:
+        try:
+            return start_job(body.novel_text, body.max_panels)
+        except WebtoonBusy as exc:
+            raise HTTPException(409, str(exc)) from None
 
     def get(job_id: str) -> dict[str, Any]:
         job = jobs.get(job_id)
@@ -86,4 +98,5 @@ def build_router(auth: Callable[..., Any], runner: Callable[[Callable[[], None]]
         return Response(publisher.archive(job["images"], job["manifest"]), media_type="application/zip",
                         headers={"Content-Disposition": f'attachment; filename="webtoon-{job_id[:8]}.zip"', "Cache-Control": "private, no-store"})
 
+    router.start_job = start_job
     return router

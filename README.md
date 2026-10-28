@@ -34,9 +34,10 @@ flowchart LR
 | 環境 | 設定 | 用途 |
 | --- | --- | --- |
 | 本番（`main`） | `KARRY_EXPERIMENTAL_FEATURES` 未設定 | 公開・ポートフォリオ用のコア機能のみ |
-| サンドボックス | `KARRY_EXPERIMENTAL_FEATURES=1` | 動画生成などの実験 |
+| 本番でマンガだけ公開 | `KARRY_WEBTOON=1` | 小説→縦読みマンガ（チャットと `/api/webtoon/*`）だけを有効化。ほかの実験機能は無効のまま |
+| サンドボックス | `KARRY_EXPERIMENTAL_FEATURES=1` | 動画生成などの実験（マンガも含む） |
 
-画面は `GET /api/features`（認証不要・`{"experimental": bool}` のみ）を見て、実験機能の表示を切り替えます。
+画面は `GET /api/features`（認証不要・`{"experimental": bool, "webtoon": bool}` のみ）を見て、実験機能の表示を切り替えます。
 
 ## Core Capabilities
 
