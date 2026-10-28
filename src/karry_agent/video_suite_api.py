@@ -290,7 +290,9 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                     run_background(lambda: render_local(store, job, adapter, image_bytes, text, voice, face))
                     return job, 202
                 segments = vs.plan_segments(duration_seconds, adapter.clip_lengths)
-                data_uri = vs.image_data_uri(body) if body else None
+                data_uri = (vs.image_data_uri(body, max_bytes=getattr(adapter, "max_image_bytes", vs.MAX_DATA_URI_BYTES),
+                                             aspect_ratio=aspect_ratio if getattr(adapter, "requires_image", False) else None)
+                            if body else None)
                 job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": prompt.strip(),
                        "aspect_ratio": aspect_ratio, "duration_seconds": duration_seconds, "provider": adapter.name,
                        "with_image": bool(data_uri), "created_at": time.time(), "updated_at": time.time(),
