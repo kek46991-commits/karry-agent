@@ -35,6 +35,7 @@ from karry_agent.tools import add_calendar_event, build_default_registry
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
+from karry_agent import self_correction
 from karry_agent import instant_website
 from karry_agent import website_artifacts
 from karry_agent import website_storage
@@ -47,7 +48,8 @@ from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import video_suite_api, video_projects
-from karry_agent import feature_flags
+from karry_agent import feature_flags, chat_video
+from karry_agent.auth_token import configured_token, token_matches
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -155,9 +157,9 @@ class ImageUploadGuard:
         if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/api/upload_image", "/api/media/upload", "/api/video/jobs", "/api/video/autopilot"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
-        token = os.getenv("KARRY_API_TOKEN")
-        scheme, _, supplied = headers.get(b"authorization", b"").partition(b" ")
-        if not token or scheme.lower() != b"bearer" or not secrets.compare_digest(supplied, token.encode()):
+        token = configured_token()
+        scheme, _, supplied = headers.get(b"authorization", b"").strip().partition(b" ")
+        if not token or scheme.lower() != b"bearer" or not token_matches(supplied, token):
             status = 503 if not token else 401
             return await JSONResponse({"detail": "KARRY_API_TOKEN is not configured" if not token else "Invalid bearer token"}, status_code=status)(scope, receive, send)
         try:
@@ -193,6 +195,12 @@ try:
     _REPAIR_PIPELINE = configure_repair_pipeline(healing_engine, Path(__file__).parent)
 except Exception as exc:
     _REPAIR_PIPELINE = None
+    healing_engine.analyze_and_heal(exc, {"source": "repair_configuration"})
+
+try:
+    _SELF_CORRECTION = self_correction.configure_self_correction(healing_engine, Path(__file__).parent)
+except Exception as exc:
+    _SELF_CORRECTION = None
     healing_engine.analyze_and_heal(exc, {"source": "repair_configuration"})
 
 
@@ -423,18 +431,18 @@ _BEARER = HTTPBearer(auto_error=False)
 
 def require_api_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
     """Preserve existing default API behavior, but require auth when a token or shell is enabled."""
-    token = os.getenv("KARRY_API_TOKEN")
+    token = configured_token()
     if not token and task_persistence.mode() == "s3":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for persistent task access")
     if not token and os.getenv("KARRY_ALLOW_SHELL") == "1":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for shell execution")
-    if token and (credentials is None or not secrets.compare_digest(credentials.credentials, token)):
+    if token and (credentials is None or not token_matches(credentials.credentials, token)):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
 def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)] = None) -> None:
     """New direct tool routes always fail closed when no owner token is configured."""
-    if not os.getenv("KARRY_API_TOKEN"):
+    if not configured_token():
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
     require_api_auth(credentials)
 
@@ -802,7 +810,7 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
 
 
 def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
-    if not os.getenv("KARRY_API_TOKEN"):
+    if not configured_token():
         raise HTTPException(status_code=503, detail="シークレットには所有者認証の設定が必要です。")
     if request.image_ids:
         raise HTTPException(status_code=400, detail="シークレットでは画像保存を行わないため、テキストだけを送信してください。")
@@ -924,7 +932,11 @@ def _execute(request: RunRequest, agent: AgentCore, *, task_mode: bool = False) 
         lock.release()
 
 
-def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | None = None) -> RunResponse:
+def _chat_video_request(prompt: str) -> bool:
+    return feature_flags.experimental_enabled() and chat_video.is_video_request(prompt)
+
+
+def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[dict] | None = None) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
         request.session_id = uuid.uuid4().hex
@@ -938,7 +950,11 @@ def _execute_locked(request: RunRequest, agent: AgentCore, images: list[dict] | 
         if images and _calendar_confirmation(request.prompt) and session_id in _PENDING_CALENDAR:
             raise ValueError("予定確認時は画像の添付を外してください。")
         result = _pending_calendar_result(session_id, request.prompt)
+        if result is None and not private_mode and _chat_video_request(request.prompt):
+            result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id)
         if result is None:
+            if agent is None:
+                agent = app.dependency_overrides.get(get_agent, get_agent)()
             result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
@@ -1254,7 +1270,8 @@ def _media_session(session_id: str) -> None:
     _image_service(session_id).document()
 
 
-app.include_router(video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id)))
+_VIDEO_ROUTER = video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id))
+app.include_router(_VIDEO_ROUTER)
 
 
 def _media_json(value: Any, status_code: int = 200):
@@ -1405,9 +1422,9 @@ def task_chat(request: MessageRequest):
         with _STATE_LOCK:
             if request.session_id not in _SESSIONS:
                 raise HTTPException(status_code=404, detail="Session not found")
-    # Do not initialize the model for list/create/detail/unknown-session requests.
+    # Do not initialize the model for list/create/detail/unknown-session requests or chat video requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-    agent = agent_factory()
+    agent = None if _chat_video_request(request.prompt) else agent_factory()
     run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id, image_ids=request.image_ids)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
@@ -1584,6 +1601,38 @@ def healing_status() -> dict[str, Any]:
 @app.get("/api/agent/healing/incidents", dependencies=[Depends(require_tool_auth)])
 def healing_incidents() -> dict[str, Any]:
     return {"incidents": healing_engine.error_logs}
+
+
+class SelfCorrectionRequest(BaseModel):
+    tests: list[str] | None = Field(default=None, max_length=10)
+
+
+def _self_correction_loop() -> self_correction.SelfCorrectionLoop:
+    if _SELF_CORRECTION is None:
+        raise HTTPException(status_code=503, detail="自己修正は無効です（KARRY_SELF_CORRECTION=1 で有効化）。")
+    return _SELF_CORRECTION
+
+
+@app.post("/api/agent/self-correction", status_code=202, dependencies=[Depends(require_tool_auth)])
+def start_self_correction(body: SelfCorrectionRequest | None = None) -> dict[str, Any]:
+    """隔離コピーでテスト→Gemini修正→書き換え→再実行を回す。本体のファイルは変更しない。"""
+    try:
+        return _self_correction_loop().submit((body or SelfCorrectionRequest()).tests)
+    except self_correction.SelfCorrectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@app.get("/api/agent/self-correction", dependencies=[Depends(require_tool_auth)])
+def list_self_corrections() -> dict[str, Any]:
+    return {"jobs": _self_correction_loop().jobs()}
+
+
+@app.get("/api/agent/self-correction/{job_id}", dependencies=[Depends(require_tool_auth)])
+def self_correction_status(job_id: str) -> dict[str, Any]:
+    job = _self_correction_loop().job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="self-correction job not found")
+    return job
 
 
 _OPTIMUS = optimus_core.OptimusCore(Path(__file__).parent)

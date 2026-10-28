@@ -411,51 +411,56 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             job["updated_at"] = time.time()
             store.save(job)
 
+    def start_autopilot(session_id: str, source_text: str, body: bytes | None,
+                        request_id: str | None = None) -> tuple[dict[str, Any], int]:
+        """Queue one autopilot job; shared by the form endpoint and chat-native requests."""
+        source_text = (source_text or "").strip()
+        body = body or b""
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
+        if not source_text and not body:
+            raise vs.VideoError("小説テキストまたは画像を入力してください。", 422, "autopilot_input_required")
+        if not narrators().available:
+            raise vs.VideoError("音声合成エンジンを利用できません。", 503, "tts_configuration")
+        if not vs.ffmpeg_exe():
+            raise vs.VideoError("動画合成エンジン（ffmpeg）を利用できません。", 503, "video_configuration")
+        if body:
+            # Decode/normalize once before queuing so corrupt or disguised files fail synchronously.
+            vs.compose_frame("16:9", "", body)
+        rid = str(request_id or uuid.uuid4())
+        check_session(session_id)
+        store = vs.VideoJobStore(session_id)
+        existing = next((item for item in store.jobs().values() if item.get("request_id") == rid), None)
+        if existing:
+            return existing, 200
+        if any(item.get("mode") == "autopilot" and item.get("status") == "processing"
+               for item in store.jobs().values()):
+            raise vs.VideoError("このタスクでは別の自動動画を生成中です。完了後にもう一度お試しください。", 409,
+                                "autopilot_busy")
+        now = time.time()
+        job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": "自動生成中",
+               "aspect_ratio": "16:9", "duration_seconds": 30, "provider": "local", "with_image": bool(body),
+               "created_at": now, "updated_at": now,
+               "segments": [{"index": 0, "clip_seconds": 30, "play_seconds": 30, "status": "processing"}],
+               "narration": None, "mode": "autopilot",
+               "autopilot": {"status": "processing", "title": "脚本を作成中", "scene_count": 3, "current_scene": 0}}
+        store.save(job)
+        run_background(lambda: run_autopilot(store, job, source_text, body or None))
+        return job, 202
+
+    router.start_autopilot = start_autopilot
+
     @router.post("/autopilot")
     async def create_autopilot(session_id: Annotated[str, Form(min_length=1, max_length=100)],
                                novel_text: Annotated[str, Form(max_length=12_000)] = "",
                                request_id: Annotated[uuid.UUID | None, Form()] = None,
                                image: Annotated[UploadFile | None, File()] = None):
         try:
-            source_text = novel_text.strip()
             body = await image.read(MAX_UPLOAD_BYTES + 1) if image is not None and image.filename else b""
             if image is not None:
                 await image.close()
-            if len(body) > MAX_UPLOAD_BYTES:
-                raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
-            if not source_text and not body:
-                raise vs.VideoError("小説テキストまたは画像を入力してください。", 422, "autopilot_input_required")
-            if not narrators().available:
-                raise vs.VideoError("音声合成エンジンを利用できません。", 503, "tts_configuration")
-            if not vs.ffmpeg_exe():
-                raise vs.VideoError("動画合成エンジン（ffmpeg）を利用できません。", 503, "video_configuration")
-            if body:
-                # Decode/normalize once before queuing so corrupt or disguised files fail synchronously.
-                vs.compose_frame("16:9", "", body)
-            rid = str(request_id or uuid.uuid4())
-
-            def work():
-                check_session(session_id)
-                store = vs.VideoJobStore(session_id)
-                existing = next((item for item in store.jobs().values() if item.get("request_id") == rid), None)
-                if existing:
-                    return existing, 200
-                if any(item.get("mode") == "autopilot" and item.get("status") == "processing"
-                       for item in store.jobs().values()):
-                    raise vs.VideoError("このタスクでは別の自動動画を生成中です。完了後にもう一度お試しください。", 409,
-                                        "autopilot_busy")
-                now = time.time()
-                job = {"id": uuid.uuid4().hex, "request_id": rid, "status": "processing", "prompt": "自動生成中",
-                       "aspect_ratio": "16:9", "duration_seconds": 30, "provider": "local", "with_image": bool(body),
-                       "created_at": now, "updated_at": now,
-                       "segments": [{"index": 0, "clip_seconds": 30, "play_seconds": 30, "status": "processing"}],
-                       "narration": None, "mode": "autopilot",
-                       "autopilot": {"status": "processing", "title": "脚本を作成中", "scene_count": 3, "current_scene": 0}}
-                store.save(job)
-                run_background(lambda: run_autopilot(store, job, source_text, body or None))
-                return job, 202
-
-            job, status = await run_in_threadpool(work)
+            rid = str(request_id) if request_id else None
+            job, status = await run_in_threadpool(start_autopilot, session_id, novel_text, body, rid)
             return _json(vs.public_job(job, session_id), status)
         except vs.VideoError as exc:
             return _error(exc)
