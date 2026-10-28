@@ -37,7 +37,7 @@ function setup(options={}){
     }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
-      if(url==='/api/features'){featureCalls.push(url);return json({experimental:options.experimental===true});}
+      if(url==='/api/features'){featureCalls.push(url);return json({experimental:options.experimental===true,webtoon:options.webtoon===true||options.experimental===true});}
       calls.push({url,request});
       if(options.fetch){const result=await options.fetch(url,request);if(result)return result;}
       const body=request.body?JSON.parse(request.body):{};
@@ -694,6 +694,41 @@ test('failed chat video shows the reason and never fetches a clip',async()=>{
   const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`動画ジョブID: ${job}`)]]});
   s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
   assert.match(s.doc.querySelector('.chat-video-status').textContent,/失敗しました（tts_configuration）/);assert.equal(s.doc.querySelector('.chat-video video'),null);assert.ok(!seen.some(url=>url.includes('/clips/')));
+  s.dom.window.close();
+});
+
+test('webtoon hint follows the webtoon feature flag only',async()=>{
+  const core=setup();await new Promise(r=>setTimeout(r,5));assert.equal(core.doc.getElementById('webtoonChatHint').hidden,true);core.dom.window.close();
+  const webtoon=setup({webtoon:true});await new Promise(r=>setTimeout(r,5));assert.equal(webtoon.doc.getElementById('webtoonChatHint').hidden,false);assert.equal(webtoon.doc.getElementById('videoChatHint').hidden,true);webtoon.dom.window.close();
+});
+
+test('chat reply with a webtoon job ID shows the private panels and saves the ZIP with the owner token',async()=>{
+  const job='e'.repeat(32),auth=[];let polls=0,clicked=null;
+  const fetch=async(url,request={})=>{
+    if(url===`/api/webtoon/jobs/${job}`){polls++;return json({job_id:job,status:'succeeded',title:'図書室の古い日記',progress:{done:2,total:2},panels:[{index:1,url:`/api/webtoon/jobs/${job}/panels/1`},{index:2,url:`/api/webtoon/jobs/${job}/panels/2`},{index:3,url:'https://evil.example/x.png'}],archive_url:`/api/webtoon/jobs/${job}/archive`});}
+    if(url.startsWith(`/api/webtoon/jobs/${job}/`)){auth.push([url,request.headers?.Authorization]);return {ok:true,status:200,blob:async()=>new Blob(['png'])};}
+  };
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`マンガの作成を始めました。\nマンガジョブID: ${job}`)]]});let n=0;s.win.URL.createObjectURL=()=>`blob:webtoon-${++n}`;
+  s.win.HTMLAnchorElement.prototype.click=function(){clicked={href:this.getAttribute('href'),download:this.download};};
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  const card=s.doc.querySelector('.chat-webtoon');assert.ok(card);assert.equal(polls,1);
+  assert.match(card.querySelector('.chat-video-status').textContent,/「図書室の古い日記」が完成しました（3コマ）/);
+  assert.deepEqual([...card.querySelectorAll('img.webtoon-panel')].map(img=>img.getAttribute('src')),['blob:webtoon-1','blob:webtoon-2']);
+  card.querySelector('button').click();await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual(clicked,{href:'blob:webtoon-3',download:`webtoon-${job.slice(0,8)}.zip`});
+  assert.deepEqual(auth.map(a=>a[1]),['Bearer synthetic-owner','Bearer synthetic-owner','Bearer synthetic-owner']);assert.ok(auth.every(a=>!a[0].includes('evil')));
+  s.dom.window.close();
+});
+
+test('webtoon keeps polling while processing, explains a lost job, and stops on reset',async()=>{
+  const job='f'.repeat(32),lost='9'.repeat(32);let polls=0;
+  const fetch=async(url)=>{if(url===`/api/webtoon/jobs/${job}`){polls++;return json({job_id:job,status:'processing',progress:{done:1,total:4},panels:[]});}if(url===`/api/webtoon/jobs/${lost}`)return json({detail:'webtoon job not found'},404);};
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`マンガジョブID: ${job}`)],['b',record('b','B',`マンガジョブID: ${lost}`)]]});
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-webtoon .chat-video-status').textContent,/コマ 1\/4/);assert.equal(s.win.eval('chatWebtoon.timers.size'),1);assert.equal(s.doc.getElementById('statusLamp').dataset.lamp,'processing');
+  s.win.eval('resetVideoSuite()');assert.equal(s.win.eval('chatWebtoon.timers.size'),0);assert.equal(polls,1);
+  await s.win.selectSession('b');await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-webtoon .chat-video-status').textContent,/サーバーに残っていません/);
   s.dom.window.close();
 });
 

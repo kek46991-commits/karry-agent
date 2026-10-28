@@ -48,7 +48,7 @@ from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import video_suite_api, video_projects
-from karry_agent import feature_flags, chat_video
+from karry_agent import feature_flags, chat_video, chat_webtoon
 from karry_agent.auth_token import configured_token, token_matches
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
@@ -936,6 +936,10 @@ def _chat_video_request(prompt: str) -> bool:
     return feature_flags.experimental_enabled() and chat_video.is_video_request(prompt)
 
 
+def _chat_webtoon_request(prompt: str) -> bool:
+    return feature_flags.webtoon_enabled() and chat_webtoon.is_webtoon_request(prompt)
+
+
 def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[dict] | None = None) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
@@ -950,6 +954,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         if images and _calendar_confirmation(request.prompt) and session_id in _PENDING_CALENDAR:
             raise ValueError("予定確認時は画像の添付を外してください。")
         result = _pending_calendar_result(session_id, request.prompt)
+        if result is None and not private_mode and _chat_webtoon_request(request.prompt):
+            result = chat_webtoon.run(_WEBTOON_ROUTER.start_job, request.prompt)
         if result is None and not private_mode and _chat_video_request(request.prompt):
             result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id)
         if result is None:
@@ -1275,7 +1281,8 @@ app.include_router(_VIDEO_ROUTER)
 
 from karry_agent.webtoon import api as webtoon_api  # noqa: E402
 
-app.include_router(webtoon_api.build_router(require_tool_auth))
+_WEBTOON_ROUTER = webtoon_api.build_router(require_tool_auth)
+app.include_router(_WEBTOON_ROUTER)
 
 
 def _media_json(value: Any, status_code: int = 200):
@@ -1426,9 +1433,9 @@ def task_chat(request: MessageRequest):
         with _STATE_LOCK:
             if request.session_id not in _SESSIONS:
                 raise HTTPException(status_code=404, detail="Session not found")
-    # Do not initialize the model for list/create/detail/unknown-session requests or chat video requests.
+    # Do not initialize the model for list/create/detail/unknown-session requests or chat video/webtoon requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-    agent = None if _chat_video_request(request.prompt) else agent_factory()
+    agent = None if _chat_webtoon_request(request.prompt) or _chat_video_request(request.prompt) else agent_factory()
     run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id, image_ids=request.image_ids)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
@@ -1724,7 +1731,7 @@ def _public_openapi() -> dict[str, Any]:
     if feature_flags.experimental_enabled():
         return schema
     filtered = dict(schema)
-    filtered["paths"] = {path: ops for path, ops in schema.get("paths", {}).items() if not feature_flags.is_experimental_path(path)}
+    filtered["paths"] = {path: ops for path, ops in schema.get("paths", {}).items() if feature_flags.path_enabled(path)}
     return filtered
 
 
