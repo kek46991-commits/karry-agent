@@ -1273,6 +1273,10 @@ def _media_session(session_id: str) -> None:
 _VIDEO_ROUTER = video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id))
 app.include_router(_VIDEO_ROUTER)
 
+from karry_agent.webtoon import api as webtoon_api  # noqa: E402
+
+app.include_router(webtoon_api.build_router(require_tool_auth))
+
 
 def _media_json(value: Any, status_code: int = 200):
     from fastapi.encoders import jsonable_encoder

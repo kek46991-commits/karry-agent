@@ -10,7 +10,7 @@ import os
 
 from starlette.responses import JSONResponse
 
-EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction")
+EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/webtoon")
 
 
 def experimental_enabled() -> bool:
