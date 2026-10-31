@@ -68,6 +68,22 @@ def _git(args: list[str], *, timeout: int = _TIMEOUT) -> subprocess.CompletedPro
     return _run("git", ["-c", "color.ui=false", *args], timeout=timeout)
 
 
+def _remote_git(args: list[str], *, timeout: int = _TIMEOUT) -> subprocess.CompletedProcess[str]:
+    """Use gh's existing credential only for this GitHub HTTPS command; don't edit global config."""
+    remote = _git(["remote", "get-url", "origin"])
+    if remote.returncode != 0:
+        return subprocess.CompletedProcess(["git", *args], 2, "", "origin URL could not be inspected")
+    url = remote.stdout.strip()
+    if _GITHUB_HTTPS_RE.fullmatch(url):
+        return _run("git", ["-c", "color.ui=false", "-c", "credential.helper=",
+                            "-c", "credential.helper=!gh auth git-credential", *args], timeout=timeout)
+    if _GITHUB_SSH_RE.fullmatch(url):
+        return _git(args, timeout=timeout)
+    return subprocess.CompletedProcess(
+        ["git", *args], 2, "", "origin must be a credential-free GitHub HTTPS or SSH URL"
+    )
+
+
 def _result(command: str, result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     return {
         "status": "success" if result.returncode == 0 else "error",
@@ -229,7 +245,7 @@ def run_git_command(
             remotes = _git(["remote"])
             if remotes.returncode or "origin" not in remotes.stdout.splitlines():
                 return {"status": "error", "error": "origin remote is not configured; do not guess or replace the repository URL"}
-            fetch = _git(["fetch", "origin", "main"], timeout=60)
+            fetch = _remote_git(["fetch", "origin", "main"], timeout=60)
             if fetch.returncode:
                 return {**_result(operation, fetch), "error": "fetch origin main failed; no branch was created"}
             for ref in (f"refs/heads/{branch_name}", f"refs/remotes/origin/{branch_name}"):
@@ -277,7 +293,7 @@ def run_git_command(
             remotes = _git(["remote"])
             if remotes.returncode or "origin" not in remotes.stdout.splitlines():
                 return {"status": "error", "error": "origin remote is not configured"}
-            published = _git(["ls-remote", "--heads", "origin", branch], timeout=30)
+            published = _remote_git(["ls-remote", "--heads", "origin", branch], timeout=30)
             if published.returncode:
                 return {"status": "error", "error": "could not inspect remote branch; push stopped"}
             upstream = _git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}"])
@@ -301,7 +317,7 @@ def run_git_command(
                 return {"status": "error", "error": "working tree must be clean before creating a PR"}
             if not title or not title.strip() or len(title) > 120 or not body or len(body) > 10_000:
                 return {"status": "error", "error": "a PR title (<=120 chars) and body (<=10000 chars) are required"}
-            published = _git(["ls-remote", "--heads", "origin", branch], timeout=30)
+            published = _remote_git(["ls-remote", "--heads", "origin", branch], timeout=30)
             if published.returncode or not published.stdout.strip():
                 return {"status": "error", "error": "push the reviewed feature branch successfully before creating a PR"}
             auth = _run("gh", ["auth", "status"], timeout=15)

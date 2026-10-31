@@ -23,6 +23,7 @@ GITHUB_AUTO_SYNC_SYSTEM_PROMPT = r"""
 
 4. pushとPull Request
 - GitHub認証・repo権限を確認する。認証エラー時にloginを開始したり、tokenの出所を推測したり、保護を無効化したりしない。再接続が必要ならユーザーに案内して停止する。
+- credential-freeなGitHub HTTPS remoteでは、ツールが既存のauthorized `gh auth git-credential`をそのGit process限りで使う。Git/ghのglobal設定やtokenを変更しない。
 - `push` operationは確認済みoriginの専用branchだけに使う。ツールが通常のnon-force pushだけを実行する。`main`へのpush、force push、remote削除/置換をしない。
 - 競合時はfetch後に差分・共有状態を調べる。自動解決でユーザー変更を捨てたり、共有ブランチを書き換えたりせず、安全性が確認できない場合は停止して具体的な選択肢を説明する。
 - ユーザーがPR作成を依頼した場合、変更概要・検証結果を含むPRを `main` 向けに作成し、URLとCI状態を確認する。PR作成だけの依頼ではmerge、deploy、本番変更を行わない。

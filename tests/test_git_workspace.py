@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import karry_agent.git_workspace as git_workspace
 from karry_agent.git_workspace import run_git_command
 from karry_agent.tools import build_default_registry
 
@@ -33,6 +34,8 @@ def repo(tmp_path, monkeypatch):
     git("init", "--bare", "--initial-branch=main", str(origin), cwd=tmp_path)
     path = make_repo(tmp_path / "repo", remote=origin)
     monkeypatch.setenv("KARRY_WORKSPACE", str(path))
+    monkeypatch.setattr(git_workspace, "_remote_git",
+                        lambda args, timeout=30: git_workspace._git(args, timeout=timeout))
     return path, origin
 
 
@@ -87,6 +90,32 @@ def test_remote_listing_redacts_credentials_embedded_in_urls(tmp_path, monkeypat
     assert result["status"] == "success"
     assert "ghp_" not in result["stdout"]
     assert "[redacted]@github.com" in result["stdout"]
+
+
+def test_https_github_operations_use_per_command_gh_helper_without_global_mutation(monkeypatch):
+    calls = []
+    monkeypatch.setattr(git_workspace, "_git", lambda args, timeout=30:
+                        subprocess.CompletedProcess(["git", *args], 0,
+                                                    "https://github.com/owner/repo.git\n", ""))
+    def fake_run(program, args, timeout=30):
+        calls.append((program, args, timeout))
+        return subprocess.CompletedProcess([program, *args], 0, "ok", "")
+    monkeypatch.setattr(git_workspace, "_run", fake_run)
+    result = git_workspace._remote_git(["push", "--set-upstream", "origin", "feature/demo"])
+    assert result.returncode == 0
+    args = calls[0][1]
+    assert "credential.helper=" in args
+    assert "credential.helper=!gh auth git-credential" in args
+    assert "--set-upstream" in args
+
+
+def test_remote_git_rejects_credentialed_or_non_github_https_origins(monkeypatch):
+    for url in ("https://user:password@github.com/owner/repo.git", "https://gitlab.com/owner/repo.git"):
+        monkeypatch.setattr(git_workspace, "_git", lambda args, timeout=30, url=url:
+                            subprocess.CompletedProcess(["git", *args], 0, url + "\n", ""))
+        result = git_workspace._remote_git(["push", "origin", "feature/demo"])
+        assert result.returncode != 0
+        assert "password" not in result.stderr
 
 
 def test_create_branch_from_latest_main_requires_clean_workspace_and_unique_name(repo):
