@@ -133,12 +133,20 @@ class OpenApiClient:
         return normalize_product(body["productInfo"])
 
 
+ENV_NAMES = ("KARRY_1688_APP_KEY", "KARRY_1688_APP_SECRET", "KARRY_1688_ACCESS_TOKEN")
+
+
+def missing_env() -> list[str]:
+    """Names (never values) of the unset Open API credentials; read on every request so a Render env change applies at once."""
+    return [name for name in ENV_NAMES if not os.getenv(name, "").strip()]
+
+
 def client_from_env() -> OpenApiClient:
-    values = [os.getenv(name, "").strip() for name in ("KARRY_1688_APP_KEY", "KARRY_1688_APP_SECRET", "KARRY_1688_ACCESS_TOKEN")]
-    if not all(values):
-        raise AlibabaError("1688 Open API が未設定です（KARRY_1688_APP_KEY / KARRY_1688_APP_SECRET / KARRY_1688_ACCESS_TOKEN）。",
+    missing = missing_env()
+    if missing:
+        raise AlibabaError("1688 API認証キー未設定：Renderの環境変数を設定してください（" + " / ".join(missing) + "）。",
                            503, "alibaba_configuration")
-    return OpenApiClient(*values)
+    return OpenApiClient(*(os.getenv(name, "").strip() for name in ENV_NAMES))
 
 
 # ---------------------------------------------------------------- legal screening

@@ -1,6 +1,11 @@
 """Owner-authenticated JSON API: 1688 Open API fetch → legal screening → JPY pricing."""
 from __future__ import annotations
 
+import logging
+import threading
+import time
+import uuid
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
@@ -29,6 +34,30 @@ class EvaluateRequest(FetchRequest):
     pricing: PricingOverrides = Field(default_factory=PricingOverrides)
 
 
+logger = logging.getLogger(__name__)
+MAX_LOG_ENTRIES = 200
+
+
+class AuditLog:
+    """In-process ring buffer for the legal dashboard (owner-only; cleared on restart). Holds no credentials."""
+
+    def __init__(self, size: int = MAX_LOG_ENTRIES):
+        self._entries: deque[dict[str, Any]] = deque(maxlen=size)
+        self._lock = threading.Lock()
+
+    def add(self, **entry: Any) -> dict[str, Any]:
+        record = {"id": uuid.uuid4().hex, "at": time.time(), **entry}
+        with self._lock:
+            self._entries.appendleft(record)
+        logger.info("1688 %s product=%s verdict=%s code=%s", record.get("action"), record.get("product_id"),
+                    record.get("verdict"), record.get("code"))
+        return record
+
+    def list(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            return list(self._entries)[:limit]
+
+
 def _json(value: Any, status_code: int = 200) -> JSONResponse:
     return JSONResponse(value, status_code=status_code, headers={"Cache-Control": "no-store"})
 
@@ -38,10 +67,19 @@ def _error(exc: ali.AlibabaError) -> JSONResponse:
 
 
 def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | None = None,
-                 reviewer: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> APIRouter:
+                 reviewer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                 audit: AuditLog | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/alibaba", tags=["alibaba"], dependencies=[Depends(auth)])
     clients = client_factory or ali.client_from_env
     review = reviewer or ali.review_product
+    log = audit or AuditLog()
+    router.audit = log
+
+    def safe_id(product: str) -> str | None:
+        try:
+            return ali.parse_product_id(product)
+        except ali.AlibabaError:
+            return None
 
     @router.get("/config")
     def config():
@@ -51,7 +89,12 @@ def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | N
         except ali.AlibabaError as exc:
             configured, reason = False, exc.message
         return _json({"configured": configured, "reason": reason, "api": "alibaba.cross.productInfo",
+                      "missing": [] if configured else ali.missing_env(),
                       "pricing": ali.pricing_defaults(), "checks": ali.CHECK_LABELS})
+
+    @router.get("/logs")
+    def logs(limit: int = 50):
+        return _json({"entries": log.list(max(1, min(limit, MAX_LOG_ENTRIES)))})
 
     def fetch(product: str) -> dict[str, Any]:
         return clients().product(ali.parse_product_id(product))
@@ -59,8 +102,12 @@ def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | N
     @router.post("/fetch")
     async def fetch_product(request: FetchRequest):
         try:
-            return _json({"product": await run_in_threadpool(fetch, request.product)})
+            product = await run_in_threadpool(fetch, request.product)
+            log.add(action="fetch", status="ok", product_id=product.get("product_id"), title=product.get("title"),
+                    images=len(product.get("images") or []))
+            return _json({"product": product})
         except ali.AlibabaError as exc:
+            log.add(action="fetch", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             return _error(exc)
 
     @router.post("/evaluate")
@@ -76,8 +123,16 @@ def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | N
                 result["pricing_error"] = exc.message
             return result
         try:
-            return _json(await run_in_threadpool(work))
+            result = await run_in_threadpool(work)
         except ali.AlibabaError as exc:
+            log.add(action="evaluate", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             return _error(exc)
+        product, review_result = result["product"], result["review"]
+        result["log"] = log.add(action="evaluate", status="ok", product_id=product.get("product_id"), title=product.get("title"),
+                                images=len(product.get("images") or []), verdict=review_result["verdict"],
+                                engine=review_result["engine"],
+                                checks={k: {"status": v["status"], "reason": v["reason"]} for k, v in review_result["checks"].items()},
+                                selling_price_jpy=(result["pricing"] or {}).get("selling_price_jpy"))
+        return _json(result)
 
     return router

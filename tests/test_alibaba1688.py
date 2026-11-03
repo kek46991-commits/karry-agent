@@ -196,3 +196,52 @@ def test_api_requires_owner_token_and_reports_configuration(monkeypatch):
     monkeypatch.setenv('KARRY_1688_ACCESS_TOKEN', TOKEN_1688)
     text = http.get('/api/alibaba/config', headers=AUTH).text
     assert SECRET not in text and TOKEN_1688 not in text and '"configured":true' in text
+
+
+def test_env_change_switches_to_the_real_open_api_without_restart(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
+    for name in ali.ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    calls = []
+    monkeypatch.setattr(ali.requests, 'post', lambda url, data, timeout: calls.append((url, data)) or reply(200, {'success': True, 'productInfo': INFO}))
+    http = TestClient(web.app)
+    config = http.get('/api/alibaba/config', headers=AUTH).json()
+    assert config['configured'] is False and config['missing'] == list(ali.ENV_NAMES) and '1688 API認証キー未設定' in config['reason']
+    assert http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH).status_code == 503 and calls == []
+    monkeypatch.setenv('KARRY_1688_APP_KEY', '1234567')
+    monkeypatch.setenv('KARRY_1688_APP_SECRET', SECRET)
+    monkeypatch.setenv('KARRY_1688_ACCESS_TOKEN', TOKEN_1688)
+    assert http.get('/api/alibaba/config', headers=AUTH).json()['missing'] == []
+    data = http.post('/api/alibaba/evaluate', json={'product': 'https://detail.1688.com/offer/573741401425.html'}, headers=AUTH).json()
+    assert calls[0][0].endswith('/alibaba.cross.productInfo/1234567') and calls[0][1]['productId'] == '573741401425'
+    assert len(data['product']['images']) == 3 and data['review']['verdict'] in ('SAFE', 'REJECT') and data['log']['verdict'] == data['review']['verdict']
+
+
+def test_legal_dashboard_logs_errors_and_verdicts_without_secrets(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    state = {'error': None}
+
+    class Client:
+        def product(self, product_id):
+            if state['error']:
+                raise ali.AlibabaError(*state['error'])
+            return ali.normalize_product({**INFO, 'subject': '22.5W 充电宝'})
+
+    test_app = FastAPI()
+    router = alibaba_api.build_router(web.require_tool_auth, lambda: Client())
+    test_app.include_router(router)
+    http = TestClient(test_app)
+    assert http.get('/api/alibaba/logs').status_code == 401
+    http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH)
+    state['error'] = ('この商品を取得する権限がありません（1688 で跨境の铺货関係を作ってください）。', 403, 'product_forbidden')
+    assert http.post('/api/alibaba/evaluate', json={'product': '573741401426'}, headers=AUTH).status_code == 403
+    http.post('/api/alibaba/fetch', json={'product': 'bad'}, headers=AUTH)
+    entries = http.get('/api/alibaba/logs', headers=AUTH).json()['entries']
+    assert [(e['action'], e['status'], e.get('code'), e.get('verdict')) for e in entries] == [
+        ('fetch', 'error', 'invalid_product', None), ('evaluate', 'error', 'product_forbidden', None), ('evaluate', 'ok', None, 'REJECT')]
+    assert entries[2]['checks']['pse']['status'] == 'REJECT' and entries[2]['images'] == 3 and entries[1]['product_id'] == '573741401426'
+    assert SECRET not in str(entries) and TOKEN_1688 not in str(entries)
+    for _ in range(alibaba_api.MAX_LOG_ENTRIES + 5):
+        router.audit.add(action='fetch', status='ok')
+    assert len(router.audit.list(1000)) == alibaba_api.MAX_LOG_ENTRIES
