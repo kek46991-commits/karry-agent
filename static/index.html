@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="kerry-shop-20261026">
+  <meta name="karry-ui-version" content="kerry-pricing-20261026">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -66,7 +66,7 @@
           <p id="alibabaConfig" class="hint">開くと設定を確認します。</p>
           <div id="alibabaSetup" class="alibaba-alert" role="alert" hidden><strong>⚠ 1688 API認証キー未設定：Renderの環境変数を設定してください</strong><p id="alibabaMissing" class="hint"></p><ol><li><a href="https://open.1688.com/" target="_blank" rel="noopener noreferrer">open.1688.com</a> でアプリを作り、App Key と App Secret を控える。</li><li>販売者アカウントでアプリを認可して access_token を取得する（商品は 1688 側で「一键铺货」しておく）。</li><li><a href="https://dashboard.render.com/" target="_blank" rel="noopener noreferrer">Render</a> → karry-agent-1 → Environment で <code>KARRY_1688_APP_KEY</code> / <code>KARRY_1688_APP_SECRET</code> / <code>KARRY_1688_ACCESS_TOKEN</code> を追加して「Save Changes」。</li><li>再デプロイが終わったら、この画面で「設定を再確認」を押す（コードの変更は不要です）。</li></ol><button id="alibabaRecheck" type="button">設定を再確認</button></div>
           <div class="alibaba-row"><input id="alibabaProduct" type="text" maxlength="500" placeholder="1688 の商品 URL または商品 ID（例: 573741401425）" aria-label="1688 商品 URL または ID"><button id="alibabaEvaluate" type="button">取得して審査・価格計算</button><button id="alibabaPublish" type="button">本番仕入れ＆自動出品</button><a href="/shop" target="_blank" rel="noopener">🛍 KERRY ショップを開く</a></div>
-          <div class="alibaba-pricing"><label>為替（円/元）<input id="alibabaRate" type="number" min="1" max="100" step="0.01"></label><label>国際送料（円）<input id="alibabaShipping" type="number" min="0" step="10"></label><label>販売手数料率<input id="alibabaPlatformFee" type="number" min="0" max="0.9" step="0.01"></label><label>目標利益率<input id="alibabaMargin" type="number" min="0" max="0.9" step="0.01"></label></div>
+          <div class="alibaba-pricing"><label>為替（円/元）<input id="alibabaRate" type="number" min="1" max="100" step="0.01"></label><label>国際送料・関税（円）<input id="alibabaShipping" type="number" min="0" step="10"></label><label>代行手数料率<input id="alibabaAgentFee" type="number" min="0" max="1" step="0.01"></label><label>販売倍率（×）<input id="alibabaMarkup" type="number" min="1" max="5" step="0.05"></label></div>
           <div id="alibabaStatus" class="hint" aria-live="polite"></div>
           <div id="alibabaResult"></div>
           <h3>🧾 ショップの注文</h3><div id="shopOrders" class="alibaba-log"><p class="hint">まだ注文はありません。</p></div><h3>⚖ 法務ダッシュボード（取得・審査ログ）</h3><div id="alibabaLog" class="alibaba-log" aria-live="polite"><p class="hint">まだ記録はありません。</p></div>
@@ -727,7 +727,7 @@
   }
   async function loadFeatures(){let features=null;try{const response=await fetch('/api/features',{cache:'no-store'});features=response&&response.ok?await response.json():null;}catch(_){}const doc=globalThis.document;const hint=doc?.getElementById('videoChatHint');if(hint)hint.hidden=features?.experimental!==true;const options=doc?.getElementById('videoChatOptions');if(options)options.hidden=features?.experimental!==true;const webtoon=doc?.getElementById('webtoonChatHint');if(webtoon)webtoon.hidden=features?.webtoon!==true;}
   loadFeatures();
-  const ALIBABA_PRICING={alibabaRate:'cny_jpy_rate',alibabaShipping:'shipping_jpy',alibabaPlatformFee:'platform_fee_rate',alibabaMargin:'target_margin_rate'};
+  const ALIBABA_PRICING={alibabaRate:'cny_jpy_rate',alibabaAgentFee:'agent_fee_rate',alibabaShipping:'shipping_jpy',alibabaMarkup:'markup'};
   async function loadAlibabaConfig(){
     if(!$('alibabaPanel').open)return;if(!ownerToken()){$('alibabaConfig').textContent='上部で API トークンを接続すると使えます。';return;}
     try{const config=await requestJson('/api/alibaba/config');$('alibabaConfig').textContent=config.configured?'1688 Open API: 接続設定済み（商品情報は公式 API から取得します）。':'1688 Open API: 未設定';
@@ -771,7 +771,7 @@
     const cost=el('div','hint',`原価: ${p.min_price_cny??'—'}〜${p.max_price_cny??'—'} 元（${(p.price_ranges||[]).map(r=>`${r.start_quantity}${p.unit||''}〜 ${r.price_cny}元`).join(' / ')||'段階価格なし'}）`);
     const review=data.review||{},verdict=el('div','alibaba-verdict',`法的審査: ${review.verdict||'—'}（${review.engine==='rules'?'キーワード規則のみ':'Gemini＋キーワード規則'}）`);verdict.dataset.verdict=review.verdict||'';
     const checks=el('ul','alibaba-checks');for(const c of Object.values(review.checks||{})){const li=el('li',null,`${c.label}: ${c.status} — ${c.reason}`);li.dataset.status=c.status;checks.append(li);}
-    const price=data.pricing?el('div','alibaba-price',`販売価格 ${alibabaYen(data.pricing.selling_price_jpy)}（仕入れ総額 ${alibabaYen(data.pricing.landed_cost_jpy)}・手数料 ${alibabaYen(data.pricing.platform_fee_jpy)}・利益 ${alibabaYen(data.pricing.profit_jpy)}・利益率 ${Math.round(data.pricing.margin_rate*100)}%）`):el('div','hint',data.pricing_error||'価格を計算できませんでした。');
+    const price=data.pricing?el('div','alibaba-price',`販売価格 ${alibabaYen(data.pricing.selling_price_jpy)}（仕入れ総額 ${alibabaYen(data.pricing.landed_cost_jpy)}・代行手数料 ${alibabaYen(data.pricing.agent_fee_jpy)}・送料関税 ${alibabaYen(data.pricing.shipping_jpy)}・利益 ${alibabaYen(data.pricing.profit_jpy)}・利益率 ${Math.round(data.pricing.margin_rate*100)}%）`):el('div','hint',data.pricing_error||'価格を計算できませんでした。');
     box.replaceChildren(title,images,cost,verdict,checks,price,el('p','hint',review.disclaimer||''));
   }
   async function evaluateAlibaba(){

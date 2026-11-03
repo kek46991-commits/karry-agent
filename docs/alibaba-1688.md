@@ -29,17 +29,18 @@ karry-agent の FastAPI（Render の `karry-agent-1`）に `/api/alibaba/*` を�
   - Gemini が使えないときは、規則だけで判定します（`engine: "rules"`）。
 - 自動判定です。出品前に専門家の確認が必要です（`disclaimer`）。
 
-## 価格計算
+## 価格計算（KERRY ショップの販売価格）
 
 ```
-goods   = 原価(CNY) × 為替 × (1 + 代行手数料率)
-duty    = (goods + 国際送料) × 関税・消費税率
-landed  = goods + 国際送料 + duty
-price   = ceil(landed / (1 − 販売手数料率 − 目標利益率) / 10) × 10
+goods      = 原価(RMB) × 為替（既定 22 円）
+agent_fee  = goods × 代行手数料率（既定 5%）
+landed     = goods + agent_fee + 国際送料・関税の固定枠（既定 1,200 円）
+price      = ceil(landed × 販売倍率（既定 1.4 ≒ 利益率 約 29%）)
 ```
 
-- 既定値は `KARRY_CNY_JPY_RATE` などの環境変数で決めます。`pricing` を送ると、その 1 回だけ上書きできます。
-- 原価には、段階価格と SKU 価格のうち最も安いものを使います。
+- 例: 100 元 → 2,200 + 110 + 1,200 = 3,510 円 → 販売価格 4,914 円（利益 1,404 円）。
+- 既定値は `KARRY_CNY_JPY_RATE` / `KARRY_1688_AGENT_FEE_RATE` / `KARRY_1688_SHIPPING_JPY` / `KARRY_SHOP_MARKUP` で変えられます。画面の入力欄で 1 回ごとに上書きすることもできます。
+- 原価には、段階価格と SKU 価格のうち最も安いものを使います。「本番仕入れ＆自動出品」は、この価格で `/shop` に出品します。
 
 ## API（すべて `Authorization: Bearer $KARRY_API_TOKEN` が必要）
 

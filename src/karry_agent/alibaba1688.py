@@ -215,22 +215,25 @@ def review_product(product: dict[str, Any], generator: Callable[[dict[str, Any]]
 
 
 # ---------------------------------------------------------------- pricing
-PRICING_FIELDS = {"cny_jpy_rate": (21.0, 1.0, 100.0), "agent_fee_rate": (0.05, 0.0, 1.0), "shipping_jpy": (600.0, 0.0, 100000.0),
-                  "duty_rate": (0.1, 0.0, 1.0), "platform_fee_rate": (0.1, 0.0, 0.9), "target_margin_rate": (0.3, 0.0, 0.9)}
+PRICING_FIELDS = {"cny_jpy_rate": (22.0, 1.0, 100.0), "agent_fee_rate": (0.05, 0.0, 1.0),
+                  "shipping_jpy": (1200.0, 0.0, 100000.0), "markup": (1.4, 1.0, 5.0)}
+_PRICING_ENV = {"cny_jpy_rate": "KARRY_CNY_JPY_RATE", "agent_fee_rate": "KARRY_1688_AGENT_FEE_RATE",
+                "shipping_jpy": "KARRY_1688_SHIPPING_JPY", "markup": "KARRY_SHOP_MARKUP"}
 
 
 def pricing_defaults() -> dict[str, float]:
-    env = {"cny_jpy_rate": "KARRY_CNY_JPY_RATE", "agent_fee_rate": "KARRY_1688_AGENT_FEE_RATE", "shipping_jpy": "KARRY_1688_SHIPPING_JPY",
-           "duty_rate": "KARRY_1688_DUTY_RATE", "platform_fee_rate": "KARRY_PLATFORM_FEE_RATE", "target_margin_rate": "KARRY_TARGET_MARGIN_RATE"}
     values = {}
     for key, (default, low, high) in PRICING_FIELDS.items():
-        number = _number(os.getenv(env[key]))
+        number = _number(os.getenv(_PRICING_ENV[key]))
         values[key] = number if number is not None and low <= number <= high else default
     return values
 
 
 def price_product(cost_cny: float, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Landed cost → selling price so that platform fee + target margin are covered. Rounds up to 10 JPY."""
+    """KERRY shop price: (cost×rate + agent fee + fixed shipping/duty) × markup, rounded up to whole yen.
+
+    Defaults: 1 RMB = 22 JPY, agent fee 5 % of the goods, +1,200 JPY international shipping & duty, ×1.4 (≈30 % margin).
+    """
     if _number(cost_cny) is None or cost_cny <= 0:
         raise AlibabaError("原価（人民元）が取得できないため価格を計算できません。", 422, "price_unavailable")
     config = pricing_defaults()
@@ -240,14 +243,11 @@ def price_product(cost_cny: float, overrides: dict[str, Any] | None = None) -> d
             if number is None or not low <= number <= high:
                 raise AlibabaError(f"{key} は {low}〜{high} で指定してください。", 422, "invalid_pricing")
             config[key] = number
-    if config["platform_fee_rate"] + config["target_margin_rate"] >= 0.95:
-        raise AlibabaError("手数料率と利益率の合計は 95% 未満にしてください。", 422, "invalid_pricing")
-    goods_jpy = cost_cny * config["cny_jpy_rate"] * (1 + config["agent_fee_rate"])
-    duty_jpy = (goods_jpy + config["shipping_jpy"]) * config["duty_rate"]
-    landed = goods_jpy + config["shipping_jpy"] + duty_jpy
-    price = math.ceil(landed / (1 - config["platform_fee_rate"] - config["target_margin_rate"]) / 10) * 10
-    fee = price * config["platform_fee_rate"]
-    profit = price - fee - landed
-    return {"cost_cny": round(cost_cny, 2), "config": config, "goods_jpy": round(goods_jpy), "duty_jpy": round(duty_jpy),
-            "landed_cost_jpy": round(landed), "selling_price_jpy": int(price), "platform_fee_jpy": round(fee),
+    goods_jpy = cost_cny * config["cny_jpy_rate"]
+    agent_fee_jpy = goods_jpy * config["agent_fee_rate"]
+    landed = goods_jpy + agent_fee_jpy + config["shipping_jpy"]
+    price = math.ceil(round(landed * config["markup"], 6))
+    profit = price - landed
+    return {"cost_cny": round(cost_cny, 2), "config": config, "goods_jpy": round(goods_jpy), "agent_fee_jpy": round(agent_fee_jpy),
+            "shipping_jpy": round(config["shipping_jpy"]), "landed_cost_jpy": round(landed), "selling_price_jpy": int(price),
             "profit_jpy": round(profit), "margin_rate": round(profit / price, 4)}

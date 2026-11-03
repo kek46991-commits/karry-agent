@@ -22,9 +22,7 @@ class PricingOverrides(BaseModel):
     cny_jpy_rate: float | None = None
     agent_fee_rate: float | None = None
     shipping_jpy: float | None = None
-    duty_rate: float | None = None
-    platform_fee_rate: float | None = None
-    target_margin_rate: float | None = None
+    markup: float | None = None
 
 
 class FetchRequest(BaseModel):
