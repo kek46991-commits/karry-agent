@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import math
 from unittest.mock import Mock
 
 import pytest
@@ -119,18 +120,19 @@ def test_gemini_and_rules_are_combined_fail_safe():
 
 
 def test_pricing_formula_and_validation(monkeypatch):
-    for name in ('KARRY_CNY_JPY_RATE', 'KARRY_1688_AGENT_FEE_RATE', 'KARRY_1688_SHIPPING_JPY', 'KARRY_1688_DUTY_RATE',
-                 'KARRY_PLATFORM_FEE_RATE', 'KARRY_TARGET_MARGIN_RATE'):
+    for name in ali._PRICING_ENV.values():
         monkeypatch.delenv(name, raising=False)
-    result = ali.price_product(10, {'cny_jpy_rate': 20, 'agent_fee_rate': 0, 'shipping_jpy': 100, 'duty_rate': 0,
-                                    'platform_fee_rate': 0.1, 'target_margin_rate': 0.4})
-    assert result['landed_cost_jpy'] == 300 and result['selling_price_jpy'] == 600 and result['profit_jpy'] == 240
-    assert result['margin_rate'] == 0.4
-    monkeypatch.setenv('KARRY_CNY_JPY_RATE', '22')
-    assert ali.pricing_defaults()['cny_jpy_rate'] == 22
-    monkeypatch.setenv('KARRY_CNY_JPY_RATE', 'abc')
-    assert ali.pricing_defaults()['cny_jpy_rate'] == 21
-    for bad in ({'target_margin_rate': 0.9, 'platform_fee_rate': 0.1}, {'cny_jpy_rate': -1}):
+    assert ali.pricing_defaults() == {'cny_jpy_rate': 22.0, 'agent_fee_rate': 0.05, 'shipping_jpy': 1200.0, 'markup': 1.4}
+    result = ali.price_product(100)
+    # 100 RMB × 22 = 2,200 + 5 % (110) + 1,200 = 3,510 → × 1.4 = 4,914
+    assert (result['goods_jpy'], result['agent_fee_jpy'], result['shipping_jpy'], result['landed_cost_jpy']) == (2200, 110, 1200, 3510)
+    assert result['selling_price_jpy'] == 4914 and result['profit_jpy'] == 1404 and result['margin_rate'] == pytest.approx(0.2857, abs=1e-4)
+    assert ali.price_product(9.8)['selling_price_jpy'] == math.ceil((9.8 * 22 * 1.05 + 1200) * 1.4)
+    assert ali.price_product(10, {'cny_jpy_rate': 20, 'agent_fee_rate': 0, 'shipping_jpy': 100, 'markup': 2})['selling_price_jpy'] == 600
+    monkeypatch.setenv('KARRY_CNY_JPY_RATE', '21')
+    monkeypatch.setenv('KARRY_SHOP_MARKUP', '9')
+    assert ali.pricing_defaults()['cny_jpy_rate'] == 21 and ali.pricing_defaults()['markup'] == 1.4
+    for bad in ({'markup': 0.9}, {'cny_jpy_rate': -1}, {'shipping_jpy': 'x'}):
         with pytest.raises(ali.AlibabaError) as exc:
             ali.price_product(10, bad)
         assert exc.value.code == 'invalid_pricing'
@@ -169,7 +171,7 @@ def test_evaluate_endpoint_returns_product_review_and_price(api):
     assert http.post('/api/alibaba/fetch', json={'product': '573741401425'}, headers=AUTH).json()['product']['images']
     bad = http.post('/api/alibaba/evaluate', json={'product': 'nope'}, headers=AUTH)
     assert bad.status_code == 422 and bad.json()['code'] == 'invalid_product'
-    bad = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'pricing': {'target_margin_rate': 2}}, headers=AUTH)
+    bad = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'pricing': {'markup': 9}}, headers=AUTH)
     assert bad.status_code == 422 and bad.json()['code'] == 'invalid_pricing'
 
 
