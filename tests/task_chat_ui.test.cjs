@@ -784,3 +784,22 @@ test('chat video label reports the SadTalker result or the automatic 0-yen fallb
   assert.match(label({status:'succeeded',duration_seconds:9,autopilot:{title:'混雑',lip_sync:{requested:true,status:'fallback',fallback_reason:'sadtalker_busy'}}}),/⚠ SadTalker が混雑していたため、0円ローカル合成（静止画＋ナレーション）に切り替えました/);
   assert.doesNotMatch(label({status:'succeeded',autopilot:{title:'普通'}}),/SadTalker/);s.dom.window.close();
 });
+
+test('1688 panel shows the missing-key alert with setup steps, then the legal dashboard log once configured',async()=>{
+  let configured=false,logCalls=0;const fetch=async(url)=>{
+    if(url==='/api/alibaba/config')return json({configured,missing:configured?[]:['KARRY_1688_APP_KEY','KARRY_1688_ACCESS_TOKEN'],reason:configured?null:'1688 API認証キー未設定：Renderの環境変数を設定してください',pricing:{cny_jpy_rate:21}});
+    if(url==='/api/alibaba/logs?limit=50'){logCalls++;return json({entries:configured?[
+      {id:'2',at:1793600100,action:'evaluate',status:'error',product_id:'573741401426',code:'product_forbidden',message:'この商品を取得する権限がありません'},
+      {id:'1',at:1793600000,action:'evaluate',status:'ok',product_id:'573741401425',title:'充电宝',images:12,verdict:'REJECT',selling_price_jpy:1580,checks:{pse:{status:'REJECT',reason:'注意語: 充电宝'}}}]:[]});}
+  };
+  const s=setup({fetch});const $=id=>s.doc.getElementById(id);s.authenticate();
+  $('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));
+  assert.equal($('alibabaSetup').hidden,false);assert.match($('alibabaSetup').textContent,/1688 API認証キー未設定：Renderの環境変数を設定してください/);
+  assert.match($('alibabaMissing').textContent,/KARRY_1688_APP_KEY \/ KARRY_1688_ACCESS_TOKEN/);assert.equal($('alibabaEvaluate').disabled,true);
+  assert.ok([...$('alibabaSetup').querySelectorAll('a')].some(a=>a.href==='https://dashboard.render.com/'));
+  configured=true;$('alibabaRecheck').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal($('alibabaSetup').hidden,true);assert.equal($('alibabaEvaluate').disabled,false);assert.ok(logCalls>=1);
+  const rows=[...$('alibabaLog').querySelectorAll('.alibaba-log-entry')];assert.deepEqual(rows.map(r=>r.dataset.level),['error','REJECT']);
+  assert.match(rows[0].textContent,/❌ 一键铺货が未許可｜573741401426/);assert.match(rows[1].textContent,/⛔ REJECT｜573741401425 充电宝｜画像12枚｜1,580円/);
+  assert.match(rows[1].textContent,/pse: REJECT — 注意語: 充电宝/);s.dom.window.close();
+});
