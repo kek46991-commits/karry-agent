@@ -37,8 +37,8 @@ def chat(monkeypatch):
         monkeypatch.setattr(web, name, {})
     agent, started = EchoAgent(), []
 
-    def start(session_id, text, image, request_id):
-        started.append((session_id, text, image, request_id))
+    def start(session_id, text, image, request_id, **options):
+        started.append((session_id, text, image, request_id, *options.items()))
         if text.startswith("[busy]"):
             raise vs.VideoError("このタスクでは別の自動動画を生成中です。", 409, "autopilot_busy")
         return {"id": "f" * 32}, 202
@@ -59,6 +59,16 @@ def test_chat_prompt_starts_autopilot_without_calling_the_model(chat):
     assert body["trace"][0]["action"] == chat_video.ACTION and body["trace"][0]["observation"]["job_id"] == "f" * 32
     history = client.get(f"/api/sessions/{sid}", headers=AUTH).json()["messages"]
     assert chat_video.job_marker("f" * 32) in history[-1]["content"]
+
+
+def test_chat_video_options_pass_talking_and_length_to_autopilot(chat):
+    client, sid, _, started = chat
+    body = client.post("/api/chat", json={"prompt": "この写真の人が喋る動画を作って", "session_id": sid, "request_id": "r-2",
+                                          "video_talking": True, "video_seconds": 30}, headers=AUTH).json()
+    assert started == [(sid, "この写真の人が喋る動画を作って", None, "r-2", ("talking", True), ("duration_seconds", 30))]
+    assert body["trace"][0]["arguments"]["talking"] is True and body["trace"][0]["arguments"]["duration_seconds"] == 30
+    bad = client.post("/api/chat", json={"prompt": "動画を作って", "session_id": sid, "video_seconds": 2}, headers=AUTH)
+    assert bad.status_code == 422 and len(started) == 1
 
 
 def test_video_errors_are_reported_in_chat(chat):
