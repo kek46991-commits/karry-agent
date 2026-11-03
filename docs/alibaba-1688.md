@@ -1,25 +1,29 @@
-# 1688 商品リサーチ（Open API → 法的審査 → 価格計算）
+# 1688 商品リサーチ（URL / スクショ → 法的審査 → 価格計算）
 
-karry-agent の FastAPI（Render の `karry-agent-1`）に `/api/alibaba/*` を追加しています。画面と同じドメインで動くので、
-別の Node/Express サーバーや CORS 用のリバースプロキシは不要です（`Dockerfile` / `render.yaml` の起動コマンドはそのまま）。
+karry-agent の FastAPI（Render の `karry-agent-1`）に `/api/alibaba/*` を追加しています。1688 の API キーは使いません。
+画面と同じドメインで動くので、別のサーバーや CORS 用のプロキシは不要です。
 
 ```
-画面 (static/index.html「🛒 1688 商品リサーチ」)
-  └─ POST /api/alibaba/evaluate  (Bearer KARRY_API_TOKEN)
-       ├─ 1688 Open API  alibaba.cross.productInfo  (HMAC-SHA1 署名, App Key/Secret + access_token)
+画面 (static/index.html「🛒 1688 商品リサーチ」: 商品 URL ＋ 任意でスクショ最大4枚・原価)
+  └─ POST /api/alibaba/evaluate | /publish  (Bearer KARRY_API_TOKEN)
+       ├─ alibaba_scrape.intake
+       │    ├─ URL: *.1688.com のページを 1 回 GET → タイトル / alicdn 画像 / 価格 / カテゴリー
+       │    └─ スクショ: Gemini Vision (JSON) → 商品名 / カテゴリー / 原価 / 仕様 / 商品写真の範囲
        ├─ 法的審査  Gemini (JSON) ＋ キーワード規則 → 商標権 / 薬機法 / PSE を SAFE / REJECT
-       └─ 価格計算  人民元原価 → 日本円の販売価格・利益
+       └─ 価格計算  (原価 × 22 × 1.05 + 1,200) × 1.4 → SAFE なら /shop に出品
 ```
 
-## データ取得
+## データ取得（`src/karry_agent/alibaba_scrape.py`）
 
-- 1688 の公式 Open API だけを使います。ページのスクレイピングやボット対策の回避はしません。
-- API: `com.alibaba.product:alibaba.cross.productInfo:1`
-  - URL: `https://gw.open.1688.com/openapi/param2/1/com.alibaba.product/alibaba.cross.productInfo/{appKey}`
-  - 引数は `productId` です。
-- 署名は公式 Python SDK（`aop/api/base.py`）と同じ方式です: `HMAC-SHA1(appSecret, urlPath + sorted(key+value))` を大文字の 16 進で `_aop_signature` に入れます。
-- 跨境（クロスボーダー）の铺货関係がない商品は、`product_forbidden`（403）になります。1688 側で「一键铺货」してください。
-- 画像は `https://cbu01.alicdn.com/` の絶対 URL にそろえます。返すのは、取得した商品の画像（最大 12 枚）だけです。
+- **URL:** `https://*.1688.com` だけを読みます（商品 ID だけでも可）。リダイレクト先も毎回確かめるので、ほかのサイトには接続しません。
+  - Cookie なし・再試行なしで 1 回だけ GET します（最大 3MB）。ログイン・スライダー認証・アクセス拒否の画面になったら `page_blocked` を返し、スクショを求めます。ボット対策の回避はしません。
+  - 取り出すもの: `og:title` / `<title>`、`cbu01|img.alicdn.com/img/ibank/` の画像（最大 12 枚、サイズ指定は外す）、価格の数値（最安値を原価に使う）、カテゴリー名。
+  - 商品名か価格が取れず `GEMINI_API_KEY` があるときは、ページの本文を Gemini で読みます。
+- **スクショ:** JPG / PNG / WEBP、最大 4 枚、1 枚 8MB まで。サーバーで JPEG（最大 1600px）に変換してから Gemini Vision に渡します。
+  - Gemini が返した商品写真の範囲を 1 枚目から切り抜き、ショップの画像にします（`/api/shop/images/<id>.jpg`）。
+  - スクショの読み取りには `GEMINI_API_KEY` が必要です。ないときは `vision_unavailable`（503）です。
+- URL とスクショの両方があるときは、ページで取れた値を優先し、足りない部分をスクショで埋めます。ページが止められたときはスクショだけで続けます。
+- 原価が読み取れないときは、画面の「原価（元）」に入力すると、その値を使います。
 
 ## 法的審査
 
@@ -46,36 +50,26 @@ price      = ceil(landed × 販売倍率（既定 1.4 ≒ 利益率 約 29%）)
 
 | Method | Path | 内容 |
 | --- | --- | --- |
-| GET | `/api/alibaba/config` | 設定済みかどうかと価格の既定値（キーは返しません） |
-| POST | `/api/alibaba/fetch` | `{"product": "<URL or ID>"}` → 商品 JSON |
-| POST | `/api/alibaba/evaluate` | `{"product": "...", "pricing": {...}}` → 商品・審査・価格 |
+| GET | `/api/alibaba/config` | 読み取り方式・スクショの上限・価格の既定値（キーは返しません） |
+| POST | `/api/alibaba/fetch` | `{"product": "<URL or ID>", "screenshots": ["data:image/png;base64,..."], "cost_cny": 9.8}` → 商品 JSON |
+| POST | `/api/alibaba/evaluate` | 上と同じ ＋ `"pricing": {...}` → 商品・審査・価格 |
+| POST | `/api/alibaba/publish` | 上と同じ → SAFE なら KERRY ショップに出品（201）、REJECT なら 409 |
 
 ## 本番（Render）
 
-`karry-agent-1` の Environment に `KARRY_1688_APP_KEY` / `KARRY_1688_APP_SECRET` / `KARRY_1688_ACCESS_TOKEN` を入れてください（価格の既定値は任意）。
-main にマージすると自動でデプロイされます。
-
-## キー未設定時の表示と、設定後の切り替え
-
-- 認証情報は、リクエストのたびに環境変数から読み直します（`client_from_env` / `missing_env`）。
-  - Render で 3 つのキーを保存すると再デプロイされ、その直後から公式 API への実際の通信になります。コードの変更は要りません。
-  - モックは本番のコードにはありません。テストにだけあります。
-- `GET /api/alibaba/config` は `missing` を返します。中身は未設定の変数名だけで、値は返しません。
-- キーが未設定のあいだ、画面には次を表示し、「取得して審査・価格計算」ボタンは押せなくします。
-  - 「⚠ 1688 API認証キー未設定：Renderの環境変数を設定してください」の警告
-  - 設定手順（open.1688.com → 認可 → Render の Environment → 「設定を再確認」）
+1688 のキーは要りません。スクショの読み取りと Gemini 審査には `GEMINI_API_KEY` を使います。main にマージすると自動でデプロイされます。
 
 ## 法務ダッシュボード（`GET /api/alibaba/logs`）
 
-- 取得と審査を 1 回ごとに記録します。記録する項目は、時刻、商品 ID・タイトル、画像の枚数、SAFE / REJECT と各項目の理由、販売価格、またはエラーの種類（`product_forbidden`（一键铺货が未許可）、`alibaba_auth`、`alibaba_unavailable` など）です。
+- 取得と審査を 1 回ごとに記録します。記録する項目は、時刻、商品 ID・タイトル、画像の枚数、SAFE / REJECT と各項目の理由、販売価格、またはエラーの種類（`page_blocked`（1688 が読み取りを拒否）、`vision_failed`、`product_unreadable` など）です。
 - 最新 200 件をサーバーのメモリに持ちます（再起動で消えます）。サーバーのログにも 1 行ずつ出します。キーとトークンは記録しません。
 - 画面の「⚖ 法務ダッシュボード」は、審査のたびと、パネルを開いているあいだ 15 秒ごとに更新します。
 
 ## KERRY ショップへの自動出品
 
 - 法務ダッシュボードの「本番仕入れ＆自動出品」ボタンは `POST /api/alibaba/publish` を呼びます（オーナーのみ）。
-  - 1688 から実データを取得 → 法的審査 → 価格計算の順に処理し、**SAFE で価格が出せたときだけ** `shop_store.ShopStore` に登録します。
-  - 登録先は非公開バケットの `shop/catalog.json` です。同じ 1688 商品 ID なら、ショップ側の ID はそのままで情報を更新します。
+  - 商品 URL / スクショを読み取り → 法的審査 → 価格計算の順に処理し、**SAFE で価格が出せたときだけ** `shop_store.ShopStore` に登録します。
+  - 登録先は非公開バケットの `shop/catalog.json` です。同じ 1688 商品 ID（スクショだけのときは画像のハッシュ）なら、ショップ側の ID はそのままで情報を更新します。
   - REJECT のときは 409 を返し、出品しません。結果はどちらの場合もダッシュボードのログに残ります。
 - 一般向けのショップ画面は `/shop`（`static/shop.html`）です。トークンなしで見られます。
   - 中身は、商品一覧、カテゴリー別のタブ、詳細モーダル（画像最大 12 枚のサムネイル切り替え、仕様、バリエーション）、購入申し込みフォームです。

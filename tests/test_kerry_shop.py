@@ -3,16 +3,29 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app as web
-from karry_agent import alibaba1688 as ali
-from karry_agent import alibaba_api, shop_api, shop_store
+from karry_agent import alibaba_api, alibaba_scrape, shop_api, shop_store
 
 OWNER = 'synthetic-owner-' + 'token'
 AUTH = {'Authorization': 'Bearer ' + OWNER}
-INFO = {'productID': 573741401425, 'subject': '北欧风陶瓷马克杯', 'categoryName': '杯子',
-        'image': {'images': [f'img/ibank/{i}.jpg' for i in range(14)]},
-        'saleInfo': {'priceRanges': [{'startQuantity': 2, 'price': 9.8}], 'unit': '个'},
-        'skuInfos': [{'skuId': 1, 'price': 11.0, 'attributes': [{'attributeDisplayName': '颜色', 'attributeValue': '白色'}]}],
-        'attributes': [{'attributeName': '材质', 'value': '陶瓷'}]}
+
+
+def page(title, images=14):
+    imgs = ','.join(f'"//cbu01.alicdn.com/img/ibank/{i}.jpg"' for i in range(images))
+    return (f'<html><head><title>{title}</title></head><body><script>var d={{"price":"9.80","skuPrice":"11.00",'
+            f'"categoryName":"杯子","images":[{imgs}]}};</script></body></html>')
+
+
+class Reply:
+    status_code, headers, encoding = 200, {}, 'utf-8'
+
+    def __init__(self, body):
+        self.body = body.encode()
+
+    def iter_content(self, size):
+        yield self.body
+
+    def close(self):
+        pass
 
 
 @pytest.fixture
@@ -21,14 +34,17 @@ def shop(monkeypatch):
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 'memory')
     shop_store._MEMORY.clear()
-    state = {'info': INFO}
+    state = {'title': '北欧风陶瓷马克杯'}
 
-    class Client:
-        def product(self, product_id):
-            return ali.normalize_product({**state['info'], 'productID': int(product_id)})
+    class Session:
+        def get(self, url, **_):
+            return Reply(page(state['title']))
+
+    def intake(url, screenshots, cost):
+        return alibaba_scrape.intake(url, screenshots, cost, session=Session())
 
     app = FastAPI()
-    app.include_router(alibaba_api.build_router(web.require_tool_auth, lambda: Client()))
+    app.include_router(alibaba_api.build_router(web.require_tool_auth, intake))
     public, owner = shop_api.build_routers(web.require_tool_auth)
     app.include_router(public)
     app.include_router(owner)
@@ -55,7 +71,7 @@ def test_safe_product_is_published_and_visible_publicly(shop):
 
 def test_rejected_product_is_never_listed(shop):
     http, state = shop
-    state['info'] = {**INFO, 'subject': '22.5W 充电宝 移动电源'}
+    state['title'] = '22.5W 充电宝 移动电源'
     response = http.post('/api/alibaba/publish', json={'product': '573741401427'}, headers=AUTH)
     assert response.status_code == 409 and response.json()['published'] is False and response.json()['review']['verdict'] == 'REJECT'
     assert http.get('/api/shop/products').json()['products'] == []
@@ -80,4 +96,4 @@ def test_orders_are_public_to_create_and_owner_only_to_read(shop):
 def test_shop_page_is_served_publicly(monkeypatch):
     monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
     response = TestClient(web.app).get('/shop')
-    assert response.status_code == 200 and 'kerry-shop-20261026' in response.text and 'KERRY ショップ' in response.text
+    assert response.status_code == 200 and 'kerry-scrape-20261026' in response.text and 'KERRY ショップ' in response.text

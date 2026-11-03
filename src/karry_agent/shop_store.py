@@ -1,7 +1,9 @@
 """KERRY shop catalog and order inbox, kept in the private task bucket (memory when no bucket is configured)."""
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import threading
 import time
 import uuid
@@ -11,7 +13,10 @@ from . import task_persistence
 
 MAX_PRODUCTS = 500
 MAX_ORDERS = 1000
+MAX_MEMORY_IMAGES = 300
+IMAGE_URL = "/api/shop/images/{}.jpg"
 _MEMORY: dict[str, dict[str, Any]] = {}
+_IMAGES: dict[str, bytes] = {}
 _LOCK = threading.Lock()
 
 
@@ -64,6 +69,26 @@ class ShopStore:
     def unpublish(self, product_id: str) -> bool:
         return bool(self._update("catalog.json", lambda current: current.setdefault("products", {}).pop(product_id, None)))
 
+    def save_image(self, data: bytes) -> str:
+        """Store a JPEG (content-addressed) and return its public shop URL."""
+        image_id = hashlib.sha256(data).hexdigest()[:32]
+        if not self.durable:
+            with _LOCK:
+                _IMAGES[image_id] = data
+                for old in list(_IMAGES)[:-MAX_MEMORY_IMAGES]:
+                    _IMAGES.pop(old, None)
+        else:
+            encoded = base64.b64encode(data).decode()
+            self.repo._cas(self.prefix + f"images/{image_id}.json", {"version": 1}, lambda current: {**current, "jpeg": encoded})
+        return IMAGE_URL.format(image_id)
+
+    def image(self, image_id: str) -> bytes | None:
+        if not self.durable:
+            with _LOCK:
+                return _IMAGES.get(image_id)
+        value, _ = self.repo._read(self.prefix + f"images/{image_id}.json")
+        return base64.b64decode(value["jpeg"]) if value and isinstance(value.get("jpeg"), str) else None
+
     def orders(self) -> list[dict[str, Any]]:
         return sorted(self._read("orders.json").get("orders", {}).values(), key=lambda o: o["created_at"], reverse=True)
 
@@ -80,10 +105,12 @@ class ShopStore:
 
 def listing_from(product: dict[str, Any], review: dict[str, Any], pricing: dict[str, Any]) -> dict[str, Any]:
     specs = [a for a in product.get("attributes") or [] if a.get("name") and a.get("value")][:30]
+    variants = product.get("variants") or [", ".join(f"{a['name']}: {a['value']}" for a in s.get("attributes") or [])
+                                            for s in product.get("skus") or []]
     return {"source": "1688", "source_product_id": product["product_id"], "title": product.get("title") or "1688 商品",
             "category": product.get("category") or "その他", "images": (product.get("images") or [])[:12], "specs": specs,
             "description": product.get("description_excerpt") or "", "price_jpy": int(pricing["selling_price_jpy"]),
-            "variants": [", ".join(f"{a['name']}: {a['value']}" for a in s.get("attributes") or []) for s in product.get("skus") or []][:30],
+            "variants": [v for v in variants if v][:30], "source_url": product.get("url"),
             "review": {"verdict": review["verdict"], "engine": review["engine"]}}
 
 
