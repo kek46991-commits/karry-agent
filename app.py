@@ -1284,6 +1284,10 @@ from karry_agent.webtoon import api as webtoon_api  # noqa: E402
 _WEBTOON_ROUTER = webtoon_api.build_router(require_tool_auth)
 app.include_router(_WEBTOON_ROUTER)
 
+from karry_agent import alibaba_api  # noqa: E402
+
+app.include_router(alibaba_api.build_router(require_tool_auth))
+
 
 def _media_json(value: Any, status_code: int = 200):
     from fastapi.encoders import jsonable_encoder
