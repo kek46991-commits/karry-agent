@@ -168,6 +168,12 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 マイクはクリック時に明示的に権限を要求し、全Trackの停止、認識開始/終了/拒否/未対応、手入力と途中結果の合成、タスク切替後の遅延結果を処理します。API・無保存の範囲・対応条件と検証は [docs/secret-chat-microphone.md](docs/secret-chat-microphone.md) を参照してください。
 
+### Gemini のタイムアウトと接続切れからの復旧
+- Gemini の呼び出しは 1 回 `KARRY_GEMINI_TIMEOUT_MS`（既定 45 秒）で打ち切ります。時間切れや通信エラー（`httpx` のタイムアウト・接続エラー）は再試行し、それでも駄目なら `failed` として返します。
+- `GET /api/gemini/status`（オーナーのみ）で、Render の環境変数から `GEMINI_API_KEY` が読めているか（`configured`）を確かめられます。キーそのものは返しません。
+- 画面は、`network error`・応答の停止（150 秒）・`409 session is already running` のときに再送しません。かわりにタスクを読み直して、サーバーの結果が出たら表示します。待つのは最大 3 分で、「待つのをやめる」で止められます。
+- 画像つきの送信が失敗したり時間切れになったりしたときは、**手動入力モード**に切り替えます。次の送信は画像を使わず、文字だけで送ります。
+
 ### チャットでの画像生成
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。

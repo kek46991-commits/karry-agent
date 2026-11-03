@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="kerry-admin-20261026">
+  <meta name="karry-ui-version" content="gemini-recovery-20261027">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -56,7 +56,7 @@
         <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
-        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div></div>
+        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
@@ -520,23 +520,48 @@
     }
   }
   function secretSendError(){return 'シークレット会話を送信できませんでした。もう一度お試しください。';}
+  let manualInput=false;
+  function recoveryConfig(){return {interval:4000,limit:180000,stall:150000,...(window.KARRY_RECOVERY||{})};}
+  function enableManualInput(reason){
+    manualInput=true;$('manualModeHint').hidden=false;
+    addMessage('agent',`📝 ${reason}。手動入力モードに切り替えました。画像の内容（商品名・価格・写っている文字など）を文字で入力して送ってください。次の送信では画像を使いません。`);
+    if(!$('prompt').disabled)$('prompt').focus();
+  }
+  function disableManualInput(){manualInput=false;$('manualModeHint').hidden=true;}
+  async function recoverRun(owner,prompt,progress,busyBefore){
+    const config=recoveryConfig(),deadline=Date.now()+config.limit;let baseline=null,cancelled=false;
+    progress.textContent=busyBefore?'前の処理がまだ実行中です。終わるまで待って、結果をここに表示します…':'接続が切れました。サーバーの処理が終わるのを待って、結果をここに表示します…';
+    const stop=document.createElement('button');stop.type='button';stop.className='recovery-stop';stop.textContent='待つのをやめる';stop.addEventListener('click',()=>{cancelled=true;});progress.append(' ',stop);
+    while(!cancelled&&sessionId===owner){
+      let details=null;try{details=await requestJson('/api/sessions/'+encodeURIComponent(owner));}catch(_){}
+      const messages=Array.isArray(details?.messages)?details.messages:[],n=messages.length;
+      if(details&&n>=2&&messages[n-1].role!=='user'&&messages[n-2].role==='user'&&messages[n-2].content===prompt)return {done:true,details};
+      if(details&&baseline===null)baseline=n;else if(details&&busyBefore&&n>baseline)return {done:false,details};
+      if(Date.now()+config.interval>deadline)break;
+      await new Promise(resolve=>setTimeout(resolve,config.interval));
+    }
+    return null;
+  }
+  $('manualModeOff').addEventListener('click',disableManualInput);
   function isCurrentSend(owner,mode,secretId,version){return (mode?version===viewVersion:!busy)&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
   async function sendMessage(event){
     event.preventDefault();const mode=isSecret;
     const prompt=$('prompt').value.trim()||(mode?'':selectedImages.length?'添付画像を確認してください。':'');
     if(!prompt||busy||!connected||!sessionId||inFlight.has(sessionId))return;
     const owner=sessionId,version=viewVersion,secretState=mode?secretStateFor(owner,true):null,secretId=secretState?.secretSessionId||null;
-    const imageIds=mode?[]:selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds);
+    const imageIds=mode||manualInput?[]:selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds),usedImages=imageIds.length>0;
     if(!pendingMessage||pendingMessage.sessionId!==owner||pendingMessage.prompt!==prompt||pendingMessage.imageSignature!==imageSignature||pendingMessage.mode!==mode||pendingMessage.secretSessionId!==secretId){pendingMessage={sessionId:owner,prompt,imageSignature,mode,secretSessionId:secretId,requestId:window.crypto.randomUUID()};}
     const requestId=pendingMessage.requestId;
     stopMicrophone('音声入力を停止しました。');stopSpeaking();inFlight.add(owner);refreshControls();$('prompt').value='';setConnectionStatus(mode?'シークレット会話を処理中…':'実行中…');addMessage('user',prompt);
     const progress=addMessage('agent',mode?'シークレット会話を処理中です。':'作成・処理中です。成果物は保存完了後にこのチャット内へ表示します。');
     if(!mode){$('trace').replaceChildren();trace('started',{prompt});}
+    const controller=new AbortController();let stall=0;const arm=()=>{clearTimeout(stall);stall=setTimeout(()=>controller.abort(),recoveryConfig().stall);};
     try{
       const body={prompt,session_id:owner,request_id:requestId,image_ids:imageIds,stream:true,is_secret:mode,isSecret:mode};
       if(!mode)Object.assign(body,chatVideoOptions());
       if(mode)body.secret_session_id=secretId;
-      const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify(body)});
+      arm();const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify(body),signal:controller.signal});
+      if(!mode&&response.status===409)throw Object.assign(new Error('session is already running'),{recover:true});
       if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(mode?secretSendError():response.status===401?'APIトークンを確認してください':data.detail||'送信できませんでした');}
       if(!response.body)throw new Error(mode?secretSendError():'ストリーミング応答を取得できませんでした');
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=null;
@@ -547,13 +572,13 @@
         if(kind==='completed')completed=data;
         if(kind==='error')throw new Error(mode?secretSendError():data.detail||'実行に失敗しました');
       }
-      try{while(true){const {value,done}=await reader.read();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
+      try{while(true){const {value,done}=await reader.read();arm();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
       if(!completed||completed.session_id!==owner)throw new Error(mode?secretSendError():'タスクの完了応答を確認できませんでした');
       if(mode&&((completed.is_secret!==true&&completed.isSecret!==true)||completed.secret_session_id!==secretId||completed.persistence!=='none'))throw new Error(secretSendError());
       if(!isCurrentSend(owner,mode,secretId,version))return;
       if(completed.status==='failed'){
         if(mode)throw new Error(secretSendError());
-        const draft=$('prompt').value;if(pendingMessage?.requestId===requestId)pendingMessage=null;progress.remove();inFlight.delete(owner);renderSession({...completed,last_run:completed});$('prompt').value=draft||prompt;setConnectionStatus('生成に失敗しました');return;
+        const draft=$('prompt').value;if(pendingMessage?.requestId===requestId)pendingMessage=null;progress.remove();inFlight.delete(owner);renderSession({...completed,last_run:completed});$('prompt').value=draft||prompt;setConnectionStatus('生成に失敗しました');if(usedImages)enableManualInput('画像の解析に失敗しました');return;
       }
       if(pendingMessage?.requestId===requestId)pendingMessage=null;progress.remove();
       if(mode){
@@ -562,14 +587,27 @@
         secretState.messages.push({role:'user',content:prompt},{role:'assistant',content:reply});addMessage('agent',reply);setConnectionStatus('オンライン');
         if($('autoSpeak').checked)speak(reply);
       }else{
-        const draft=$('prompt').value;inFlight.delete(owner);renderSession({...completed,last_run:completed});$('prompt').value=draft;if($('autoSpeak').checked)speak(completed.text||completed.response);
+        const draft=$('prompt').value;inFlight.delete(owner);renderSession({...completed,last_run:completed});$('prompt').value=draft;if($('autoSpeak').checked)speak(completed.text||completed.response);if(manualInput&&!usedImages)disableManualInput();
         setConnectionStatus('オンライン');
       }
     }catch(error){
-      if(isCurrentSend(owner,mode,secretId,version)){
+      clearTimeout(stall);
+      if(!mode&&(error.recover||error.name==='TypeError'||error.name==='AbortError')&&isCurrentSend(owner,mode,secretId,version)){
+        const recovered=await recoverRun(owner,prompt,progress,error.recover===true);
+        if(recovered&&sessionId===owner){
+          if(recovered.done&&pendingMessage?.requestId===requestId)pendingMessage=null;
+          progress.remove();inFlight.delete(owner);const draft=$('prompt').value;renderSession(recovered.details);
+          if(recovered.done){$('prompt').value=draft;setConnectionStatus('オンライン');if(usedImages&&recovered.details.last_run?.status==='failed')enableManualInput('画像の解析に失敗しました');else if(manualInput&&!usedImages)disableManualInput();}
+          else{addMessage('agent','前の処理が終わりました。今回の指示はまだ実行していないので、もう一度送信してください。');$('prompt').value=draft||prompt;setConnectionStatus('オンライン');}
+        }else if(sessionId===owner){
+          progress.remove();addMessage('agent','⏳ 応答を待ちきれませんでした。サーバーでは処理が続いている場合があります。少し待ってからタスクを読み込み直すか、もう一度送信してください（同じ指示として扱います）。');
+          if(!$('prompt').value)$('prompt').value=prompt;setConnectionStatus('応答待ちを中断しました');if(usedImages)enableManualInput('画像の解析が時間内に終わりませんでした');
+        }
+      }else if(isCurrentSend(owner,mode,secretId,version)){
         progress.remove();const message=mode?secretSendError():error.message;addMessage('agent',`送信エラー: ${message}`);if(!$('prompt').value)$('prompt').value=prompt;setConnectionStatus('エラー');
+        if(usedImages)enableManualInput('画像の解析に失敗しました');
       }
-    }finally{inFlight.delete(owner);refreshControls();updateMicButton();if(sessionId===owner&&!busy)$('prompt').focus();}
+    }finally{clearTimeout(stall);inFlight.delete(owner);refreshControls();updateMicButton();if(sessionId===owner&&!busy)$('prompt').focus();}
   }
   $('loadTasks').addEventListener('click',connectSessions);
   $('newTask').addEventListener('click',createNewSession);

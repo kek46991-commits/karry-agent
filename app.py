@@ -28,7 +28,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 
 
 from karry_agent.calendar_secrets import calendar_secret_status
-from karry_agent.core import AgentCore, AgentMetrics, AgentResult
+from karry_agent.core import AgentCore, AgentMetrics, AgentResult, gemini_status as _gemini_status
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
 from karry_agent.tools import add_calendar_event, build_default_registry
@@ -1298,6 +1298,11 @@ from karry_agent import shop_api  # noqa: E402
 _SHOP_PUBLIC, _SHOP_OWNER = shop_api.build_routers(require_tool_auth)
 app.include_router(_SHOP_PUBLIC)
 app.include_router(_SHOP_OWNER)
+
+
+@app.get("/api/gemini/status", dependencies=[Depends(require_tool_auth)])
+def gemini_status():
+    return JSONResponse(_gemini_status(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/admin/me", dependencies=[Depends(require_tool_auth)])
