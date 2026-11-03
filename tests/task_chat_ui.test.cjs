@@ -824,3 +824,16 @@ test('a stalled stream is aborted and gives up waiting with guidance; the prompt
   assert.match(s.doc.getElementById('messages').textContent,/応答を待ちきれませんでした/);
   assert.equal(s.doc.getElementById('prompt').value,'Slow job');assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
 });
+
+test('409 inside the SSE stream (second tab) also waits and shows the first run result',async()=>{
+  let busy=true;
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return new Response('event: error\ndata: {"status_code":409,"detail":"session is already running"}\n\n',{headers:{'content-type':'text/event-stream'}});
+    if(url==='/api/sessions/a'&&!request.method&&!busy)return json({...record('a','A'),messages:[{role:'user',content:'Same prompt'},{role:'assistant',content:'First tab answer'}]});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='Same prompt';const sending=s.win.sendMessage({preventDefault(){}});
+  await new Promise(r=>setTimeout(r,20));const text=s.doc.getElementById('messages').textContent;
+  assert.match(text,/前の処理がまだ実行中/);assert.doesNotMatch(text,/送信エラー/);busy=false;await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/First tab answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);s.dom.window.close();
+});

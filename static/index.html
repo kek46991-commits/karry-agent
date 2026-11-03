@@ -570,6 +570,7 @@
         let data;try{data=JSON.parse(raw);}catch(_){throw new Error(mode?secretSendError():'ストリーミング応答の形式が不正です');}
         if(!mode&&sessionId===owner&&!isSecret)trace(kind,data);
         if(kind==='completed')completed=data;
+        if(kind==='error'&&!mode&&Number(data.status_code)===409)throw Object.assign(new Error('session is already running'),{recover:true});
         if(kind==='error')throw new Error(mode?secretSendError():data.detail||'実行に失敗しました');
       }
       try{while(true){const {value,done}=await reader.read();arm();if(done){buffer+=decoder.decode();break;}buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split('\n\n');buffer=chunks.pop();for(const chunk of chunks)parseChunk(chunk);}if(buffer.trim())parseChunk(buffer);}finally{reader.releaseLock();}
