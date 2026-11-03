@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="karry-shop-version" content="kerry-shop-20261026">
+  <title>KERRY ショップ</title>
+  <style>
+    :root{--bg:#0b1222;--card:#111b30;--line:#263451;--text:#e8eefc;--muted:#9fb0cf;--accent:#7cc4ff}
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text)}
+    header{padding:18px 16px;border-bottom:1px solid var(--line)}header h1{margin:0;font-size:22px}header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+    .tabs{display:flex;gap:8px;overflow-x:auto;padding:12px 16px}.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:7px 14px;cursor:pointer}
+    .tabs button[aria-selected="true"]{background:var(--accent);color:#06101f;border-color:var(--accent)}
+    main{padding:0 16px 24px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+    .card{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;cursor:pointer;text-align:left;color:inherit;padding:0}
+    .card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#0c1426}.card div{padding:8px 10px}.card .title{font-size:13px;line-height:1.4;max-height:3.6em;overflow:hidden}.price{font-weight:800;color:var(--accent);margin-top:4px}
+    .empty{color:var(--muted);padding:30px 0;text-align:center}
+    dialog{max-width:720px;width:calc(100% - 24px);border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--text);padding:16px}dialog::backdrop{background:#000a}
+    .main-image{width:100%;aspect-ratio:1;object-fit:contain;background:#0c1426;border-radius:12px}.thumbs{display:flex;gap:6px;overflow-x:auto;margin:8px 0}
+    .thumbs button{flex:none;border:2px solid transparent;border-radius:8px;padding:0;background:none;cursor:pointer}.thumbs button[aria-current="true"]{border-color:var(--accent)}.thumbs img{width:60px;height:60px;object-fit:cover;border-radius:6px;display:block}
+    table{width:100%;border-collapse:collapse;font-size:13px}td{border-bottom:1px solid var(--line);padding:5px 4px;vertical-align:top}td:first-child{color:var(--muted);width:35%}
+    form{display:grid;gap:8px;margin-top:12px}input,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0c1426;color:var(--text)}
+    .actions{display:flex;gap:8px;justify-content:flex-end}.actions button,form button{border:0;border-radius:10px;padding:9px 16px;font-weight:700;cursor:pointer;background:var(--accent);color:#06101f}.ghost{background:#24324f!important;color:var(--text)!important}
+    .hint{color:var(--muted);font-size:12px}
+  </style>
+</head>
+<body>
+  <header><h1>KERRY ショップ</h1><p>法的チェック（商標権・薬機法・PSE）を通過した商品だけを掲載しています。</p></header>
+  <nav id="tabs" class="tabs" role="tablist" aria-label="カテゴリー"></nav>
+  <main><div id="grid" class="grid" aria-live="polite"><p class="empty">読み込み中…</p></div></main>
+  <dialog id="detail" aria-labelledby="detailTitle">
+    <h2 id="detailTitle"></h2>
+    <img id="mainImage" class="main-image" alt="" referrerpolicy="no-referrer">
+    <div id="thumbs" class="thumbs" aria-label="商品画像の切り替え"></div>
+    <p id="detailPrice" class="price"></p>
+    <p id="detailDescription" class="hint"></p>
+    <table id="specs"></table>
+    <form id="orderForm">
+      <h3>購入を申し込む</h3>
+      <label>数量 <input id="orderQuantity" type="number" min="1" max="99" value="1" required></label>
+      <label>お名前 <input id="orderName" maxlength="80" required autocomplete="name"></label>
+      <label>連絡先（メールまたは電話） <input id="orderContact" maxlength="200" required autocomplete="email"></label>
+      <label>備考 <textarea id="orderNote" maxlength="500" rows="2"></textarea></label>
+      <p class="hint">お支払い方法と発送予定は、確認後にご連絡します。</p>
+      <div class="actions"><button type="button" class="ghost" id="closeDetail">閉じる</button><button type="submit" id="orderSubmit">申し込む</button></div>
+      <p id="orderStatus" class="hint" aria-live="polite"></p>
+    </form>
+  </dialog>
+<script>
+  const $=id=>document.getElementById(id),IMG=/^https:\/\/(cbu01|img)\.alicdn\.com\//;
+  const shop={products:[],category:'すべて',current:null};
+  const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
+  function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}
+  function image(src,alt){const i=el('img',{alt,loading:'lazy'});i.referrerPolicy='no-referrer';if(IMG.test(src||''))i.src=src;return i;}
+  function renderTabs(categories){
+    $('tabs').replaceChildren(...['すべて',...categories].map(name=>{const b=el('button',{type:'button',textContent:name});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(name===shop.category));b.dataset.category=name;b.addEventListener('click',()=>{shop.category=name;renderTabs(categories);renderGrid();});return b;}));
+  }
+  function renderGrid(){
+    const items=shop.products.filter(p=>shop.category==='すべて'||p.category===shop.category);
+    if(!items.length){$('grid').replaceChildren(el('p',{className:'empty',textContent:'まだ商品がありません。'}));return;}
+    $('grid').replaceChildren(...items.map(p=>{const card=el('button',{type:'button',className:'card'},image(p.images?.[0],p.title),el('div',{},el('div',{className:'title',textContent:p.title}),el('div',{className:'price',textContent:yen(p.price_jpy)})));card.dataset.productId=p.id;card.addEventListener('click',()=>openDetail(p));return card;}));
+  }
+  function showImage(p,index){
+    const src=(p.images||[])[index];if(IMG.test(src||''))$('mainImage').src=src;$('mainImage').alt=`${p.title}（画像 ${index+1}）`;
+    for(const [i,b] of [...$('thumbs').children].entries())b.setAttribute('aria-current',String(i===index));
+  }
+  function openDetail(p){
+    shop.current=p;$('detailTitle').textContent=p.title;$('detailPrice').textContent=`${yen(p.price_jpy)}（税込・送料込）`;$('detailDescription').textContent=p.description||'';
+    $('thumbs').replaceChildren(...(p.images||[]).filter(s=>IMG.test(s)).map((src,i)=>{const b=el('button',{type:'button'},image(src,`サムネイル ${i+1}`));b.addEventListener('click',()=>showImage(p,i));return b;}));
+    showImage(p,0);
+    const rows=[...(p.specs||[]).map(s=>[s.name,s.value]),...((p.variants||[]).length?[['バリエーション',p.variants.join(' / ')]]:[])];
+    $('specs').replaceChildren(...rows.map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v}))));
+    $('orderStatus').textContent='';if(typeof $('detail').showModal==='function')$('detail').showModal();else $('detail').setAttribute('open','');
+  }
+  async function submitOrder(event){
+    event.preventDefault();const p=shop.current;if(!p)return;$('orderSubmit').disabled=true;$('orderStatus').textContent='送信しています…';
+    try{const response=await fetch('/api/shop/orders',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({product_id:p.id,quantity:Number($('orderQuantity').value)||1,name:$('orderName').value.trim(),contact:$('orderContact').value.trim(),note:$('orderNote').value.trim()})});
+      const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'申し込みを送れませんでした。入力内容を確認してください。');
+      $('orderStatus').textContent=`申し込みを受け付けました（合計 ${yen(data.total_jpy)}）。確認のご連絡をお待ちください。`;$('orderForm').reset();}
+    catch(error){$('orderStatus').textContent=error.message;}finally{$('orderSubmit').disabled=false;}
+  }
+  async function loadProducts(){
+    try{const response=await fetch('/api/shop/products',{cache:'no-store'});const data=await response.json();shop.products=Array.isArray(data.products)?data.products:[];renderTabs(Array.isArray(data.categories)?data.categories:[]);renderGrid();}
+    catch(_){$('grid').replaceChildren(el('p',{className:'empty',textContent:'商品を読み込めませんでした。時間をおいて再読み込みしてください。'}));}
+  }
+  $('orderForm').addEventListener('submit',submitOrder);$('closeDetail').addEventListener('click',()=>{if(typeof $('detail').close==='function')$('detail').close();else $('detail').removeAttribute('open');});
+  loadProducts();setInterval(()=>{if(!$('detail').open)loadProducts();},30000);
+</script>
+</body>
+</html>

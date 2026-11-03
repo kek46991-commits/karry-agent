@@ -803,3 +803,42 @@ test('1688 panel shows the missing-key alert with setup steps, then the legal da
   assert.match(rows[0].textContent,/❌ 一键铺货が未許可｜573741401426/);assert.match(rows[1].textContent,/⛔ REJECT｜573741401425 充电宝｜画像12枚｜1,580円/);
   assert.match(rows[1].textContent,/pse: REJECT — 注意語: 充电宝/);s.dom.window.close();
 });
+
+test('本番仕入れ＆自動出品 posts to /api/alibaba/publish and reports SAFE listing or REJECT',async()=>{
+  const posts=[];let reject=false;const fetch=async(url,request={})=>{
+    if(url==='/api/alibaba/config')return json({configured:true,missing:[],pricing:{cny_jpy_rate:21}});
+    if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
+    if(url==='/api/shop/admin/orders')return json({orders:[{created_at:1793600000,title:'陶瓷杯',quantity:2,total_jpy:3160,name:'山田',contact:'y@example.com'}]});
+    if(url==='/api/alibaba/publish'){posts.push(JSON.parse(request.body));const base={product:{title:'陶瓷杯',images:[]},review:{verdict:reject?'REJECT':'SAFE',checks:{}},pricing:reject?null:{selling_price_jpy:1580,landed_cost_jpy:650,platform_fee_jpy:158,profit_jpy:772,margin_rate:0.49}};
+      return reject?{ok:false,status:409,json:async()=>({...base,published:false})}:json({...base,published:true,listing:{id:'a'.repeat(32),price_jpy:1580}},201);}
+  };
+  const s=setup({fetch});const $=id=>s.doc.getElementById(id);s.authenticate();
+  $('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,10));
+  assert.equal($('alibabaPublish').disabled,false);assert.match($('shopOrders').textContent,/陶瓷杯×2｜3,160円｜山田/);
+  $('alibabaProduct').value='573741401425';$('alibabaPublish').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(posts[0].product,'573741401425');assert.match($('alibabaStatus').textContent,/✅ SAFE: KERRY ショップに出品しました（1,580円）/);
+  reject=true;$('alibabaPublish').click();await new Promise(r=>setTimeout(r,10));
+  assert.match($('alibabaStatus').textContent,/⛔ 法的審査で REJECT/);assert.ok(s.doc.querySelector('a[href="/shop"]'));s.dom.window.close();
+});
+
+test('KERRY shop lists products by category tab, switches thumbnails in the modal and submits an order',async()=>{
+  const shopHtml=fs.readFileSync('static/shop.html','utf8');const orders=[];
+  const products=[{id:'a'.repeat(32),title:'陶瓷杯',category:'杯子',price_jpy:1580,images:['https://cbu01.alicdn.com/img/1.jpg','https://cbu01.alicdn.com/img/2.jpg','https://evil.example/x.jpg'],specs:[{name:'材质',value:'陶瓷'}],variants:['颜色: 白色']},
+    {id:'b'.repeat(32),title:'收纳盒',category:'收纳',price_jpy:980,images:['https://cbu01.alicdn.com/img/3.jpg'],specs:[],variants:[]}];
+  const dom=new JSDOM(shopHtml,{url:'https://example.onrender.com/shop',runScripts:'dangerously',beforeParse(window){
+    window.fetch=async(url,request={})=>{
+      if(url==='/api/shop/products')return {ok:true,status:200,json:async()=>({products,categories:['收纳','杯子']})};
+      if(url==='/api/shop/orders'){orders.push(JSON.parse(request.body));return {ok:true,status:201,json:async()=>({order_id:'o',status:'received',total_jpy:3160})};}
+    };window.setInterval=()=>0;}});
+  const doc=dom.window.document,$=id=>doc.getElementById(id);await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual([...doc.querySelectorAll('#tabs button')].map(b=>b.textContent),['すべて','收纳','杯子']);
+  assert.equal(doc.querySelectorAll('.card').length,2);doc.querySelector('#tabs button[data-category="杯子"]').click();
+  assert.equal(doc.querySelectorAll('.card').length,1);assert.match(doc.querySelector('.card').textContent,/陶瓷杯1,580円/);
+  doc.querySelector('.card').click();assert.equal($('detailTitle').textContent,'陶瓷杯');assert.equal($('thumbs').children.length,2,'non-alicdn images dropped');
+  $('thumbs').children[1].click();assert.equal($('mainImage').src,'https://cbu01.alicdn.com/img/2.jpg');assert.equal($('thumbs').children[1].getAttribute('aria-current'),'true');
+  assert.match($('specs').textContent,/材质陶瓷/);assert.match($('specs').textContent,/颜色: 白色/);
+  $('orderQuantity').value='2';$('orderName').value='山田';$('orderContact').value='y@example.com';
+  $('orderForm').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual(JSON.parse(JSON.stringify(orders)),[{product_id:'a'.repeat(32),quantity:2,name:'山田',contact:'y@example.com',note:''}]);
+  assert.match($('orderStatus').textContent,/受け付けました（合計 3,160円）/);dom.window.close();
+});
