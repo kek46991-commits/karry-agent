@@ -737,29 +737,6 @@ test('owner token input ignores a Bearer prefix and any stray spaces or line bre
   assert.equal(s.win.eval('ownerToken()'),'synthetic-owner');assert.equal(s.win.eval('authHeaders()').Authorization,'Bearer synthetic-owner');s.dom.window.close();
 });
 
-test('1688 panel fetches config, posts the product with pricing overrides and renders review and price',async()=>{
-  const result={product:{product_id:'573741401425',url:'https://detail.1688.com/offer/573741401425.html',title:'北欧风陶瓷马克杯',unit:'个',
-      images:['https://cbu01.alicdn.com/img/ibank/1.jpg','https://evil.example/x.jpg'],min_price_cny:9.8,max_price_cny:12.5,price_ranges:[{start_quantity:2,price_cny:12.5}]},
-    review:{verdict:'REJECT',engine:'gemini+rules',checks:{trademark:{label:'商標権',status:'SAFE',reason:'問題なし'},pse:{label:'PSE（電気用品安全法）',status:'REJECT',reason:'注意語: 充电器'}},disclaimer:'自動判定です。'},
-    pricing:{selling_price_jpy:1580,landed_cost_jpy:650,agent_fee_jpy:12,shipping_jpy:400,profit_jpy:772,margin_rate:0.4886}};
-  const posts=[];const fetch=async(url,request={})=>{
-    if(url==='/api/alibaba/config')return json({mode:'page+vision',pricing:{cny_jpy_rate:22,agent_fee_rate:0.05,shipping_jpy:1200,markup:1.4}});
-    if(url==='/api/alibaba/evaluate'){posts.push({body:JSON.parse(request.body),auth:request.headers?.Authorization});return json(result);}
-  };
-  const s=setup({fetch});const $=id=>s.doc.getElementById(id);
-  $('alibabaProduct').value='573741401425';$('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,0));
-  assert.equal(posts.length,0);assert.match($('alibabaStatus').textContent,/API トークンを接続/);
-  s.authenticate();$('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));
-  assert.match($('alibabaConfig').textContent,/商品 URL か、商品ページのスクショ/);assert.equal($('alibabaRate').value,'22');
-  $('alibabaRate').value='20.5';$('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,10));
-  assert.equal(posts.length,1);assert.equal(posts[0].auth,'Bearer synthetic-owner');assert.equal(posts[0].body.product,'573741401425');
-  assert.equal(posts[0].body.pricing.cny_jpy_rate,20.5);assert.equal(posts[0].body.pricing.markup,1.4);assert.equal(posts[0].body.pricing.shipping_jpy,1200);
-  const box=$('alibabaResult');assert.equal(box.querySelectorAll('img').length,1,'only alicdn images are shown');
-  assert.equal(box.querySelector('img').referrerPolicy,'no-referrer');assert.equal(box.querySelector('a').href,'https://detail.1688.com/offer/573741401425.html');
-  assert.equal(box.querySelector('.alibaba-verdict').dataset.verdict,'REJECT');assert.match(box.textContent,/PSE（電気用品安全法）: REJECT — 注意語: 充电器/);
-  assert.match(box.querySelector('.alibaba-price').textContent,/販売価格 1,580円.*利益 772円・利益率 49%/);s.dom.window.close();
-});
-
 test('chat video options send SadTalker/length and the project list shows lamps and seconds',async()=>{
   const jobs=[{id:'1'.repeat(32),status:'processing',duration_seconds:30,mode:'autopilot',autopilot:{status:'processing',title:'生成中の動画',lip_sync:{requested:true,status:'processing'}},segments:[]},
     {id:'2'.repeat(32),status:'succeeded',duration_seconds:15,mode:'autopilot',autopilot:{status:'succeeded',title:'完成した動画',lip_sync:{requested:true,status:'succeeded',engine:'sadtalker'}},segments:[]},
@@ -783,50 +760,6 @@ test('chat video label reports the SadTalker result or the automatic 0-yen fallb
   assert.match(label({status:'succeeded',duration_seconds:20,autopilot:{title:'喋る',lip_sync:{requested:true,status:'succeeded'}}}),/「喋る」（20秒）が完成しました。 🗣 写真の人物が喋る動画です（SadTalker）/);
   assert.match(label({status:'succeeded',duration_seconds:9,autopilot:{title:'混雑',lip_sync:{requested:true,status:'fallback',fallback_reason:'sadtalker_busy'}}}),/⚠ SadTalker が混雑していたため、0円ローカル合成（静止画＋ナレーション）に切り替えました/);
   assert.doesNotMatch(label({status:'succeeded',autopilot:{title:'普通'}}),/SadTalker/);s.dom.window.close();
-});
-
-test('1688 panel needs no API keys: no key alert, buttons work, screenshots are posted, dashboard shows scrape errors',async()=>{
-  let logCalls=0;const posts=[];const fetch=async(url,request={})=>{
-    if(url==='/api/alibaba/config')return json({mode:'page+vision',vision:true,max_screenshots:4,pricing:{cny_jpy_rate:22}});
-    if(url==='/api/alibaba/logs?limit=50'){logCalls++;return json({entries:[
-      {id:'2',at:1793600100,action:'evaluate',status:'error',product_id:'573741401426',code:'page_blocked',message:'1688 がページの読み取りを止めました'},
-      {id:'1',at:1793600000,action:'evaluate',status:'ok',product_id:'573741401425',title:'充电宝',images:12,verdict:'REJECT',selling_price_jpy:1580,checks:{pse:{status:'REJECT',reason:'注意語: 充电宝'}}}]});}
-    if(url==='/api/alibaba/evaluate'){posts.push(JSON.parse(request.body));return json({product:{product_id:'shot-1',title:'硅胶杯',images:['/api/shop/images/'+'a'.repeat(32)+'.jpg','https://evil.example/x.jpg'],notes:['スクショを Gemini で読み取りました。']},review:{verdict:'SAFE',checks:{}},pricing:null,pricing_error:'原価なし'});}
-  };
-  const s=setup({fetch});const $=id=>s.doc.getElementById(id);s.authenticate();
-  assert.equal($('alibabaSetup'),null);assert.equal($('alibabaRecheck'),null);assert.doesNotMatch(s.doc.body.textContent,/API認証キー未設定|KARRY_1688_APP_KEY/);
-  assert.equal($('alibabaShots').type,'file');assert.equal($('alibabaShots').multiple,true);
-  $('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));
-  assert.equal($('alibabaEvaluate').disabled,false);assert.equal($('alibabaPublish').disabled,false);assert.ok(logCalls>=1);
-  const rows=[...$('alibabaLog').querySelectorAll('.alibaba-log-entry')];assert.deepEqual(rows.map(r=>r.dataset.level),['error','REJECT']);
-  assert.match(rows[0].textContent,/❌ 1688 が読み取りを拒否（スクショで再試行）｜573741401426/);assert.match(rows[1].textContent,/⛔ REJECT｜573741401425 充电宝｜画像12枚｜1,580円/);
-  $('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,5));
-  assert.equal(posts.length,0);assert.match($('alibabaStatus').textContent,/商品 URL か、商品ページのスクショ/);
-  Object.defineProperty($('alibabaShots'),'files',{configurable:true,value:[new s.win.File([new Uint8Array([137,80,78,71])],'a.png',{type:'image/png'})]});
-  $('alibabaCost').value='8.5';$('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,30));
-  assert.equal(posts.length,1);assert.equal(posts[0].product,'');assert.match(posts[0].screenshots[0],/^data:image\/png;base64,/);assert.equal(posts[0].cost_cny,8.5);
-  const imgs=[...$('alibabaResult').querySelectorAll('img')];assert.equal(imgs.length,1,'only alicdn or shop-hosted images');assert.match(imgs[0].src,/\/api\/shop\/images\/a{32}\.jpg$/);
-  assert.match($('alibabaResult').textContent,/スクショを Gemini で読み取りました/);
-  Object.defineProperty($('alibabaShots'),'files',{configurable:true,value:Array.from({length:5},()=>new s.win.File(['x'],'a.png',{type:'image/png'}))});
-  $('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,5));assert.equal(posts.length,1);assert.match($('alibabaStatus').textContent,/4 枚まで/);
-  s.dom.window.close();
-});
-
-test('本番仕入れ＆自動出品 posts to /api/alibaba/publish and reports SAFE listing or REJECT',async()=>{
-  const posts=[];let reject=false;const fetch=async(url,request={})=>{
-    if(url==='/api/alibaba/config')return json({mode:'page+vision',pricing:{cny_jpy_rate:21}});
-    if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
-    if(url==='/api/shop/admin/orders')return json({orders:[{created_at:1793600000,title:'陶瓷杯',quantity:2,total_jpy:3160,name:'山田',contact:'y@example.com'}]});
-    if(url==='/api/alibaba/publish'){posts.push(JSON.parse(request.body));const base={product:{title:'陶瓷杯',images:[]},review:{verdict:reject?'REJECT':'SAFE',checks:{}},pricing:reject?null:{selling_price_jpy:1580,landed_cost_jpy:650,platform_fee_jpy:158,profit_jpy:772,margin_rate:0.49}};
-      return reject?{ok:false,status:409,json:async()=>({...base,published:false})}:json({...base,published:true,listing:{id:'a'.repeat(32),price_jpy:1580}},201);}
-  };
-  const s=setup({fetch});const $=id=>s.doc.getElementById(id);s.authenticate();
-  $('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,10));
-  assert.equal($('alibabaPublish').disabled,false);assert.match($('shopOrders').textContent,/陶瓷杯×2｜3,160円｜山田/);
-  $('alibabaProduct').value='573741401425';$('alibabaPublish').click();await new Promise(r=>setTimeout(r,10));
-  assert.equal(posts[0].product,'573741401425');assert.match($('alibabaStatus').textContent,/✅ SAFE: KERRY ショップに出品しました（1,580円）/);
-  reject=true;$('alibabaPublish').click();await new Promise(r=>setTimeout(r,10));
-  assert.match($('alibabaStatus').textContent,/⛔ 法的審査で REJECT/);assert.ok(s.doc.querySelector('a[href="/shop"]'));s.dom.window.close();
 });
 
 test('KERRY shop lists products by category tab, switches thumbnails in the modal and submits an order',async()=>{

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="karry-admin-version" content="kerry-admin-20261026">
+  <title>法務・AIダッシュボード（管理者専用）</title>
+  <style>
+    :root{--bg:#0b1222;--card:#111b30;--line:#263451;--text:#e8eefc;--muted:#9fb0cf;--accent:#7cc4ff;--ok:#5fd38d;--ng:#ff7b7b}
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text)}
+    header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line)}header h1{margin:0;font-size:19px}
+    main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:14px}
+    section{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:14px}section h2{margin:0 0 10px;font-size:16px}
+    label{display:grid;gap:4px;font-size:13px;color:var(--muted)}input{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#0c1426;color:var(--text);font-size:15px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.wide{grid-column:1/-1}
+    button{border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer;background:var(--accent);color:#06101f}button:disabled{opacity:.45;cursor:not-allowed}
+    .ghost{background:#24324f;color:var(--text)}.danger{background:#5a2330;color:#ffd9de}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .hint{color:var(--muted);font-size:12px}.status{min-height:1.2em;font-size:13px;margin-top:8px}.preview{font-size:15px;margin-top:10px}
+    .verdict{font-weight:800;font-size:17px}.verdict[data-verdict="SAFE"]{color:var(--ok)}.verdict[data-verdict="REJECT"]{color:var(--ng)}
+    ul.checks{margin:6px 0;padding-left:18px;font-size:13px}ul.checks li[data-status="REJECT"]{color:var(--ng)}
+    table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
+    .row{display:flex;justify-content:space-between;gap:8px;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;font-size:13px}.row:last-child{border-bottom:0}
+    .row .acts{display:flex;gap:6px;flex:none}.row button{padding:6px 10px;font-size:12px}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+  <header><h1>⚖ 法務・AIダッシュボード</h1><button id="logout" type="button" class="ghost" hidden>ログアウト</button></header>
+  <main>
+    <section id="login" aria-labelledby="loginTitle">
+      <h2 id="loginTitle">管理者ログイン</h2>
+      <form id="loginForm"><label>管理者トークン（KARRY_API_TOKEN）<input id="adminToken" type="password" autocomplete="current-password" required maxlength="500"></label>
+        <div class="actions"><button id="loginSubmit" type="submit">ログイン</button></div><p id="loginStatus" class="status" aria-live="polite"></p></form>
+      <p class="hint">サイト管理者だけが使えます。トークンはこのタブを閉じると消えます。</p>
+    </section>
+    <div id="dashboard" hidden>
+      <section aria-labelledby="entryTitle">
+        <h2 id="entryTitle">🛒 商品登録（1688 商品 URL ＋ 原価）</h2>
+        <div class="grid">
+          <label class="wide">1688 商品 URL<input id="productUrl" type="url" maxlength="500" placeholder="https://detail.1688.com/offer/573741401425.html"></label>
+          <label>原価（元）<input id="costCny" type="number" min="0.01" max="100000" step="0.01" placeholder="例: 100"></label>
+          <label>商品名（ページが読めないとき）<input id="title" type="text" maxlength="200"></label>
+          <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
+        </div>
+        <div class="grid" style="margin-top:10px">
+          <label>為替（円/元）<input id="rate" type="number" min="1" max="100" step="0.01"></label>
+          <label>国際送料・関税（円）<input id="shipping" type="number" min="0" step="10"></label>
+          <label>代行手数料率<input id="agentFee" type="number" min="0" max="1" step="0.01"></label>
+          <label>販売倍率（×）<input id="markup" type="number" min="1" max="5" step="0.05"></label>
+        </div>
+        <p id="pricePreview" class="preview" aria-live="polite">原価（元）を入れると販売価格を計算します。</p>
+        <div class="actions"><button id="evaluate" type="button">取得して審査・価格計算</button><button id="register" type="button" disabled>ショップに登録</button></div>
+        <p id="entryStatus" class="status" aria-live="polite"></p>
+        <div id="result"></div>
+      </section>
+      <section aria-labelledby="draftsTitle"><h2 id="draftsTitle">📝 下書き</h2><div id="drafts"><p class="hint">まだ下書きはありません。</p></div></section>
+      <section aria-labelledby="productsTitle"><h2 id="productsTitle">🛍 掲載中の商品</h2><div id="products"><p class="hint">まだ掲載していません。</p></div></section>
+      <section aria-labelledby="ordersTitle"><h2 id="ordersTitle">🧾 注文</h2><div id="orders"><p class="hint">まだ注文はありません。</p></div></section>
+      <section aria-labelledby="logTitle"><h2 id="logTitle">⚖ 審査ログ</h2><div id="log"><p class="hint">まだ記録はありません。</p></div></section>
+    </div>
+  </main>
+<script>
+  const $=id=>document.getElementById(id),KEY='karry-admin-token';
+  const PRICING={rate:'cny_jpy_rate',agentFee:'agent_fee_rate',shipping:'shipping_jpy',markup:'markup'};
+  const state={token:'',draft:null};
+  const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
+  function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}
+  function empty(text){return el('p',{className:'hint',textContent:text});}
+  async function api(url,options={}){
+    const response=await fetch(url,{...options,cache:'no-store',headers:{Authorization:`Bearer ${state.token}`,...(options.body?{'Content-Type':'application/json'}:{})}});
+    if(response.status===401||response.status===503){logout(response.status===503?'サーバーに管理者トークンが設定されていません。':'認証が切れました。もう一度ログインしてください。');throw new Error('unauthorized');}
+    let data={};try{data=await response.json();}catch(_){}
+    return {response,data};
+  }
+  function logout(message=''){
+    state.token='';state.draft=null;sessionStorage.removeItem(KEY);$('adminToken').value='';
+    $('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;$('loginStatus').textContent=message;
+  }
+  async function login(token){
+    state.token=token.trim().replace(/^Bearer\s+/i,'').replace(/\s+/g,'');if(!state.token)return;
+    $('loginSubmit').disabled=true;$('loginStatus').textContent='確認しています…';
+    try{const {response,data}=await api('/api/admin/me');if(!response.ok||data.admin!==true)throw new Error('denied');}
+    catch(error){if(error.message!=='unauthorized')logout('ログインできませんでした。');return;}
+    finally{$('loginSubmit').disabled=false;}
+    sessionStorage.setItem(KEY,state.token);$('adminToken').value='';$('loginStatus').textContent='';
+    $('login').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;refresh(true);
+  }
+  function pricing(){const out={};for(const [id,key] of Object.entries(PRICING)){const v=$(id).value;if(v!==''&&Number.isFinite(Number(v)))out[key]=Number(v);}return out;}
+  function preview(){
+    const cost=Number($('costCny').value),p={cny_jpy_rate:22,agent_fee_rate:0.05,shipping_jpy:1200,markup:1.4,...pricing()};
+    if(!(cost>0)){$('pricePreview').textContent='原価（元）を入れると販売価格を計算します。';return;}
+    const goods=cost*p.cny_jpy_rate,fee=goods*p.agent_fee_rate,landed=goods+fee+p.shipping_jpy,price=Math.ceil(Number((landed*p.markup).toFixed(6)));
+    $('pricePreview').textContent=`販売価格（目安） ${yen(price)} ＝（${yen(goods)} ＋ 代行手数料 ${yen(fee)} ＋ 送料・関税 ${yen(p.shipping_jpy)}）× ${p.markup}`;
+  }
+  function canRegister(d){return !!(d&&d.review?.verdict==='SAFE'&&d.pricing&&!d.product?.title_missing);}
+  function renderResult(d){
+    state.draft=d;$('register').disabled=!canRegister(d);if(!d){$('result').replaceChildren();return;}
+    const r=d.review||{},p=d.product||{},pr=d.pricing;
+    const verdict=el('div',{className:'verdict',textContent:`法的審査: ${r.verdict||'—'}`});verdict.dataset.verdict=r.verdict||'';
+    const checks=el('ul',{className:'checks'},...Object.values(r.checks||{}).map(c=>{const li=el('li',{textContent:`${c.label}: ${c.status} — ${c.reason}`});li.dataset.status=c.status;return li;}));
+    const price=pr?el('table',{className:'price'},...[['原価',`${pr.cost_cny} 元`],['商品代金',yen(pr.goods_jpy)],['代行手数料',yen(pr.agent_fee_jpy)],['送料・関税',yen(pr.shipping_jpy)],['仕入れ総額',yen(pr.landed_cost_jpy)],['販売価格',yen(pr.selling_price_jpy)],['利益',`${yen(pr.profit_jpy)}（${Math.round((pr.margin_rate||0)*100)}%）`]].map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v})))):empty(d.pricing_error||'原価（元）を入力すると販売価格を計算できます。');
+    $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
+  }
+  async function evaluate(){
+    const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
+    if(!product){$('entryStatus').textContent='1688 の商品 URL を入れてください。';return;}
+    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim()};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;
+    $('evaluate').disabled=true;$('entryStatus').textContent='審査・計算しています…';
+    try{const {response,data}=await api('/api/alibaba/evaluate',{method:'POST',body:JSON.stringify(body)});
+      if(!response.ok){$('entryStatus').textContent=typeof data.detail==='string'?data.detail:'入力を確認してください。';return;}
+      const draft={...data.draft,pricing_error:data.pricing_error};renderResult(draft);
+      $('entryStatus').textContent=canRegister(draft)?'✅ 下書きに保存しました。「ショップに登録」で掲載できます。':`📝 下書きに保存しました。${draft.review?.verdict==='REJECT'?'REJECT のため登録できません。':draft.product?.title_missing?'登録するには商品名を入れて計算し直してください。':'登録するには原価（元）を入れて計算し直してください。'}`;
+      refresh();}
+    catch(error){if(error.message!=='unauthorized')$('entryStatus').textContent='通信に失敗しました。';}
+    finally{$('evaluate').disabled=false;}
+  }
+  async function publish(id){
+    try{const {response,data}=await api('/api/alibaba/publish',{method:'POST',body:JSON.stringify({draft_id:id})});
+      $('entryStatus').textContent=response.status===201?`✅ ショップに登録しました（${yen(data.listing?.price_jpy)}）。`:`⛔ ${data.reason||data.detail||'登録できませんでした。'}`;
+      if(response.status===201&&state.draft?.id===id)renderResult(null);refresh();}
+    catch(error){if(error.message!=='unauthorized')$('entryStatus').textContent='通信に失敗しました。';}
+  }
+  async function remove(url){try{await api(url,{method:'DELETE'});refresh();}catch(_){}}
+  function row(text,...buttons){return el('div',{className:'row'},el('span',{textContent:text}),el('span',{className:'acts'},...buttons));}
+  function button(text,cls,onclick,disabled=false){const b=el('button',{type:'button',className:cls,textContent:text,disabled});b.addEventListener('click',onclick);return b;}
+  async function refresh(withConfig=false){
+    if(!state.token)return;
+    try{
+      if(withConfig){const {data}=await api('/api/alibaba/config');for(const [id,key] of Object.entries(PRICING))if($(id).value===''&&data.pricing?.[key]!=null)$(id).value=data.pricing[key];preview();}
+      const [drafts,products,orders,log]=await Promise.all(['/api/alibaba/drafts','/api/shop/admin/products','/api/shop/admin/orders','/api/alibaba/logs?limit=50'].map(u=>api(u).then(r=>r.data)));
+      const ds=drafts.drafts||[];$('drafts').replaceChildren(...(ds.length?ds.map(d=>row(`${d.review?.verdict||'—'}｜${d.product?.title||''}｜${d.pricing?yen(d.pricing.selling_price_jpy):'価格未計算'}`,button('登録','',()=>publish(d.id),!canRegister(d)),button('削除','danger',()=>remove(`/api/alibaba/drafts/${d.id}`)))):[empty('まだ下書きはありません。')]));
+      const ps=products.products||[];$('products').replaceChildren(...(ps.length?ps.map(p=>row(`${p.title}｜${p.category}｜${yen(p.price_jpy)}`,button('掲載停止','danger',()=>remove(`/api/shop/admin/products/${p.id}`)))):[empty('まだ掲載していません。')]));
+      const os=orders.orders||[];$('orders').replaceChildren(...(os.length?os.slice(0,50).map(o=>row(`${new Date(Number(o.created_at)*1000).toLocaleString('ja-JP')}｜${o.title}×${o.quantity}｜${yen(o.total_jpy)}｜${o.name}（${o.contact}）`)):[empty('まだ注文はありません。')]));
+      const es=log.entries||[];$('log').replaceChildren(...(es.length?es.map(e=>{const r=row(`${new Date(Number(e.at||e.created_at||0)*1000).toLocaleTimeString('ja-JP')}｜${e.action}｜${e.verdict||e.status}｜${e.product_id||'—'} ${e.title||''}${e.message?`｜${e.message}`:''}`);r.dataset.level=e.status==='error'?'error':e.verdict||e.status;return r;}):[empty('まだ記録はありません。')]));
+    }catch(_){}
+  }
+  $('loginForm').addEventListener('submit',event=>{event.preventDefault();login($('adminToken').value);});
+  $('logout').addEventListener('click',()=>logout('ログアウトしました。'));
+  $('evaluate').addEventListener('click',evaluate);
+  $('register').addEventListener('click',()=>{if(state.draft)publish(state.draft.id);});
+  for(const id of ['costCny',...Object.keys(PRICING)])$(id).addEventListener('input',preview);
+  setInterval(()=>{if(!$('dashboard').hidden)refresh();},15000);
+  const saved=sessionStorage.getItem(KEY);if(saved)login(saved);
+</script>
+</body>
+</html>

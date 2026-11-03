@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="kerry-scrape-20261026">
+  <meta name="karry-ui-version" content="kerry-admin-20261026">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -35,7 +35,6 @@
     .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.chat-video{display:grid;gap:6px;margin-top:8px}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}.webtoon-strip{display:grid;gap:6px;justify-items:center}.webtoon-panel{width:100%;max-width:320px;border-radius:8px;background:#000}
     .video-projects-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}.video-projects-heading h3{margin:0;font-size:14px}.video-projects{display:grid;gap:8px}.video-project{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-project button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-project-title{font-weight:700;overflow-wrap:anywhere}.video-project-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;color:var(--muted);font-size:12px}.video-project-duration{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:7px}.video-project-duration input{width:82px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}
     .video-script{display:grid;gap:8px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0d1629}.video-script h3{margin:0;font-size:15px}.video-script textarea{width:100%;min-height:100px}.video-script-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.video-script-row input{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-script-row button,.video-script button{min-height:34px;padding:0 12px}.video-scripts{display:grid;gap:8px}.video-script-card{border:1px solid #263451;border-radius:10px;padding:10px;background:#10192c;overflow-wrap:anywhere}.video-script-card h4{margin:0 0 4px;font-size:14px}.video-script-card details{margin-top:7px}.video-script-scene{border-left:2px solid #4378c7;padding:6px 9px;margin:7px 0;background:#0b1425}.video-script-scene p{margin:3px 0}.video-script-meta{color:var(--muted);font-size:12px}
-    .alibaba{margin:10px 0 0;border:1px solid var(--line);border-radius:12px;background:#10192c}.alibaba>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.alibaba-body{display:grid;gap:8px;padding:0 14px 14px}.alibaba-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.alibaba-row input{flex:1 1 220px;padding:8px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.alibaba-pricing{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}.alibaba-pricing input{width:100%;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.alibaba-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px}.alibaba-images img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#0c1426}.alibaba-verdict{font-weight:800}.alibaba-verdict[data-verdict="SAFE"]{color:var(--good)}.alibaba-verdict[data-verdict="REJECT"]{color:#f28b8b}.alibaba-checks li[data-status="REJECT"]{color:#f28b8b}.alibaba-alert{border:1px solid #f28b8b;border-radius:10px;padding:10px 12px;background:#2a1418}.alibaba-alert strong{color:#f28b8b}.alibaba-alert ol{margin:6px 0 0 18px;padding:0}.alibaba-log{display:grid;gap:6px;max-height:320px;overflow:auto}.alibaba-log-entry{border:1px solid #263451;border-radius:10px;padding:7px 10px;font-size:12px;background:#0d1629}.alibaba-log-entry[data-level="REJECT"],.alibaba-log-entry[data-level="error"]{border-color:#f28b8b}.alibaba-log-entry[data-level="SAFE"]{border-color:var(--good)}
     .video-chat-options{margin:6px 0 0}.video-chat-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.video-chat-row input[type=number]{width:82px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}
     .autopilot-container{margin:6px 0 10px;padding:20px;background:#1e1e2e;color:#fff;border:1px solid #45475a;border-radius:12px}.autopilot-container h2{margin:0;color:#89b4fa;font-size:20px}.autopilot-container>p{margin:7px 0 14px;color:#bac2de;font-size:13px}.autopilot-container form{display:grid;gap:14px;margin-top:12px;padding:0;border:0}.autopilot-field{display:grid;gap:5px}.autopilot-field label{font-weight:700}.autopilot-container textarea{width:100%;min-height:84px;padding:10px;border-radius:6px;background:#313244;color:#cdd6f4;border:1px solid #45475a}.autopilot-container input[type="file"]{width:100%;color:#cdd6f4}.autopilot-container button{width:100%;min-height:46px;padding:10px 12px;border-radius:6px;background:#a6e3a1;color:#11111b;font-size:16px;font-weight:800}.autopilot-result{margin-top:16px;padding:12px;background:#181825;border-radius:8px}.autopilot-result[hidden],#autopilot-video[hidden]{display:none}.autopilot-result #autopilot-status{color:#f9e2af;font-weight:700;margin-bottom:10px}.autopilot-result video{width:100%;max-height:420px;border-radius:8px;background:#000}
     @media(max-width:700px){.auth{padding:14px}.auth input,.auth button{width:100%;flex-basis:100%}.autopilot-container{padding:16px 13px}}
@@ -43,7 +42,7 @@
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
+    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a> <a href="/admin">⚖ 法務・AIダッシュボード（管理者）</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
     <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
@@ -62,15 +61,6 @@
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
         <p id="videoChatHint" class="hint chat-video-hint" hidden>🎬 「夕焼けの海辺を歩く少女の動画を作って」のようにチャットで頼むと、脚本・ナレーション・映像を自動で組み立てた動画をこのチャットに表示します（画像を添付するとその画像から作ります）。</p>
-        <details id="alibabaPanel" class="alibaba"><summary>🛒 1688 商品リサーチ（URL・スクショ読み取り・法的審査・価格計算）</summary><div class="alibaba-body">
-          <p id="alibabaConfig" class="hint">1688 の商品 URL か、商品ページのスクショ（最大4枚）を入れてください。URL が読めないときはスクショから Gemini で読み取ります。</p>
-          <div class="alibaba-row"><input id="alibabaProduct" type="text" maxlength="500" placeholder="1688 の商品 URL（例: https://detail.1688.com/offer/573741401425.html）" aria-label="1688 商品 URL または ID"><button id="alibabaEvaluate" type="button">取得して審査・価格計算</button><button id="alibabaPublish" type="button">本番仕入れ＆自動出品</button><a href="/shop" target="_blank" rel="noopener">🛍 KERRY ショップを開く</a></div>
-          <div class="alibaba-row"><label>商品スクショ（任意・最大4枚）<input id="alibabaShots" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><label>原価（元・任意）<input id="alibabaCost" type="number" min="0.01" max="100000" step="0.01" placeholder="自動"></label></div>
-          <div class="alibaba-pricing"><label>為替（円/元）<input id="alibabaRate" type="number" min="1" max="100" step="0.01"></label><label>国際送料・関税（円）<input id="alibabaShipping" type="number" min="0" step="10"></label><label>代行手数料率<input id="alibabaAgentFee" type="number" min="0" max="1" step="0.01"></label><label>販売倍率（×）<input id="alibabaMarkup" type="number" min="1" max="5" step="0.05"></label></div>
-          <div id="alibabaStatus" class="hint" aria-live="polite"></div>
-          <div id="alibabaResult"></div>
-          <h3>🧾 ショップの注文</h3><div id="shopOrders" class="alibaba-log"><p class="hint">まだ注文はありません。</p></div><h3>⚖ 法務ダッシュボード（取得・審査ログ）</h3><div id="alibabaLog" class="alibaba-log" aria-live="polite"><p class="hint">まだ記録はありません。</p></div>
-        </div></details>
         <div id="videoChatOptions" class="video-chat-options" hidden><div class="video-chat-row"><label><input id="videoTalking" type="checkbox"> 🗣 人物を喋らせる（SadTalker）</label><label for="videoSeconds">動画の長さ</label><input id="videoSeconds" type="number" min="3" max="120" step="1" inputmode="numeric" placeholder="自動" aria-describedby="videoSecondsHint"><span>秒</span></div><p id="videoSecondsHint" class="hint">長さは 3〜120 秒（空欄なら脚本とナレーションに合わせます）。喋らせるときは顔が写った写真を添付してください。SadTalker が使えない・混雑しているときは、自動で「0円ローカル合成」（静止画＋ナレーション）に切り替えます。</p><details id="videoProjectsPanel"><summary>🎬 動画プロジェクト一覧</summary><div id="videoProjectList" class="video-projects"><p class="hint">まだ動画はありません。</p></div></details></div>
         <p id="webtoonChatHint" class="hint chat-video-hint" hidden>📖 1行目に「この小説をマンガにして」、2行目から小説の本文を貼って送ると、登場人物の見た目をそろえた縦読みマンガ（9:16）をこのチャットに表示します（「4コマで」のようにコマ数も指定できます）。</p>
       </div>
@@ -727,67 +717,6 @@
   }
   async function loadFeatures(){let features=null;try{const response=await fetch('/api/features',{cache:'no-store'});features=response&&response.ok?await response.json():null;}catch(_){}const doc=globalThis.document;const hint=doc?.getElementById('videoChatHint');if(hint)hint.hidden=features?.experimental!==true;const options=doc?.getElementById('videoChatOptions');if(options)options.hidden=features?.experimental!==true;const webtoon=doc?.getElementById('webtoonChatHint');if(webtoon)webtoon.hidden=features?.webtoon!==true;}
   loadFeatures();
-  const ALIBABA_PRICING={alibabaRate:'cny_jpy_rate',alibabaAgentFee:'agent_fee_rate',alibabaShipping:'shipping_jpy',alibabaMarkup:'markup'};
-  async function loadAlibabaConfig(){
-    if(!$('alibabaPanel').open)return;if(!ownerToken()){$('alibabaConfig').textContent='上部で API トークンを接続すると使えます。';return;}
-    try{const config=await requestJson('/api/alibaba/config');$('alibabaConfig').textContent=`1688 の商品 URL か、商品ページのスクショ（最大${config.max_screenshots||4}枚）を入れてください。URL が読めないときはスクショから読み取ります${config.vision?'（Gemini）':''}。`;loadAlibabaLog();loadShopOrders();
-      for(const [id,key] of Object.entries(ALIBABA_PRICING))if($(id).value===''&&config.pricing?.[key]!=null)$(id).value=config.pricing[key];}
-    catch(_){}
-  }
-  const ALIBABA_CODES={page_blocked:'1688 が読み取りを拒否（スクショで再試行）',page_unavailable:'1688 に接続できない',product_not_found:'商品が存在しない',vision_unavailable:'スクショ読み取りに Gemini が必要',vision_failed:'スクショを読み取れない',invalid_screenshot:'スクショが不正',product_unreadable:'商品名を読み取れない',invalid_product:'URL / ID が不正',invalid_pricing:'価格設定が不正'};
-  async function loadAlibabaLog(){
-    if(!$('alibabaPanel').open||!ownerToken())return;let data;try{data=await requestJson('/api/alibaba/logs?limit=50');}catch(_){return;}
-    const entries=Array.isArray(data?.entries)?data.entries:[],box=$('alibabaLog');
-    if(!entries.length){box.replaceChildren(Object.assign(document.createElement('p'),{className:'hint',textContent:'まだ記録はありません。'}));return;}
-    box.replaceChildren(...entries.map(e=>{const item=document.createElement('div');item.className='alibaba-log-entry';item.dataset.level=e.status==='error'?'error':e.verdict||'ok';
-      const time=new Date(Number(e.at)*1000).toLocaleTimeString('ja-JP');const head=e.status==='error'?`❌ ${ALIBABA_CODES[e.code]||e.code}`:e.verdict?`${e.verdict==='SAFE'?'✅':'⛔'} ${e.verdict}`:'📥 取得';
-      item.textContent=`${time}｜${head}｜${e.product_id||'—'} ${e.title||''}${e.images!=null?`｜画像${e.images}枚`:''}${e.selling_price_jpy?`｜${alibabaYen(e.selling_price_jpy)}`:''}${e.status==='error'&&e.message?`｜${e.message}`:''}`;
-      if(e.checks){const ul=document.createElement('ul');for(const [k,c] of Object.entries(e.checks)){const li=document.createElement('li');li.dataset.status=c.status;li.textContent=`${k}: ${c.status} — ${c.reason}`;ul.append(li);}item.append(ul);}
-      return item;}));
-  }
-  async function loadShopOrders(){
-    if(!$('alibabaPanel').open||!ownerToken())return;let data;try{data=await requestJson('/api/shop/admin/orders');}catch(_){return;}
-    const orders=Array.isArray(data?.orders)?data.orders:[];if(!orders.length){$('shopOrders').replaceChildren(Object.assign(document.createElement('p'),{className:'hint',textContent:'まだ注文はありません。'}));return;}
-    $('shopOrders').replaceChildren(...orders.slice(0,50).map(o=>Object.assign(document.createElement('div'),{className:'alibaba-log-entry shop-order',textContent:`${new Date(Number(o.created_at)*1000).toLocaleString('ja-JP')}｜${o.title}×${o.quantity}｜${alibabaYen(o.total_jpy)}｜${o.name}（${o.contact}）${o.note?`｜${o.note}`:''}`})));
-  }
-  function alibabaFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('スクショを読めませんでした。'));reader.readAsDataURL(file);});}
-  async function alibabaRequest(){
-    if(!ownerToken()){$('alibabaStatus').textContent='上部で API トークンを接続してください。';return null;}
-    const product=$('alibabaProduct').value.trim(),files=[...($('alibabaShots').files||[])];
-    if(!product&&!files.length){$('alibabaStatus').textContent='1688 の商品 URL か、商品ページのスクショを入れてください。';return null;}
-    if(files.length>4||files.some(f=>f.size>8*1024*1024)){$('alibabaStatus').textContent='スクショは 4 枚まで、1 枚 8MB までです。';return null;}
-    const pricing={};for(const [id,key] of Object.entries(ALIBABA_PRICING)){const v=$(id).value;if(v!==''&&Number.isFinite(Number(v)))pricing[key]=Number(v);}
-    const body={product,screenshots:await Promise.all(files.map(alibabaFile)),pricing},cost=Number($('alibabaCost').value);if($('alibabaCost').value!==''&&cost>0)body.cost_cny=cost;return body;
-  }
-  async function publishAlibaba(){
-    const body=await alibabaRequest();if(!body)return;
-    $('alibabaPublish').disabled=true;$('alibabaEvaluate').disabled=true;$('alibabaStatus').textContent='1688 の商品ページ／スクショを読み取り → 法的審査 → ショップに出品しています…';
-    try{const response=await fetch('/api/alibaba/publish',{method:'POST',headers:headers(),cache:'no-store',body:JSON.stringify(body)});let data={};try{data=await response.json();}catch(_){}
-      if(response.status===409){renderAlibaba(data);$('alibabaStatus').textContent='⛔ 法的審査で REJECT になったため、ショップには出品しませんでした。';}
-      else if(!response.ok)throw new Error(response.status===401?'APIトークンを確認してください':typeof data.detail==='string'?data.detail:'出品できませんでした');
-      else{renderAlibaba(data);$('alibabaStatus').textContent=`✅ SAFE: KERRY ショップに出品しました（${alibabaYen(data.listing?.price_jpy)}）。`;}}
-    catch(error){$('alibabaStatus').textContent=error.message;}
-    finally{$('alibabaPublish').disabled=false;$('alibabaEvaluate').disabled=false;loadAlibabaLog();}
-  }
-  function alibabaYen(value){return `${Math.round(Number(value)||0).toLocaleString('ja-JP')}円`;}
-  function renderAlibaba(data){
-    const box=$('alibabaResult'),p=data.product||{},el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;};
-    const title=el('div','alibaba-title');const link=el('a',null,p.title||p.product_id);if(/^https:\/\/detail\.1688\.com\/offer\/\d+\.html$/.test(p.url||'')){link.href=p.url;link.target='_blank';link.rel='noopener noreferrer';}title.append(link);
-    const images=el('div','alibaba-images');for(const src of (p.images||[]).slice(0,12)){if(!/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/.test(src))continue;const img=el('img');img.src=src;img.alt=p.title||'商品画像';img.loading='lazy';img.referrerPolicy='no-referrer';images.append(img);}
-    const notes=el('div','hint',(p.notes||[]).join(' '));const cost=el('div','hint',`原価: ${p.min_price_cny??'—'}〜${p.max_price_cny??'—'} 元（${(p.price_ranges||[]).map(r=>`${r.start_quantity}${p.unit||''}〜 ${r.price_cny}元`).join(' / ')||'段階価格なし'}）`);
-    const review=data.review||{},verdict=el('div','alibaba-verdict',`法的審査: ${review.verdict||'—'}（${review.engine==='rules'?'キーワード規則のみ':'Gemini＋キーワード規則'}）`);verdict.dataset.verdict=review.verdict||'';
-    const checks=el('ul','alibaba-checks');for(const c of Object.values(review.checks||{})){const li=el('li',null,`${c.label}: ${c.status} — ${c.reason}`);li.dataset.status=c.status;checks.append(li);}
-    const price=data.pricing?el('div','alibaba-price',`販売価格 ${alibabaYen(data.pricing.selling_price_jpy)}（仕入れ総額 ${alibabaYen(data.pricing.landed_cost_jpy)}・代行手数料 ${alibabaYen(data.pricing.agent_fee_jpy)}・送料関税 ${alibabaYen(data.pricing.shipping_jpy)}・利益 ${alibabaYen(data.pricing.profit_jpy)}・利益率 ${Math.round(data.pricing.margin_rate*100)}%）`):el('div','hint',data.pricing_error||'価格を計算できませんでした。');
-    box.replaceChildren(title,images,notes,cost,verdict,checks,price,el('p','hint',review.disclaimer||''));
-  }
-  async function evaluateAlibaba(){
-    const body=await alibabaRequest();if(!body)return;
-    $('alibabaEvaluate').disabled=true;$('alibabaStatus').textContent='1688 の商品ページ／スクショを読み取って審査しています…';
-    try{const data=await requestJson('/api/alibaba/evaluate',{method:'POST',body:JSON.stringify(body)});renderAlibaba(data);$('alibabaStatus').textContent='取得・審査・価格計算が終わりました。';}
-    catch(error){$('alibabaStatus').textContent=error.message;}
-    finally{$('alibabaEvaluate').disabled=false;loadAlibabaLog();}
-  }
-  $('alibabaPanel').addEventListener('toggle',loadAlibabaConfig);$('alibabaPublish').addEventListener('click',publishAlibaba);setInterval(()=>{if($('alibabaPanel').open){loadAlibabaLog();loadShopOrders();}},15000);$('alibabaEvaluate').addEventListener('click',evaluateAlibaba);
   $('videoProjectsPanel')?.addEventListener('toggle',loadVideoProjects);
 </script>
 </body>

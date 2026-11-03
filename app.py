@@ -1300,6 +1300,17 @@ app.include_router(_SHOP_PUBLIC)
 app.include_router(_SHOP_OWNER)
 
 
+@app.get("/api/admin/me", dependencies=[Depends(require_tool_auth)])
+def admin_me():
+    return JSONResponse({"admin": True}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    return FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex",
+                                                            "Referrer-Policy": "no-referrer"})
+
+
 @app.get("/shop", include_in_schema=False)
 def shop_page():
     return FileResponse(STATIC_DIR / "shop.html", headers={"Cache-Control": "no-store"})
