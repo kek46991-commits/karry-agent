@@ -172,6 +172,14 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
 
+### 1688 商品リサーチ（公式 Open API・法的審査・価格計算）
+画面の「🛒 1688 商品リサーチ」に、1688 の商品 URL か ID を入れて使います。サーバーが次の順に処理し、結果を JSON API（`/api/alibaba/evaluate`）で返します。
+1. 公式 Open API（`alibaba.cross.productInfo`、HMAC-SHA1 署名）で、実在する商品の情報を取ります。中身はタイトル、高画質画像（最大12枚）、人民元の段階価格・SKU 価格です。
+2. Gemini とキーワード規則で、商標権・薬機法・PSE を SAFE / REJECT で判定します。
+3. 日本円の販売価格と利益を計算します。
+
+スクレイピングはしません。キーは環境変数にだけ置き、応答には出しません。手順は [docs/alibaba-1688.md](docs/alibaba-1688.md)。
+
 ### Creative Video Suite（画像→動画・ナレーション）
 
 > 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。

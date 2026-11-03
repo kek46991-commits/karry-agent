@@ -737,6 +737,29 @@ test('owner token input ignores a Bearer prefix and any stray spaces or line bre
   assert.equal(s.win.eval('ownerToken()'),'synthetic-owner');assert.equal(s.win.eval('authHeaders()').Authorization,'Bearer synthetic-owner');s.dom.window.close();
 });
 
+test('1688 panel fetches config, posts the product with pricing overrides and renders review and price',async()=>{
+  const result={product:{product_id:'573741401425',url:'https://detail.1688.com/offer/573741401425.html',title:'北欧风陶瓷马克杯',unit:'个',
+      images:['https://cbu01.alicdn.com/img/ibank/1.jpg','https://evil.example/x.jpg'],min_price_cny:9.8,max_price_cny:12.5,price_ranges:[{start_quantity:2,price_cny:12.5}]},
+    review:{verdict:'REJECT',engine:'gemini+rules',checks:{trademark:{label:'商標権',status:'SAFE',reason:'問題なし'},pse:{label:'PSE（電気用品安全法）',status:'REJECT',reason:'注意語: 充电器'}},disclaimer:'自動判定です。'},
+    pricing:{selling_price_jpy:1580,landed_cost_jpy:650,platform_fee_jpy:158,profit_jpy:772,margin_rate:0.4886}};
+  const posts=[];const fetch=async(url,request={})=>{
+    if(url==='/api/alibaba/config')return json({configured:true,pricing:{cny_jpy_rate:21,shipping_jpy:600,platform_fee_rate:0.1,target_margin_rate:0.3}});
+    if(url==='/api/alibaba/evaluate'){posts.push({body:JSON.parse(request.body),auth:request.headers?.Authorization});return json(result);}
+  };
+  const s=setup({fetch});const $=id=>s.doc.getElementById(id);
+  $('alibabaProduct').value='573741401425';$('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,0));
+  assert.equal(posts.length,0);assert.match($('alibabaStatus').textContent,/API トークンを接続/);
+  s.authenticate();$('alibabaPanel').open=true;$('alibabaPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));
+  assert.match($('alibabaConfig').textContent,/接続設定済み/);assert.equal($('alibabaRate').value,'21');
+  $('alibabaRate').value='20.5';$('alibabaEvaluate').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(posts.length,1);assert.equal(posts[0].auth,'Bearer synthetic-owner');assert.equal(posts[0].body.product,'573741401425');
+  assert.equal(posts[0].body.pricing.cny_jpy_rate,20.5);assert.equal(posts[0].body.pricing.target_margin_rate,0.3);
+  const box=$('alibabaResult');assert.equal(box.querySelectorAll('img').length,1,'only alicdn images are shown');
+  assert.equal(box.querySelector('img').referrerPolicy,'no-referrer');assert.equal(box.querySelector('a').href,'https://detail.1688.com/offer/573741401425.html');
+  assert.equal(box.querySelector('.alibaba-verdict').dataset.verdict,'REJECT');assert.match(box.textContent,/PSE（電気用品安全法）: REJECT — 注意語: 充电器/);
+  assert.match(box.querySelector('.alibaba-price').textContent,/販売価格 1,580円.*利益 772円・利益率 49%/);s.dom.window.close();
+});
+
 test('chat video options send SadTalker/length and the project list shows lamps and seconds',async()=>{
   const jobs=[{id:'1'.repeat(32),status:'processing',duration_seconds:30,mode:'autopilot',autopilot:{status:'processing',title:'生成中の動画',lip_sync:{requested:true,status:'processing'}},segments:[]},
     {id:'2'.repeat(32),status:'succeeded',duration_seconds:15,mode:'autopilot',autopilot:{status:'succeeded',title:'完成した動画',lip_sync:{requested:true,status:'succeeded',engine:'sadtalker'}},segments:[]},
