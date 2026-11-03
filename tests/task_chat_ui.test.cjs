@@ -783,3 +783,57 @@ test('KERRY shop lists products by category tab, switches thumbnails in the moda
   assert.deepEqual(JSON.parse(JSON.stringify(orders)),[{product_id:'a'.repeat(32),quantity:2,name:'山田',contact:'y@example.com',note:''}]);
   assert.match($('orderStatus').textContent,/受け付けました（合計 3,160円）/);dom.window.close();
 });
+
+test('409 session is already running waits for the server result instead of showing an error or resending',async()=>{
+  let busy=true;const done=record('a','A');
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return json({detail:'session is already running'},409);
+    if(url==='/api/sessions/a'&&!request.method&&!busy)return json({...done,messages:[{role:'user',content:'Wait for me'},{role:'assistant',content:'Finished answer'}]});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='Wait for me';const sending=s.win.sendMessage({preventDefault(){}});
+  await new Promise(r=>setTimeout(r,20));assert.match(s.doc.getElementById('messages').textContent,/前の処理がまだ実行中/);
+  assert.doesNotMatch(s.doc.getElementById('messages').textContent,/送信エラー/);busy=false;await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/Finished answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);
+  assert.equal(s.doc.getElementById('status').textContent,'オンライン');s.dom.window.close();
+});
+
+test('a network error recovers the finished run from the session; a failed image run switches to manual input',async()=>{
+  const s=setup({sessions:[['a',withImage(record('a','A'))]],fetch:async(url,request)=>{
+    if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});
+    if(url==='/api/chat'&&JSON.parse(request.body).image_ids.length)throw new TypeError('network error');
+    if(url==='/api/sessions/a'&&!request.method&&s?.calls.filter(c=>c.url==='/api/chat').length===1)return json({...record('a','A'),messages:[{role:'user',content:'商品を読んで'},{role:'assistant',content:'[Error] Gemini API/Timeout Error'}],last_run:{status:'failed',trace:[]}});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='商品を読んで';await s.win.sendMessage({preventDefault(){}});
+  const text=s.doc.getElementById('messages').textContent;
+  assert.match(text,/手動入力モードに切り替えました/);assert.doesNotMatch(text,/送信エラー/);
+  assert.equal(s.doc.getElementById('manualModeHint').hidden,false);
+  s.doc.getElementById('prompt').value='商品名は陶瓷杯、価格は12元';await s.win.sendMessage({preventDefault(){}});
+  const posts=s.calls.filter(c=>c.url==='/api/chat').map(c=>JSON.parse(c.request.body));
+  assert.equal(posts.length,2);assert.deepEqual(posts[1].image_ids,[]);
+  assert.equal(s.doc.getElementById('manualModeHint').hidden,true);s.dom.window.close();
+});
+
+test('a stalled stream is aborted and gives up waiting with guidance; the prompt is kept',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return new Promise((_,reject)=>request.signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))));
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:30,stall:20};
+  s.doc.getElementById('prompt').value='Slow job';await s.win.sendMessage({preventDefault(){}});
+  assert.match(s.doc.getElementById('messages').textContent,/応答を待ちきれませんでした/);
+  assert.equal(s.doc.getElementById('prompt').value,'Slow job');assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('409 inside the SSE stream (second tab) also waits and shows the first run result',async()=>{
+  let busy=true;
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return new Response('event: error\ndata: {"status_code":409,"detail":"session is already running"}\n\n',{headers:{'content-type':'text/event-stream'}});
+    if(url==='/api/sessions/a'&&!request.method&&!busy)return json({...record('a','A'),messages:[{role:'user',content:'Same prompt'},{role:'assistant',content:'First tab answer'}]});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='Same prompt';const sending=s.win.sendMessage({preventDefault(){}});
+  await new Promise(r=>setTimeout(r,20));const text=s.doc.getElementById('messages').textContent;
+  assert.match(text,/前の処理がまだ実行中/);assert.doesNotMatch(text,/送信エラー/);busy=false;await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/First tab answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);s.dom.window.close();
+});
