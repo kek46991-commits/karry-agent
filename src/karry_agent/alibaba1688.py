@@ -1,30 +1,21 @@
-"""1688 official Open API product fetch, Gemini legal screening (trademark / 薬機法 / PSE) and JPY pricing.
+"""1688 product helpers: URL/ID parsing, alicdn image URLs, legal screening (trademark / 薬機法 / PSE) and JPY pricing.
 
-Data comes only from the documented Open API (``alibaba.cross.productInfo``) with the owner's app key,
-app secret and access token; this module never scrapes 1688 pages.
+Product data comes from ``alibaba_scrape`` (page fetch / screenshot reading); no 1688 API keys are used.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import math
 import os
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
-
-import requests
 
 logger = logging.getLogger(__name__)
 
-GATEWAY = "https://gw.open.1688.com/openapi/"
-PRODUCT_API = "1/com.alibaba.product/alibaba.cross.productInfo"
 IMAGE_HOST = "https://cbu01.alicdn.com/"
 MAX_IMAGES = 12
-MAX_SKUS = 50
 _PRODUCT_ID = re.compile(r"(?:offer/|offerId=|productId=|^)(\d{6,20})(?:\.html|\D|$)")
 
 
@@ -32,12 +23,6 @@ class AlibabaError(Exception):
     def __init__(self, message: str, status_code: int, code: str):
         super().__init__(message)
         self.message, self.status_code, self.code = message, status_code, code
-
-
-def sign(url_path: str, params: dict[str, Any], secret: str) -> str:
-    """_aop_signature as in the official SDK: HMAC-SHA1(secret, urlPath + sorted(key+value)), upper hex."""
-    message = url_path + "".join(sorted(f"{key}{value}" for key, value in params.items()))
-    return hmac.new(secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha1).hexdigest().upper()
 
 
 def parse_product_id(value: str) -> str:
@@ -66,87 +51,6 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) and number >= 0 else None
-
-
-def normalize_product(info: dict[str, Any]) -> dict[str, Any]:
-    """Trim the Open API ProductInfo to what the UI, the reviewer and the pricing need."""
-    sale = info.get("saleInfo") or {}
-    ranges = [{"start_quantity": int(r.get("startQuantity") or 1), "price_cny": _number(r.get("price"))}
-              for r in sale.get("priceRanges") or [] if _number(r.get("price")) is not None]
-    images = []
-    for path in (info.get("image") or {}).get("images") or []:
-        url = _image_url(path)
-        if url and url not in images:
-            images.append(url)
-    skus = []
-    for sku in (info.get("skuInfos") or [])[:MAX_SKUS]:
-        attributes = [{"name": str(a.get("attributeDisplayName") or "")[:40], "value": str(a.get("attributeValue") or "")[:80]}
-                      for a in sku.get("attributes") or []]
-        sku_image = next((_image_url(a.get("skuImageUrl")) for a in sku.get("attributes") or [] if a.get("skuImageUrl")), None)
-        if sku_image and sku_image not in images:
-            images.append(sku_image)
-        skus.append({"sku_id": str(sku.get("skuId") or ""), "attributes": attributes,
-                     "price_cny": _number(sku.get("price")) or _number(sku.get("consignPrice")),
-                     "stock": sku.get("amountOnSale")})
-    prices = [r["price_cny"] for r in ranges] + [s["price_cny"] for s in skus if s["price_cny"] is not None]
-    consign = _number(sale.get("consignPrice"))
-    product_id = str(info.get("productID") or "")
-    return {"product_id": product_id, "url": f"https://detail.1688.com/offer/{product_id}.html" if product_id else None,
-            "title": str(info.get("subject") or "")[:200], "category": str(info.get("categoryName") or "")[:80],
-            "status": info.get("status"), "images": images[:MAX_IMAGES], "price_ranges": ranges, "skus": skus,
-            "min_price_cny": min(prices) if prices else consign, "max_price_cny": max(prices) if prices else consign,
-            "unit": str(sale.get("unit") or "")[:10], "min_order_quantity": sale.get("minOrderQuantity"),
-            "attributes": [{"name": str(a.get("attributeName") or "")[:40], "value": str(a.get("value") or "")[:120]}
-                           for a in (info.get("attributes") or [])[:40]],
-            "supplier": str(info.get("supplierLoginId") or info.get("sellerLoginId") or "")[:80],
-            "description_excerpt": re.sub(r"<[^>]+>", " ", str(info.get("description") or ""))[:600].strip()}
-
-
-@dataclass
-class OpenApiClient:
-    app_key: str
-    app_secret: str
-    access_token: str
-    session: Any = None
-    timeout: float = 20
-
-    def product(self, product_id: str) -> dict[str, Any]:
-        url_path = f"param2/{PRODUCT_API}/{self.app_key}"
-        params = {"productId": product_id, "access_token": self.access_token}
-        params["_aop_signature"] = sign(url_path, params, self.app_secret)
-        try:
-            response = (self.session or requests).post(GATEWAY + url_path, data=params, timeout=self.timeout)
-            body = response.json()
-        except (requests.RequestException, ValueError):
-            raise AlibabaError("1688 Open API に接続できませんでした。", 502, "alibaba_unavailable") from None
-        if not isinstance(body, dict):
-            raise AlibabaError("1688 Open API の応答を読めませんでした。", 502, "alibaba_response")
-        if response.status_code in (401, 403) or str(body.get("error_code") or "").lower() in {"gw.authenticationfailed", "401", "403"}:
-            raise AlibabaError("1688 Open API の認証に失敗しました（App Key / Secret / access_token を確認してください）。", 502, "alibaba_auth")
-        if response.status_code >= 400 or body.get("error_code") or body.get("success") is False or not body.get("productInfo"):
-            detail = str(body.get("message") or body.get("error_message") or "")
-            if "不存在" in detail or "does not exist" in detail:
-                raise AlibabaError("その商品は 1688 にありません。", 404, "product_not_found")
-            if "权限" in detail or "permission" in detail.lower():
-                raise AlibabaError("この商品を取得する権限がありません（1688 で跨境の铺货関係を作ってください）。", 403, "product_forbidden")
-            raise AlibabaError("1688 Open API が商品を返しませんでした。", 502, "alibaba_response")
-        return normalize_product(body["productInfo"])
-
-
-ENV_NAMES = ("KARRY_1688_APP_KEY", "KARRY_1688_APP_SECRET", "KARRY_1688_ACCESS_TOKEN")
-
-
-def missing_env() -> list[str]:
-    """Names (never values) of the unset Open API credentials; read on every request so a Render env change applies at once."""
-    return [name for name in ENV_NAMES if not os.getenv(name, "").strip()]
-
-
-def client_from_env() -> OpenApiClient:
-    missing = missing_env()
-    if missing:
-        raise AlibabaError("1688 API認証キー未設定：Renderの環境変数を設定してください（" + " / ".join(missing) + "）。",
-                           503, "alibaba_configuration")
-    return OpenApiClient(*(os.getenv(name, "").strip() for name in ENV_NAMES))
 
 
 # ---------------------------------------------------------------- legal screening
