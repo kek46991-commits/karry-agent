@@ -497,6 +497,8 @@ class GeminiNarrator:
             wav = base64.b64decode(audio[-1]["data"])
             if not wav.startswith(b"RIFF") or len(wav) > MAX_AUDIO_BYTES:
                 raise ValueError
+            # A malformed or silent WAV must fail here so NarratorChain falls back to the free TTS.
+            _validate_narration_wav(wav)
             return wav
         except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
             raise VideoError("ナレーション音声を作れませんでした。", 502, "tts_failed") from None
@@ -623,7 +625,8 @@ def concatenate_mp4_clips(clips: list[bytes]) -> bytes:
             handle.writelines(entries)
         output = os.path.join(work, "final.mp4")
         command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "1",
-                   "-i", "scenes.ffconcat", "-c", "copy", "-movflags", "+faststart", output]
+                   "-i", "scenes.ffconcat", "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
+                   "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", output]
         try:
             with _RENDER_SLOT:
                 subprocess.run(command, check=True, capture_output=True, timeout=120, cwd=work)
@@ -639,6 +642,51 @@ def concatenate_mp4_clips(clips: list[bytes]) -> bytes:
     if b"ftyp" not in result[:32]:
         raise VideoError("結合後の動画を検証できませんでした。", 502, "invalid_scene_video")
     return result
+
+
+def wav_seconds(wav: bytes) -> float:
+    import wave
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as audio:
+            return audio.getnframes() / float(audio.getframerate() or 1)
+    except (wave.Error, EOFError, ValueError):
+        return 0.0
+
+
+def fit_scene_seconds(seconds: list[int], total: int) -> list[int]:
+    """Scale scene lengths to an exact total (each scene at least 1 s), keeping their proportions."""
+    if not seconds or total < len(seconds):
+        raise VideoError(f"動画の長さは {len(seconds)} 秒以上にしてください。", 422, "invalid_duration")
+    weight = sum(seconds) or len(seconds)
+    raw = [total * (s or 1) / weight for s in seconds]
+    fitted = [max(1, int(value)) for value in raw]
+    order = sorted(range(len(raw)), key=lambda i: raw[i] - int(raw[i]), reverse=True)
+    index = 0
+    while sum(fitted) != total:
+        i = order[index % len(order)]
+        step = 1 if sum(fitted) < total else -1
+        if fitted[i] + step >= 1:
+            fitted[i] += step
+        index += 1
+    return fitted
+
+
+def mp4_has_audible_audio(clip: bytes) -> bool:
+    """True when the MP4 has an audio stream that is not effectively silent (guards against silent 'success')."""
+    ffmpeg = ffmpeg_exe()
+    if not ffmpeg or not clip:
+        return False
+    with tempfile.TemporaryDirectory(prefix="karry-audio-check-") as work:
+        path = os.path.join(work, "check.mp4")
+        with open(path, "wb") as handle:
+            handle.write(clip)
+        try:
+            result = subprocess.run([ffmpeg, "-hide_banner", "-nostdin", "-i", path, "-map", "0:a:0", "-af", "volumedetect",
+                                     "-f", "null", "-"], capture_output=True, text=True, timeout=120, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return False
+    match = re.search(r"max_volume:\s*(-?[\d.]+|-inf) dB", result.stderr or "")
+    return result.returncode == 0 and bool(match) and match.group(1) != "-inf" and float(match.group(1)) > -50
 
 
 def concatenate_wav_clips(clips: list[bytes]) -> bytes:
@@ -797,7 +845,8 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
                              if key in {"requested", "status", "engine", "fallback_reason"}}} if job.get("lip_sync") else {}),
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
             **({"autopilot": {key: value for key, value in job["autopilot"].items()
-                               if key in {"status", "title", "scene_count", "current_scene", "fallback_used", "fallback_reason", "error"}}} if job.get("autopilot") else {}),
+                               if key in {"status", "title", "scene_count", "current_scene", "fallback_used", "fallback_reason", "error",
+                                          "lip_sync", "requested_seconds"}}} if job.get("autopilot") else {}),
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
                                                      "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
                                                      **({"error": narration["error"]} if narration.get("error") else {}),

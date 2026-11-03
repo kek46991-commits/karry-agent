@@ -759,3 +759,28 @@ test('1688 panel fetches config, posts the product with pricing overrides and re
   assert.equal(box.querySelector('.alibaba-verdict').dataset.verdict,'REJECT');assert.match(box.textContent,/PSE（電気用品安全法）: REJECT — 注意語: 充电器/);
   assert.match(box.querySelector('.alibaba-price').textContent,/販売価格 1,580円.*利益 772円・利益率 49%/);s.dom.window.close();
 });
+
+test('chat video options send SadTalker/length and the project list shows lamps and seconds',async()=>{
+  const jobs=[{id:'1'.repeat(32),status:'processing',duration_seconds:30,mode:'autopilot',autopilot:{status:'processing',title:'生成中の動画',lip_sync:{requested:true,status:'processing'}},segments:[]},
+    {id:'2'.repeat(32),status:'succeeded',duration_seconds:15,mode:'autopilot',autopilot:{status:'succeeded',title:'完成した動画',lip_sync:{requested:true,status:'succeeded',engine:'sadtalker'}},segments:[]},
+    {id:'3'.repeat(32),status:'failed',duration_seconds:12,mode:'autopilot',autopilot:{status:'failed',title:'失敗した動画',error:'audio_missing'},segments:[]}];
+  const fetch=async(url)=>{if(url==='/api/video/jobs?session_id=a')return json(jobs);};
+  const s=setup({fetch,experimental:true,saved:'a',sessions:[['a',record('a','A')]]});const $=id=>s.doc.getElementById(id);
+  await new Promise(r=>setTimeout(r,5));assert.equal($('videoChatOptions').hidden,false);
+  s.authenticate();await s.win.connectSessions();
+  $('videoTalking').checked=true;$('videoSeconds').value='30';$('prompt').value='この写真の人が喋る動画を作って';
+  $('chatForm').dispatchEvent(new s.win.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);assert.equal(body.video_talking,true);assert.equal(body.video_seconds,30);
+  $('videoSeconds').value='500';assert.equal(s.win.eval('JSON.stringify(chatVideoOptions())'),'{"video_talking":true}');
+  $('videoProjectsPanel').open=true;$('videoProjectsPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,10));
+  const items=[...s.doc.querySelectorAll('#videoProjectList .video-project')].map(e=>[e.dataset.lamp,e.querySelector('.video-project-status').textContent,e.querySelector('.video-project-seconds').textContent]);
+  assert.deepEqual(items,[['processing','生成中','30秒'],['online','完了','15秒'],['error','エラー','12秒']]);
+  assert.match($('videoProjectList').textContent,/🗣 SadTalker/);s.dom.window.close();
+});
+
+test('chat video label reports the SadTalker result or the automatic 0-yen fallback',()=>{
+  const s=setup();const label=job=>s.win.eval(`chatVideoLabel(${JSON.stringify(job)})`);
+  assert.match(label({status:'succeeded',duration_seconds:20,autopilot:{title:'喋る',lip_sync:{requested:true,status:'succeeded'}}}),/「喋る」（20秒）が完成しました。 🗣 写真の人物が喋る動画です（SadTalker）/);
+  assert.match(label({status:'succeeded',duration_seconds:9,autopilot:{title:'混雑',lip_sync:{requested:true,status:'fallback',fallback_reason:'sadtalker_busy'}}}),/⚠ SadTalker が混雑していたため、0円ローカル合成（静止画＋ナレーション）に切り替えました/);
+  assert.doesNotMatch(label({status:'succeeded',autopilot:{title:'普通'}}),/SadTalker/);s.dom.window.close();
+});

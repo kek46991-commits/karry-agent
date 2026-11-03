@@ -326,6 +326,8 @@ class RunRequest(SecretRequest):
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
+    video_talking: bool = Field(default=False, description="チャット動画で写真の人物を SadTalker で喋らせる")
+    video_seconds: int | None = Field(default=None, ge=3, le=120, description="チャット動画の長さ（秒）。未指定は脚本に合わせる")
 
 
 class AgentTaskRequest(SecretRequest):
@@ -353,6 +355,8 @@ class MessageRequest(SecretRequest):
     stream: bool = False
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
+    video_talking: bool = False
+    video_seconds: int | None = Field(default=None, ge=3, le=120)
 
     @field_validator("prompt")
     @classmethod
@@ -957,7 +961,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         if result is None and not private_mode and _chat_webtoon_request(request.prompt):
             result = chat_webtoon.run(_WEBTOON_ROUTER.start_job, request.prompt)
         if result is None and not private_mode and _chat_video_request(request.prompt):
-            result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id)
+            result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id,
+                                    talking=request.video_talking, duration_seconds=request.video_seconds)
         if result is None:
             if agent is None:
                 agent = app.dependency_overrides.get(get_agent, get_agent)()
@@ -1440,7 +1445,8 @@ def task_chat(request: MessageRequest):
     # Do not initialize the model for list/create/detail/unknown-session requests or chat video/webtoon requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
     agent = None if _chat_webtoon_request(request.prompt) or _chat_video_request(request.prompt) else agent_factory()
-    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id, image_ids=request.image_ids)
+    run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id,
+                             image_ids=request.image_ids, video_talking=request.video_talking, video_seconds=request.video_seconds)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
     return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "no-store"})

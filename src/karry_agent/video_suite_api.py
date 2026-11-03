@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import math
 import os
 import threading
 import time
@@ -18,6 +19,7 @@ from . import lipsync, lipsync_remote
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
+AUTOPILOT_MIN_SECONDS = 3  # one second per scene at minimum
 SessionId = Annotated[str, Query(min_length=1, max_length=100)]
 logger = logging.getLogger(__name__)
 
@@ -322,7 +324,21 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
         except vs.VideoError as exc:
             return _error(exc)
 
-    def run_autopilot(store: vs.VideoJobStore, job: dict[str, Any], source_text: str, image_bytes: bytes | None) -> None:
+    def talking_clip(image: bytes | None, audio: bytes, seconds: int) -> tuple[bytes | None, dict[str, Any]]:
+        """SadTalker clip for the whole narration, or (None, fallback info) so the caller renders the 0-yen video."""
+        if not image:
+            return None, {"requested": True, "status": "fallback", "engine": "local", "fallback_reason": "no_photo"}
+        try:
+            animated = asyncio.run(lipsync_adapter().generate(image, audio))
+            clip = (lip_sync_normalizer or vs.normalize_lipsync_video)(animated, audio, "16:9", seconds)
+            return clip, {"requested": True, "status": "succeeded", "engine": "sadtalker"}
+        except Exception as exc:  # noqa: BLE001 - any SadTalker outage falls back to the free local render
+            code = getattr(exc, "code", None)
+            reason = str(getattr(code, "value", code) or "sadtalker_failed")[:64]
+            return None, {"requested": True, "status": "fallback", "engine": "local", "fallback_reason": reason}
+
+    def run_autopilot(store: vs.VideoJobStore, job: dict[str, Any], source_text: str, image_bytes: bytes | None,
+                      talking: bool = False, target_seconds: int | None = None) -> None:
         try:
             scene_count = 3
             fallback_used = False
@@ -354,6 +370,9 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 fallback_used = True
 
             scenes = draft["scenes"]
+            if target_seconds:
+                fitted = vs.fit_scene_seconds([int(scene.get("duration_seconds") or 1) for scene in scenes], target_seconds)
+                scenes = [{**scene, "duration_seconds": seconds} for scene, seconds in zip(scenes, fitted)]
             total_seconds = sum(scene["duration_seconds"] for scene in scenes)
             narration_text_all = draft["narration_script"]
             job["prompt"] = str(draft.get("visual_prompt") or "").strip()[:2000]
@@ -361,13 +380,15 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             job["narration"] = {"text": narration_text_all, "voice": "jimmy", "status": "processing", "muxed": True}
             job["autopilot"] = {"status": "processing", "title": str(draft.get("title") or "自動生成動画")[:200],
                                 "scene_count": scene_count, "current_scene": 0, "fallback_used": fallback_used,
-                                "fallback_reason": fallback_reason if fallback_used else None}
+                                "fallback_reason": fallback_reason if fallback_used else None,
+                                "requested_seconds": target_seconds,
+                                "lip_sync": {"requested": True, "status": "processing", "engine": "sadtalker"} if talking else None}
             job["segments"] = [{"index": 0, "clip_seconds": total_seconds, "play_seconds": total_seconds, "status": "processing"}]
             store.save(job)
 
             narrator = narrators()
             renderer = autopilot_renderer()
-            clips, audios, engines = [], [], []
+            audios, engines, plan = [], [], []
             for position, scene in enumerate(scenes, start=1):
                 narration = scene.get("narration")
                 visual = scene.get("visual_prompt")
@@ -380,12 +401,26 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 job["updated_at"] = time.time()
                 store.save(job)
                 wav = narrator.synthesize(narration, "jimmy")
+                if not target_seconds:
+                    # Never cut the narration off: a scene lasts at least as long as its speech.
+                    seconds = min(60, max(seconds, math.ceil(vs.wav_seconds(wav) + 0.3)))
                 audios.append(wav)
                 engines.append(getattr(narrator, "last_engine", None) or getattr(narrator, "name", "tts"))
-                clips.append(renderer.render(visual, "16:9", seconds, image_bytes, wav))
+                plan.append((visual, seconds, wav))
+            total_seconds = sum(seconds for _, seconds, _ in plan)
+            job["duration_seconds"] = total_seconds
+            job["segments"][0] |= {"clip_seconds": total_seconds, "play_seconds": total_seconds}
 
             final_audio = vs.concatenate_wav_clips(audios)
-            final_video = vs.concatenate_mp4_clips(clips)
+            final_video = None
+            if talking:
+                final_video, job["autopilot"]["lip_sync"] = talking_clip(image_bytes, final_audio, total_seconds)
+                store.save(job)
+            if final_video is None:
+                final_video = vs.concatenate_mp4_clips([renderer.render(visual, "16:9", seconds, image_bytes, wav)
+                                                        for visual, seconds, wav in plan])
+            if not vs.mp4_has_audible_audio(final_video):
+                raise vs.VideoError("動画にナレーション音声を入れられませんでした。", 502, "audio_missing")
             store.put_blob(f"{job['id']}/narration.wav", final_audio, "audio/wav")
             store.put_blob(f"{job['id']}/0.mp4", final_video, "video/mp4")
             job["narration"] |= {"status": "succeeded", "muxed": True,
@@ -412,9 +447,12 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
             store.save(job)
 
     def start_autopilot(session_id: str, source_text: str, body: bytes | None,
-                        request_id: str | None = None) -> tuple[dict[str, Any], int]:
+                        request_id: str | None = None, talking: bool = False,
+                        duration_seconds: int | None = None) -> tuple[dict[str, Any], int]:
         """Queue one autopilot job; shared by the form endpoint and chat-native requests."""
         source_text = (source_text or "").strip()
+        if duration_seconds is not None and not AUTOPILOT_MIN_SECONDS <= duration_seconds <= vs.MAX_SECONDS:
+            raise vs.VideoError(f"動画の長さは {AUTOPILOT_MIN_SECONDS}〜{vs.MAX_SECONDS} 秒で指定してください。", 422, "invalid_duration")
         body = body or b""
         if len(body) > MAX_UPLOAD_BYTES:
             raise vs.VideoError("画像は4 MiBまでです。", 413, "image_too_large")
@@ -445,7 +483,13 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                "narration": None, "mode": "autopilot",
                "autopilot": {"status": "processing", "title": "脚本を作成中", "scene_count": 3, "current_scene": 0}}
         store.save(job)
-        run_background(lambda: run_autopilot(store, job, source_text, body or None))
+        if duration_seconds:
+            job |= {"duration_seconds": duration_seconds,
+                    "segments": [{"index": 0, "clip_seconds": duration_seconds, "play_seconds": duration_seconds, "status": "processing"}]}
+        job["autopilot"] |= {"requested_seconds": duration_seconds,
+                             "lip_sync": {"requested": True, "status": "processing", "engine": "sadtalker"} if talking else None}
+        store.save(job)
+        run_background(lambda: run_autopilot(store, job, source_text, body or None, talking, duration_seconds))
         return job, 202
 
     router.start_autopilot = start_autopilot
@@ -454,13 +498,15 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
     async def create_autopilot(session_id: Annotated[str, Form(min_length=1, max_length=100)],
                                novel_text: Annotated[str, Form(max_length=12_000)] = "",
                                request_id: Annotated[uuid.UUID | None, Form()] = None,
+                               talking: Annotated[bool, Form()] = False,
+                               duration_seconds: Annotated[int | None, Form()] = None,
                                image: Annotated[UploadFile | None, File()] = None):
         try:
             body = await image.read(MAX_UPLOAD_BYTES + 1) if image is not None and image.filename else b""
             if image is not None:
                 await image.close()
             rid = str(request_id) if request_id else None
-            job, status = await run_in_threadpool(start_autopilot, session_id, novel_text, body, rid)
+            job, status = await run_in_threadpool(start_autopilot, session_id, novel_text, body, rid, talking, duration_seconds)
             return _json(vs.public_job(job, session_id), status)
         except vs.VideoError as exc:
             return _error(exc)
