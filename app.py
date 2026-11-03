@@ -1293,6 +1293,17 @@ from karry_agent import alibaba_api  # noqa: E402
 
 app.include_router(alibaba_api.build_router(require_tool_auth))
 
+from karry_agent import shop_api  # noqa: E402
+
+_SHOP_PUBLIC, _SHOP_OWNER = shop_api.build_routers(require_tool_auth)
+app.include_router(_SHOP_PUBLIC)
+app.include_router(_SHOP_OWNER)
+
+
+@app.get("/shop", include_in_schema=False)
+def shop_page():
+    return FileResponse(STATIC_DIR / "shop.html", headers={"Cache-Control": "no-store"})
+
 
 def _media_json(value: Any, status_code: int = 200):
     from fastapi.encoders import jsonable_encoder
