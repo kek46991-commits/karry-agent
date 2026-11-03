@@ -26,6 +26,7 @@ from . import html_repair
 from . import secret_runtime
 from .knowledge_engine import gemini_embedder
 from .knowledge_sync_service import KnowledgeSyncService
+from .github_workflow import GITHUB_AUTO_SYNC_SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -47,6 +48,8 @@ WebページのURL解析にはfetch_and_summarize_urlを優先し、その本文
 画像の生成を頼まれたらgenerate_imageを使ってください。生成画像はチャットの回答に自動で表示されるため、ファイル名・URL・Markdownの画像リンクを書かないでください。
 公開確認前のURLや、ツール結果で存在を確認していないURLを、閲覧できるものとして案内しないでください。
 """
+
+SYSTEM_INSTRUCTION += "\n" + GITHUB_AUTO_SYNC_SYSTEM_PROMPT
 
 
 @dataclass
