@@ -19,7 +19,7 @@ _CREATE = re.compile(r"作っ|作る|作成|作れ|つくっ|つくる|生成|�
 _NOT_A_REQUEST = re.compile(r"作り方|やり方|方法|とは|どうやって|できますか|ですか|\bhow\s+(?:to|do|can)\b|\bwhat\s+is\b",
                             re.IGNORECASE)
 
-StartAutopilot = Callable[[str, str, bytes | None, str | None], tuple[dict[str, Any], int]]
+StartAutopilot = Callable[..., tuple[dict[str, Any], int]]  # (session_id, text, image, request_id, **options)
 
 
 def is_video_request(text: str) -> bool:
@@ -32,12 +32,13 @@ def job_marker(job_id: str) -> str:
 
 
 def run(start: StartAutopilot, session_id: str, prompt: str, images: list[dict[str, Any]] | None = None,
-        request_id: str | None = None) -> AgentResult:
+        request_id: str | None = None, talking: bool = False, duration_seconds: int | None = None) -> AgentResult:
     started = time.perf_counter()
     image = next((item.get("data") for item in images or [] if isinstance(item.get("data"), bytes)), None)
-    arguments = {"source_text": prompt[:200], "with_image": bool(image)}
+    options = {key: value for key, value in (("talking", talking), ("duration_seconds", duration_seconds)) if value}
+    arguments = {"source_text": prompt[:200], "with_image": bool(image), **options}
     try:
-        job, _ = start(session_id, prompt[:12_000], image, request_id)
+        job, _ = start(session_id, prompt[:12_000], image, request_id, **options)
         observation = {"status": "processing", "job_id": job["id"], "session_id": session_id}
         text = ("動画の作成を始めました。脚本・ナレーション・映像を自動で組み立てています（数分かかります）。"
                 f"完成するとこのチャットで再生できます。\n{job_marker(job['id'])}")
