@@ -1,11 +1,8 @@
-import base64
-import io
 import math
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
 
 import app as web
 from karry_agent import alibaba1688 as ali
@@ -44,12 +41,6 @@ class Session:
     def get(self, url, headers, timeout, allow_redirects, stream):
         self.calls.append({'url': url, 'headers': headers, 'allow_redirects': allow_redirects})
         return self.responses.pop(0)
-
-
-def shot(color=(200, 30, 30), size=(400, 300), fmt='PNG'):
-    out = io.BytesIO()
-    Image.new('RGB', size, color).save(out, fmt)
-    return 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode()
 
 
 @pytest.mark.parametrize('value,expected', [('573741401425', 'https://detail.1688.com/offer/573741401425.html'),
@@ -113,88 +104,27 @@ def test_redirects_inside_1688_are_followed():
     assert alibaba_scrape.fetch_page('https://m.1688.com/offer/573741401425.html', session=session)[0].startswith('https://detail.1688.com/')
 
 
-def test_screenshot_is_read_by_gemini_vision_and_product_photo_cropped(monkeypatch):
-    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
-    calls = []
-
-    def extractor(images=None, text=''):
-        calls.append(images)
-        return {'title': '硅胶折叠水杯', 'category': '杯子', 'price_cny': '8.5', 'specs': [{'name': '材质', 'value': '硅胶'}],
-                'variants': ['蓝色'], 'description': '可折叠', 'product_box': [0, 0, 500, 500]}
-
-    product = alibaba_scrape.intake('', [shot(size=(800, 600))], extractor=extractor)
-    assert calls and calls[0][0][:2] == b'\xff\xd8' and product['source'] == 'screenshot'
-    assert product['title'] == '硅胶折叠水杯' and product['min_price_cny'] == 8.5 and product['attributes'] == [{'name': '材质', 'value': '硅胶'}]
-    assert product['product_id'].startswith('shot-') and product['images'] == []
-    with Image.open(io.BytesIO(product['screenshot_images'][0])) as cropped:
-        assert cropped.size == (400, 300)
-
-
-def test_shop_images_fit_the_storage_document_limit():
-    noisy = Image.effect_noise((1600, 1600), 120).convert('RGB')
-    data = alibaba_scrape.shop_jpeg(noisy, limit=200_000)
-    assert len(data) <= 200_000 and data[:2] == b'\xff\xd8'
-
-
-def test_durable_store_round_trips_screenshot_images(monkeypatch):
-    docs = {}
-
-    class Repo:
-        prefix = 'p/'
-
-        def _read(self, key):
-            return docs.get(key), None
-
-        def _cas(self, key, default, mutate):
-            docs[key] = mutate(docs.get(key, default))
-            return docs[key]
-
-    monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 's3')
-    monkeypatch.setattr(shop_store.task_persistence, 'repository', lambda: Repo())
-    store = shop_store.ShopStore()
-    url = store.save_image(b'\xff\xd8jpeg')
-    assert store.image(url.split('/')[-1][:-4]) == b'\xff\xd8jpeg' and list(docs) == [f"p/shop/images/{url.split('/')[-1][:-4]}.json"]
-
-
-def test_blocked_url_falls_back_to_the_screenshot():
-    session = Session(Response(302, location='https://login.1688.com/'))
-    product = alibaba_scrape.intake('573741401425', [shot()], session=session,
-                                    extractor=lambda images=None, text='': {'title': '陶瓷杯', 'price_cny': 10})
-    assert product['product_id'] == '573741401425' and product['min_price_cny'] == 10 and 'スクショから読み取りました' in ' '.join(product['notes'])
-    with pytest.raises(ali.AlibabaError) as exc:
-        alibaba_scrape.intake('573741401425', [], session=Session(Response(302, location='https://login.1688.com/')))
-    assert exc.value.code == 'page_blocked' and 'スクショ' in exc.value.message
-
-
-def test_screenshot_errors(monkeypatch):
-    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
-    for value, code in [('data:image/png;base64,***', 'invalid_screenshot'),
-                        ('data:image/png;base64,' + base64.b64encode(b'not an image').decode(), 'invalid_screenshot'),
-                        (shot(), 'vision_unavailable')]:
-        with pytest.raises(ali.AlibabaError) as exc:
-            alibaba_scrape.intake('', [value])
-        assert exc.value.code == code
-
-    def broken(images=None, text=''):
-        raise RuntimeError(GEMINI_SECRET)
-    with pytest.raises(ali.AlibabaError) as exc:
-        alibaba_scrape.intake('', [shot()], extractor=broken)
-    assert exc.value.code == 'vision_failed' and GEMINI_SECRET not in exc.value.message
-    with pytest.raises(ali.AlibabaError) as exc:
-        alibaba_scrape.intake('', [shot()], extractor=lambda images=None, text='': {})
-    assert exc.value.code == 'product_unreadable'
-    with pytest.raises(ali.AlibabaError) as exc:
-        alibaba_scrape.intake('', [])
-    assert exc.value.code == 'invalid_product'
-
-
-def test_manual_cost_overrides_and_page_text_goes_to_gemini_when_price_missing():
-    seen = []
-    product = alibaba_scrape.intake('573741401425', session=Session(Response(200, page(prices=()))),
-                                    extractor=lambda images=None, text='': seen.append(text) or {'price_cny': 7})
-    assert seen and '北欧风' in seen[0] and product['min_price_cny'] == 7 and product['source'] == 'page'
+def test_manual_cost_title_and_category_win_and_a_blocked_page_is_only_a_note():
     product = alibaba_scrape.intake('573741401425', cost_cny=15, session=Session(Response(200, page())))
-    assert product['min_price_cny'] == 15
+    assert product['min_price_cny'] == 15 and product['title'].startswith('北欧风') and not product['title_missing']
+    blocked = Session(Response(302, location='https://login.1688.com/'))
+    product = alibaba_scrape.intake('https://detail.1688.com/offer/573741401425.html', cost_cny=8.5, title='硅胶折叠水杯',
+                                    category='杯子', session=blocked)
+    assert (product['product_id'], product['title'], product['category'], product['min_price_cny']) == ('573741401425', '硅胶折叠水杯', '杯子', 8.5)
+    assert product['url'] == 'https://detail.1688.com/offer/573741401425.html' and '入力した値' in ' '.join(product['notes'])
+    product = alibaba_scrape.intake('573741401425', cost_cny=8.5, session=Session(Response(302, location='https://login.1688.com/')))
+    assert product['title_missing'] and product['title'] == '1688 商品 573741401425'
+
+
+def test_without_cost_a_blocked_page_or_bad_url_is_an_error():
+    with pytest.raises(ali.AlibabaError) as exc:
+        alibaba_scrape.intake('573741401425', session=Session(Response(302, location='https://login.1688.com/')))
+    assert exc.value.code == 'page_blocked' and '原価' in exc.value.message
+    for bad in ('', 'https://evil.example/offer/1.html'):
+        with pytest.raises(ali.AlibabaError) as exc:
+            alibaba_scrape.intake(bad, cost_cny=10)
+        assert exc.value.code == 'invalid_product'
+    assert not hasattr(alibaba_scrape, 'decode_screenshot') and not hasattr(shop_store.ShopStore, 'save_image')
 
 
 def product(title, **extra):
@@ -252,13 +182,11 @@ def api(monkeypatch):
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 'memory')
     shop_store._MEMORY.clear()
-    shop_store._IMAGES.clear()
-    state = {'html': page(), 'blocked': False, 'extract': {'title': '硅胶折叠水杯', 'category': '杯子', 'price_cny': 8.5}}
+    state = {'html': page(), 'blocked': False}
 
-    def intake(url, screenshots, cost):
+    def intake(url, cost, title, category):
         response = Response(302, location='https://login.1688.com/') if state['blocked'] else Response(200, state['html'])
-        return alibaba_scrape.intake(url, screenshots, cost, session=Session(response),
-                                     extractor=lambda images=None, text='': state['extract'])
+        return alibaba_scrape.intake(url, cost, title, category, session=Session(response))
 
     test_app = FastAPI()
     router = alibaba_api.build_router(web.require_tool_auth, intake)
@@ -269,7 +197,7 @@ def api(monkeypatch):
     return TestClient(test_app), state, router
 
 
-def test_evaluate_endpoint_returns_product_review_and_price(api):
+def test_evaluate_returns_review_and_price_and_saves_a_private_draft(api):
     http, _, _ = api
     body = http.post('/api/alibaba/evaluate', json={'product': 'https://detail.1688.com/offer/573741401425.html',
                                                     'pricing': {'cny_jpy_rate': 20}}, headers=AUTH)
@@ -277,37 +205,48 @@ def test_evaluate_endpoint_returns_product_review_and_price(api):
     data = body.json()
     assert data['product']['title'].startswith('北欧风') and data['review']['verdict'] == 'SAFE'
     assert data['pricing']['cost_cny'] == 9.8 and data['pricing']['config']['cny_jpy_rate'] == 20 and data['pricing']['selling_price_jpy'] > 0
+    drafts = http.get('/api/alibaba/drafts', headers=AUTH).json()['drafts']
+    assert [d['id'] for d in drafts] == [data['draft']['id']] and drafts[0]['pricing']['selling_price_jpy'] == data['pricing']['selling_price_jpy']
+    assert http.get('/api/shop/products').json()['products'] == []
+    again = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 100}, headers=AUTH).json()
+    assert again['draft']['id'] == data['draft']['id'] and again['pricing']['selling_price_jpy'] == 4914
     assert http.post('/api/alibaba/fetch', json={'product': '573741401425'}, headers=AUTH).json()['product']['images']
     bad = http.post('/api/alibaba/evaluate', json={'product': 'https://evil.example/offer/1.html'}, headers=AUTH)
     assert bad.status_code == 422 and bad.json()['code'] == 'invalid_product'
     bad = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'pricing': {'markup': 9}}, headers=AUTH)
     assert bad.status_code == 422 and bad.json()['code'] == 'invalid_pricing'
-    assert http.post('/api/alibaba/evaluate', json={'product': '1', 'screenshots': ['x'] * 5}, headers=AUTH).status_code == 422
+    assert http.post('/api/alibaba/evaluate', json={'product': '1', 'cost_cny': 0}, headers=AUTH).status_code == 422
+    assert http.delete(f"/api/alibaba/drafts/{data['draft']['id']}", headers=AUTH).json()['removed'] is True
+    assert http.get('/api/alibaba/drafts', headers=AUTH).json()['drafts'] == []
 
 
 def test_evaluate_without_price_still_returns_review(api):
     http, state, _ = api
-    state['html'], state['extract'] = page(prices=()), {}
+    state['html'] = page(prices=())
     data = http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH).json()
     assert data['pricing'] is None and '原価' in data['pricing_error'] and data['review']['verdict'] == 'SAFE'
+    response = http.post('/api/alibaba/publish', json={'draft_id': data['draft']['id']}, headers=AUTH)
+    assert response.status_code == 409 and '原価' in response.json()['reason']
 
 
-def test_blocked_page_asks_for_a_screenshot_then_publishes_from_it(api):
+def test_blocked_page_with_manual_cost_makes_a_draft_without_error_then_registers_it(api):
     http, state, _ = api
     state['blocked'] = True
-    blocked = http.post('/api/alibaba/publish', json={'product': '573741401425'}, headers=AUTH)
-    assert blocked.status_code == 422 and blocked.json()['code'] == 'page_blocked' and 'スクショ' in blocked.json()['detail']
-    response = http.post('/api/alibaba/publish', json={'product': '573741401425', 'screenshots': [shot()]}, headers=AUTH)
-    assert response.status_code == 201 and response.json()['published'] is True
-    data = response.json()
-    assert 'screenshot_images' not in data['product'] and data['pricing']['selling_price_jpy'] == ali.price_product(8.5)['selling_price_jpy']
-    image = data['listing']['images'][0]
-    assert image.startswith('/api/shop/images/') and image.endswith('.jpg')
-    served = http.get(image)
-    assert served.status_code == 200 and served.headers['content-type'] == 'image/jpeg' and served.content[:2] == b'\xff\xd8'
-    assert http.get('/api/shop/images/' + 'f' * 32 + '.jpg').status_code == 404
-    assert http.get('/api/shop/images/..%2Fcatalog.jpg').status_code == 404
+    assert http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH).json()['code'] == 'page_blocked'
+    untitled = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 100}, headers=AUTH).json()
+    assert untitled['pricing']['selling_price_jpy'] == 4914 and untitled['product']['title_missing']
+    response = http.post('/api/alibaba/publish', json={'draft_id': untitled['draft']['id']}, headers=AUTH)
+    assert response.status_code == 409 and '商品名' in response.json()['reason']
+    data = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 100, 'title': '硅胶折叠水杯',
+                                                    'category': '杯子'}, headers=AUTH)
+    assert data.status_code == 200 and data.json()['draft']['id'] == untitled['draft']['id']
+    response = http.post('/api/alibaba/publish', json={'draft_id': data.json()['draft']['id']}, headers=AUTH)
+    assert response.status_code == 201 and response.json()['listing']['price_jpy'] == 4914
     assert http.get('/api/shop/products').json()['products'][0]['title'] == '硅胶折叠水杯'
+    assert http.get('/api/alibaba/drafts', headers=AUTH).json()['drafts'] == []
+    missing = http.post('/api/alibaba/publish', json={'draft_id': 'f' * 32}, headers=AUTH)
+    assert missing.status_code == 404 and missing.json()['code'] == 'draft_not_found'
+    assert http.get('/api/shop/images/' + 'f' * 32 + '.jpg').status_code == 404
 
 
 def test_api_requires_owner_token_and_needs_no_1688_keys(monkeypatch):
@@ -316,12 +255,30 @@ def test_api_requires_owner_token_and_needs_no_1688_keys(monkeypatch):
     for name in ('KARRY_1688_APP_KEY', 'KARRY_1688_APP_SECRET', 'KARRY_1688_ACCESS_TOKEN'):
         monkeypatch.delenv(name, raising=False)
     http = TestClient(web.app)
-    assert http.get('/api/alibaba/config').status_code == 401
-    assert http.post('/api/alibaba/evaluate', json={'product': '573741401425'}).status_code == 401
+    for method, path in (('get', '/api/alibaba/config'), ('get', '/api/alibaba/drafts'), ('post', '/api/alibaba/evaluate'),
+                         ('post', '/api/alibaba/publish'), ('delete', '/api/alibaba/drafts/' + 'f' * 32),
+                         ('get', '/api/shop/admin/products'), ('get', '/api/admin/me')):
+        assert getattr(http, method)(path).status_code == 401, path
+        assert getattr(http, method)(path, headers={'Authorization': 'Bearer wrong'}).status_code == 401, path
+    assert http.get('/api/admin/me', headers=AUTH).json() == {'admin': True}
     response = http.get('/api/alibaba/config', headers=AUTH)
     config = response.json()
-    assert response.status_code == 200 and config['mode'] == 'page+vision' and config['vision'] is True and config['pricing']['cny_jpy_rate'] == 22
-    assert GEMINI_SECRET not in response.text and 'KARRY_1688_APP_KEY' not in response.text and 'configured' not in config
+    assert response.status_code == 200 and config['pricing']['cny_jpy_rate'] == 22
+    assert GEMINI_SECRET not in response.text and 'KARRY_1688_APP_KEY' not in response.text and 'vision' not in config
+
+
+def test_admin_endpoints_fail_closed_without_a_configured_token(monkeypatch):
+    monkeypatch.delenv('KARRY_API_TOKEN', raising=False)
+    http = TestClient(web.app)
+    assert http.get('/api/admin/me').status_code == 503 and http.get('/api/alibaba/drafts').status_code == 503
+
+
+def test_admin_page_is_noindex_and_shop_stays_public(monkeypatch):
+    monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
+    http = TestClient(web.app)
+    page_ = http.get('/admin')
+    assert page_.status_code == 200 and page_.headers['x-robots-tag'] == 'noindex' and '法務・AIダッシュボード' in page_.text
+    assert OWNER not in page_.text and http.get('/shop').status_code == 200
 
 
 def test_legal_dashboard_logs_errors_and_verdicts_without_secrets(api):

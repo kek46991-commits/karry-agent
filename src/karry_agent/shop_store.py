@@ -1,9 +1,7 @@
 """KERRY shop catalog and order inbox, kept in the private task bucket (memory when no bucket is configured)."""
 from __future__ import annotations
 
-import base64
 import copy
-import hashlib
 import threading
 import time
 import uuid
@@ -13,10 +11,8 @@ from . import task_persistence
 
 MAX_PRODUCTS = 500
 MAX_ORDERS = 1000
-MAX_MEMORY_IMAGES = 300
-IMAGE_URL = "/api/shop/images/{}.jpg"
+MAX_DRAFTS = 200
 _MEMORY: dict[str, dict[str, Any]] = {}
-_IMAGES: dict[str, bytes] = {}
 _LOCK = threading.Lock()
 
 
@@ -69,25 +65,26 @@ class ShopStore:
     def unpublish(self, product_id: str) -> bool:
         return bool(self._update("catalog.json", lambda current: current.setdefault("products", {}).pop(product_id, None)))
 
-    def save_image(self, data: bytes) -> str:
-        """Store a JPEG (content-addressed) and return its public shop URL."""
-        image_id = hashlib.sha256(data).hexdigest()[:32]
-        if not self.durable:
-            with _LOCK:
-                _IMAGES[image_id] = data
-                for old in list(_IMAGES)[:-MAX_MEMORY_IMAGES]:
-                    _IMAGES.pop(old, None)
-        else:
-            encoded = base64.b64encode(data).decode()
-            self.repo._cas(self.prefix + f"images/{image_id}.json", {"version": 1}, lambda current: {**current, "jpeg": encoded})
-        return IMAGE_URL.format(image_id)
+    def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
+        """Admin-only draft (product + review + pricing); the same 1688 product ID keeps its draft ID."""
+        def apply(current):
+            items = current.setdefault("drafts", {})
+            existing = next((d for d in items.values() if d["product"]["product_id"] == draft["product"]["product_id"]), None)
+            record = {**draft, "id": existing["id"] if existing else uuid.uuid4().hex, "updated_at": time.time()}
+            items[record["id"]] = record
+            for old in sorted(items.values(), key=lambda d: d["updated_at"])[:-MAX_DRAFTS]:
+                items.pop(old["id"], None)
+            return record
+        return self._update("drafts.json", apply)
 
-    def image(self, image_id: str) -> bytes | None:
-        if not self.durable:
-            with _LOCK:
-                return _IMAGES.get(image_id)
-        value, _ = self.repo._read(self.prefix + f"images/{image_id}.json")
-        return base64.b64decode(value["jpeg"]) if value and isinstance(value.get("jpeg"), str) else None
+    def drafts(self) -> list[dict[str, Any]]:
+        return sorted(self._read("drafts.json").get("drafts", {}).values(), key=lambda d: d["updated_at"], reverse=True)
+
+    def draft(self, draft_id: str) -> dict[str, Any] | None:
+        return self._read("drafts.json").get("drafts", {}).get(draft_id)
+
+    def delete_draft(self, draft_id: str) -> bool:
+        return bool(self._update("drafts.json", lambda current: current.setdefault("drafts", {}).pop(draft_id, None)))
 
     def orders(self) -> list[dict[str, Any]]:
         return sorted(self._read("orders.json").get("orders", {}).values(), key=lambda o: o["created_at"], reverse=True)
