@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import alibaba1688 as ali
+from . import shop_store
 
 
 class PricingOverrides(BaseModel):
@@ -68,11 +69,12 @@ def _error(exc: ali.AlibabaError) -> JSONResponse:
 
 def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | None = None,
                  reviewer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-                 audit: AuditLog | None = None) -> APIRouter:
+                 audit: AuditLog | None = None, store_factory: Callable[[], Any] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/alibaba", tags=["alibaba"], dependencies=[Depends(auth)])
     clients = client_factory or ali.client_from_env
     review = reviewer or ali.review_product
     log = audit or AuditLog()
+    stores = store_factory or shop_store.ShopStore
     router.audit = log
 
     def safe_id(product: str) -> str | None:
@@ -134,5 +136,29 @@ def build_router(auth: Callable[..., Any], client_factory: Callable[[], Any] | N
                                 checks={k: {"status": v["status"], "reason": v["reason"]} for k, v in review_result["checks"].items()},
                                 selling_price_jpy=(result["pricing"] or {}).get("selling_price_jpy"))
         return _json(result)
+
+    @router.post("/publish")
+    async def publish(request: EvaluateRequest):
+        """本番仕入れ＆自動出品: live 1688 fetch → legal screening → KERRY shop listing (SAFE + priced only)."""
+        def work():
+            product = fetch(request.product)
+            review_result = review(product)
+            pricing = ali.price_product(product.get("min_price_cny"), request.pricing.model_dump(exclude_none=True)) \
+                if review_result["verdict"] == "SAFE" else None
+            listing = stores().publish(shop_store.listing_from(product, review_result, pricing)) if pricing else None
+            return product, review_result, pricing, listing
+        try:
+            product, review_result, pricing, listing = await run_in_threadpool(work)
+        except ali.AlibabaError as exc:
+            log.add(action="publish", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
+            return _error(exc)
+        checks = {k: {"status": v["status"], "reason": v["reason"]} for k, v in review_result["checks"].items()}
+        entry = log.add(action="publish", status="ok" if listing else "rejected", product_id=product.get("product_id"),
+                        title=product.get("title"), images=len(product.get("images") or []), verdict=review_result["verdict"],
+                        engine=review_result["engine"], checks=checks, selling_price_jpy=(pricing or {}).get("selling_price_jpy"),
+                        shop_id=(listing or {}).get("id"))
+        body = {"published": bool(listing), "listing": shop_store.public_product(listing) if listing else None,
+                "product": product, "review": review_result, "pricing": pricing, "log": entry}
+        return _json(body, 201 if listing else 409)
 
     return router
