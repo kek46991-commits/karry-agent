@@ -46,7 +46,7 @@
     </form>
   </dialog>
 <script>
-  const $=id=>document.getElementById(id),IMG=/^https:\/\/(cbu01|img)\.alicdn\.com\//;
+  const $=id=>document.getElementById(id),IMG=/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/;
   const shop={products:[],category:'すべて',current:null};
   const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
   function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}

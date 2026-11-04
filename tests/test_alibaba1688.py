@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 
 import app as web
 from karry_agent import alibaba1688 as ali
-from karry_agent import alibaba_api, alibaba_scrape, shop_api, shop_store
+from karry_agent import (
+    alibaba_api,
+    alibaba_scrape,
+    product_images,
+    shop_api,
+    shop_store,
+)
 
 OWNER = 'synthetic-owner-' + 'token'
 AUTH = {'Authorization': 'Bearer ' + OWNER}
@@ -124,7 +130,7 @@ def test_without_cost_a_blocked_page_or_bad_url_is_an_error():
         with pytest.raises(ali.AlibabaError) as exc:
             alibaba_scrape.intake(bad, cost_cny=10)
         assert exc.value.code == 'invalid_product'
-    assert not hasattr(alibaba_scrape, 'decode_screenshot') and not hasattr(shop_store.ShopStore, 'save_image')
+    assert not hasattr(alibaba_scrape, 'decode_screenshot') and not hasattr(alibaba_scrape, 'gemini_extract')
 
 
 def product(title, **extra):
@@ -182,6 +188,9 @@ def api(monkeypatch):
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 'memory')
     shop_store._MEMORY.clear()
+    shop_store._IMAGES.clear()
+    monkeypatch.setattr(product_images, 'download', lambda url, session=None: None)
+    monkeypatch.setattr(product_images, 'gemini_enhance', lambda photo, title: None)
     state = {'html': page(), 'blocked': False}
 
     def intake(url, cost, title, category):
@@ -297,3 +306,29 @@ def test_legal_dashboard_logs_errors_and_verdicts_without_secrets(api):
     for _ in range(alibaba_api.MAX_LOG_ENTRIES + 5):
         router.audit.add(action='fetch', status='ok')
     assert len(router.audit.list(1000)) == alibaba_api.MAX_LOG_ENTRIES
+
+
+def test_evaluate_with_photos_stores_enhanced_shop_images_and_publishes_them(api, monkeypatch):
+    import io
+
+    from PIL import Image
+    http, state, _ = api
+    out = io.BytesIO()
+    Image.new('RGB', (300, 300), (20, 90, 160)).save(out, 'PNG')
+    photo = 'data:image/png;base64,' + __import__('base64').b64encode(out.getvalue()).decode()
+    seen = []
+    monkeypatch.setattr(product_images, 'gemini_enhance', lambda body, title: seen.append(title) or body)
+    state['blocked'] = True
+    data = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 100, 'title': '硅胶折叠水杯',
+                                                    'photos': [photo]}, headers=AUTH).json()
+    assert data['product']['image_processing'] == {'engine': 'gemini', 'sources': 1, 'enhanced': 1} and seen == ['硅胶折叠水杯']
+    image = data['product']['images'][0]
+    served = http.get(image)
+    assert served.status_code == 200 and served.headers['content-type'] == 'image/jpeg' and served.content[:2] == b'\xff\xd8'
+    listing = http.post('/api/alibaba/publish', json={'draft_id': data['draft']['id']}, headers=AUTH).json()['listing']
+    assert listing['images'] == [image] and http.get('/api/shop/products').json()['products'][0]['images'] == [image]
+    bad = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 1, 'photos': ['data:image/png;base64,***']},
+                    headers=AUTH)
+    assert bad.status_code == 422 and bad.json()['code'] == 'invalid_photo'
+    assert http.post('/api/alibaba/evaluate', json={'product': '1', 'photos': ['x'] * 5}, headers=AUTH).status_code == 422
+    assert http.get('/api/shop/images/..%2Fcatalog.jpg').status_code == 404

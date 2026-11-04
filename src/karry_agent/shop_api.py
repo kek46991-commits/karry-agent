@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import shop_store
@@ -32,6 +32,14 @@ def build_routers(auth: Callable[..., Any], store_factory: Callable[[], Any] | N
     def products():
         items = [shop_store.public_product(p) for p in stores().products() if p.get("status") == "published"]
         return _json({"products": items, "categories": sorted({p["category"] for p in items})})
+
+    @public.get("/images/{image_id}.jpg")
+    def image(image_id: str):
+        data = stores().image(image_id) if len(image_id) == 32 and all(c in "0123456789abcdef" for c in image_id) else None
+        if data is None:
+            return _json({"detail": "not found"}, 404)
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400",
+                                                                 "X-Content-Type-Options": "nosniff"})
 
     @public.post("/orders")
     def order(request: OrderRequest):
