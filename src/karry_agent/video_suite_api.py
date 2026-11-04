@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import lipsync, lipsync_remote
+from . import image_generation, lipsync, lipsync_remote
 from . import video_suite as vs
 from .image_attachments import MAX_UPLOAD_BYTES
 
@@ -65,13 +65,15 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                  lip_sync_normalizer: Callable[..., bytes] | None = None,
                  autopilot_text_generator: Callable[[str, int], dict[str, Any]] | None = None,
                  autopilot_image_generator: Callable[[bytes, int], dict[str, Any]] | None = None,
-                 autopilot_renderer_factory: Callable[[], Any] | None = None) -> APIRouter:
+                 autopilot_renderer_factory: Callable[[], Any] | None = None,
+                 scene_image_generator: Callable[[str, str], bytes | None] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/video", tags=["video"], dependencies=[Depends(auth)])
     adapters = adapter_factory or vs.adapter_from_env
     narrators = narrator_factory or vs.narrator_from_env
     lipsyncs = lipsync_factory or lipsync_remote.lipsync_from_env
     run_background = runner or (lambda fn: threading.Thread(target=fn, name="karry-video-render", daemon=True).start())
     autopilot_renderer = autopilot_renderer_factory or vs.LocalVideoRenderer
+    scene_images = scene_image_generator or image_generation.scene_image
 
     def lipsync_adapter():
         from .sadtalker import adapter_from_env
@@ -417,8 +419,14 @@ def build_router(auth: Callable[..., Any], check_session: Callable[[str], None],
                 final_video, job["autopilot"]["lip_sync"] = talking_clip(image_bytes, final_audio, total_seconds)
                 store.save(job)
             if final_video is None:
-                final_video = vs.concatenate_mp4_clips([renderer.render(visual, "16:9", seconds, image_bytes, wav)
-                                                        for visual, seconds, wav in plan])
+                frames = [image_bytes] * len(plan)
+                if not image_bytes and os.getenv("KARRY_VIDEO_SCENE_IMAGES", "1") != "0":
+                    frames = [scene_images(visual, "16:9") for visual, _, _ in plan]
+                    job["autopilot"]["scene_images"] = {"engine": "gemini", "requested": len(plan),
+                                                        "generated": sum(1 for frame in frames if frame)}
+                    store.save(job)
+                final_video = vs.concatenate_mp4_clips([renderer.render(visual, "16:9", seconds, frame, wav)
+                                                        for (visual, seconds, wav), frame in zip(plan, frames)])
             if not vs.mp4_has_audible_audio(final_video):
                 raise vs.VideoError("動画にナレーション音声を入れられませんでした。", 502, "audio_missing")
             store.put_blob(f"{job['id']}/narration.wav", final_audio, "audio/wav")

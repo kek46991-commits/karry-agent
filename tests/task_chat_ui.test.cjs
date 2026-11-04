@@ -837,3 +837,12 @@ test('409 inside the SSE stream (second tab) also waits and shows the first run 
   assert.match(text,/前の処理がまだ実行中/);assert.doesNotMatch(text,/送信エラー/);busy=false;await sending;
   assert.match(s.doc.getElementById('messages').textContent,/First tab answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);s.dom.window.close();
 });
+
+test('chat video label says when the scenes are Gemini images or fell back to the title card',()=>{
+  const s=setup();const label=job=>s.win.eval(`chatVideoLabel(${JSON.stringify(job)})`);
+  const done={status:'succeeded',duration_seconds:15,autopilot:{title:'海辺'}};
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:3}}}),/Gemini で作った画像（3枚）/);
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:1}}}),/Gemini の画像 1\/3 枚/);
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:0}}}),/文字の画面にしました/);
+  assert.doesNotMatch(label(done),/Gemini/);s.dom.window.close();
+});

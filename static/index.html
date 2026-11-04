@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="gemini-recovery-20261027">
+  <meta name="karry-ui-version" content="gemini-scenes-20261027">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -636,7 +636,8 @@
     if(job.status==='failed')return `動画の作成に失敗しました（${auto.error||job.segments?.[0]?.error||'不明なエラー'}）。`;
     const title=auto.title?`「${auto.title}」`:'動画',seconds=Number(job.duration_seconds)>0?`（${job.duration_seconds}秒）`:'';
     const note=job.status==='partial'?'（ナレーションの一部を仮の音にしています）':auto.fallback_used?'（AI脚本を使えなかったため簡易脚本で作りました）':'';
-    return `${title}${seconds}が完成しました${note}。${chatVideoLipSyncNote(auto.lip_sync)}`;
+    const images=auto.scene_images,art=!images?'':images.generated>=images.requested?`🎨 映像は Gemini で作った画像（${images.generated}枚）です。`:images.generated>0?`🎨 映像は Gemini の画像 ${images.generated}/${images.requested} 枚と文字の画面です。`:'🎨 Gemini で画像を作れなかったため、文字の画面にしました。';
+    return `${title}${seconds}が完成しました${note}。${art}${chatVideoLipSyncNote(auto.lip_sync)}`;
   }
   const SADTALKER_REASONS={no_photo:'写真が添付されていなかったため',sadtalker_configuration:'SadTalker の接続先が未設定のため',sadtalker_busy:'SadTalker が混雑していたため',sadtalker_timeout:'SadTalker が時間内に終わらなかったため',sadtalker_unavailable:'SadTalker に接続できなかったため',sadtalker_output:'SadTalker の結果を使えなかったため'};
   function chatVideoLipSyncNote(lip){
