@@ -846,7 +846,7 @@ def public_job(job: dict[str, Any], session_id: str) -> dict[str, Any]:
             "with_image": job["with_image"], "created_at": job["created_at"], "segments": segments,
             **({"autopilot": {key: value for key, value in job["autopilot"].items()
                                if key in {"status", "title", "scene_count", "current_scene", "fallback_used", "fallback_reason", "error",
-                                          "lip_sync", "requested_seconds"}}} if job.get("autopilot") else {}),
+                                          "lip_sync", "requested_seconds", "scene_images"}}} if job.get("autopilot") else {}),
             "narration": None if not narration else {"text": narration["text"], "voice": narration["voice"], "status": narration["status"],
                                                      "muxed": bool(narration.get("muxed")), "engine": narration.get("engine"),
                                                      **({"error": narration["error"]} if narration.get("error") else {}),

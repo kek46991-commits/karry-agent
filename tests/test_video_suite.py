@@ -220,6 +220,10 @@ def autopilot_env(monkeypatch):
             rendered.append((prompt, aspect_ratio, seconds, bool(image), bool(narration)))
             return b'\x00\x00\x00\x18ftypmp42scene'
     renderer = Renderer()
+    scene_prompts = []
+    def scene_image(prompt, aspect_ratio):
+        scene_prompts.append((prompt, aspect_ratio))
+        return None if 'NOIMG' in prompt or scene_prompts[-1:] and len(scene_prompts) == 2 and 'PARTIAL' in prompt else b'\xff\xd8scene-jpeg'
     monkeypatch.setattr(vs, 'ffmpeg_exe', lambda: '/fake/ffmpeg')
     monkeypatch.setattr(vs, 'concatenate_mp4_clips', lambda clips: b'\x00\x00\x00\x18ftypmp42final' if len(clips) == 3 else b'')
     monkeypatch.setattr(vs, 'concatenate_wav_clips', lambda clips: b'RIFF' + b'final-audio')
@@ -233,9 +237,10 @@ def autopilot_env(monkeypatch):
         web.require_tool_auth, lambda sid: None, lambda: FakeAdapter(), lambda: narrator, queued.append,
         lip_sync_factory=lambda: talking['engine'], lip_sync_normalizer=normalize,
         autopilot_text_generator=text_generator, autopilot_image_generator=image_generator,
-        autopilot_renderer_factory=lambda: renderer))
+        autopilot_renderer_factory=lambda: renderer, scene_image_generator=scene_image))
     client = TestClient(test_app)
     client.talking = talking
+    client.scene_prompts = scene_prompts
     return client, narrator, queued, rendered, generated
 
 
@@ -337,8 +342,10 @@ def test_autopilot_turns_text_into_narrated_scene_loop_and_one_mp4(autopilot_env
     assert done['status'] == 'succeeded' and done['duration_seconds'] == 15
     assert done['autopilot']['status'] == 'succeeded' and done['autopilot']['current_scene'] == 3
     assert len(done['segments']) == 1 and done['segments'][0]['status'] == 'succeeded'
-    assert len(rendered) == 3 and all(item[1:] == ('16:9', 5, False, True) for item in rendered)
+    assert len(rendered) == 3 and all(item[1:] == ('16:9', 5, True, True) for item in rendered)
     assert generated == [('text', '夕焼けの海辺を歩く。', 3)]
+    assert client.scene_prompts == [(f'Cinematic scene {i}.', '16:9') for i in range(1, 4)]
+    assert done['autopilot']['scene_images'] == {'engine': 'gemini', 'requested': 3, 'generated': 3}
     assert [call[0] for call in narrator.calls] == ['日本語ナレーション1。', '日本語ナレーション2。', '日本語ナレーション3。']
     clip = client.get(done['segments'][0]['url'], headers=AUTH)
     assert clip.status_code == 200 and clip.content.endswith(b'final')
@@ -355,6 +362,7 @@ def test_autopilot_accepts_one_image_without_text_and_rejects_empty_input(autopi
     assert response.status_code == 202 and response.json()['with_image'] is True
     queued.pop()()
     assert generated[0][0] == 'image' and all(item[3] for item in rendered)
+    assert client.scene_prompts == [], 'the uploaded photo is used, no Gemini scene images'
 
 
 @pytest.mark.parametrize('source', ['[raise] 海辺を歩く物語。', '[invalid] 星を見上げる夜。'])
@@ -806,3 +814,40 @@ def test_local_job_lipsync_succeeds_or_falls_back_with_reason(local_env, monkeyp
     assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2]
     plain = create(client, duration_seconds='2', narration_text='まいど').json()
     assert plain['lipsync'] is None
+
+
+def test_autopilot_scene_images_fall_back_to_the_title_card_and_can_be_disabled(autopilot_env, monkeypatch):
+    client, _, queued, rendered, _ = autopilot_env
+    original = client.scene_prompts
+    done = finish(client, queued, novel_text='夕焼けの海辺を歩く。')
+    assert done['status'] == 'succeeded' and done['autopilot']['scene_images']['generated'] == 3
+    rendered.clear(); original.clear()
+    monkeypatch.setenv('KARRY_VIDEO_SCENE_IMAGES', '0')
+    done = finish(client, queued, novel_text='夕焼けの海辺を歩く。')
+    assert done['status'] == 'succeeded' and 'scene_images' not in done['autopilot'] and original == []
+    assert all(item[3] is False for item in rendered)
+
+
+def test_scene_image_returns_jpeg_or_none_and_never_raises(monkeypatch):
+    import io
+
+    from PIL import Image
+    from karry_agent import image_generation as ig
+    png = io.BytesIO()
+    Image.new('RGB', (16, 9), (10, 20, 30)).save(png, 'PNG')
+    calls = []
+
+    class Models:
+        def generate_content(self, **kw):
+            calls.append(kw)
+            part = type('P', (), {'inline_data': type('I', (), {'data': png.getvalue(), 'mime_type': 'image/png'})()})()
+            return type('R', (), {'candidates': [type('C', (), {'content': type('X', (), {'parts': [part]})()})()]})()
+    monkeypatch.setattr(ig, '_client', lambda: type('Cl', (), {'models': Models()})())
+    body = ig.scene_image('夕焼けの海辺', '16:9')
+    assert body[:2] == b'\xff\xd8' and calls[0]['config'].image_config.aspect_ratio == '16:9' and 'No text' in calls[0]['contents']
+    assert ig.scene_image('   ') is None
+
+    def boom():
+        raise ValueError('GEMINI_API_KEY is not set')
+    monkeypatch.setattr(ig, '_client', boom)
+    assert ig.scene_image('海') is None

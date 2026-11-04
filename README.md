@@ -188,6 +188,8 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 ### Creative Video Suite（画像→動画・ナレーション）
 
+> 写真を付けずにチャットで動画を頼むと、各シーンの映像案（`visual_prompt`）から Gemini（`GEMINI_IMAGE_MODEL`、既定 `gemini-2.5-flash-image`）で 16:9 の写実的な画像を 1 枚ずつ作り、それを動かして MP4 にします。画像が作れなかったシーンだけ文字の画面になり、チャットに「Gemini の画像 n/3 枚」と表示します。`KARRY_VIDEO_SCENE_IMAGES=0` で止められます。
+
 > 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
 動画はチャットで頼むだけで作れます。「夕焼けの海辺を歩く少女の動画を作って」のように送ると（画像を添付すればその画像から）、`chat_video.is_video_request` が依頼を判定してモデルを呼ばずにオートパイロット（Gemini 脚本 → ナレーション → ローカル合成）を開始し、完成した MP4 をそのチャットの返答内で再生・保存できます。専用の入力フォームはありません。API（`/api/video/*`）からは写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して作ることもできます。既定は **0円ローカル合成モード**（`KARRY_VIDEO_PROVIDER=local`）で、Replicate などの有料動画APIは一切呼ばず、サーバー内の ffmpeg（`imageio-ffmpeg` 同梱）で写真またはタイトルカードにゆっくりしたパンとフェードを付け、ナレーション音声を重ねた1本の MP4 を合成して非公開ストレージに保存します。ナレーションは Gemini TTS（低めの男性声 `Charon`、既存の `GEMINI_API_KEY`）で作り、キー未設定や失敗時はキー不要の無料音声合成（gTTS）で作って MP4 の音声トラックに入れます。どちらも使えないときは無音で「成功」にせず、仮の合図音を入れて `partial`（一部失敗）として画面に理由を出します。Replicate Kling / Runway は `KARRY_VIDEO_PROVIDER` と `KARRY_VIDEO_GENERATION_ENABLED=1` を明示したときだけ使う任意機能です。APIはすべて所有者トークン必須で、キー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
 
