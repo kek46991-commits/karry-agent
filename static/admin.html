@@ -16,6 +16,7 @@
     button{border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer;background:var(--accent);color:#06101f}button:disabled{opacity:.45;cursor:not-allowed}
     .ghost{background:#24324f;color:var(--text)}.danger{background:#5a2330;color:#ffd9de}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
     .hint{color:var(--muted);font-size:12px}.status{min-height:1.2em;font-size:13px;margin-top:8px}.preview{font-size:15px;margin-top:10px}
+    .check span{display:flex;gap:8px;align-items:center;color:var(--text)}.check input{width:auto}.photos{display:flex;gap:8px;overflow-x:auto;margin:8px 0}.photos img{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
     .verdict{font-weight:800;font-size:17px}.verdict[data-verdict="SAFE"]{color:var(--ok)}.verdict[data-verdict="REJECT"]{color:var(--ng)}
     ul.checks{margin:6px 0;padding-left:18px;font-size:13px}ul.checks li[data-status="REJECT"]{color:var(--ng)}
     table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
@@ -41,6 +42,8 @@
           <label>原価（元）<input id="costCny" type="number" min="0.01" max="100000" step="0.01" placeholder="例: 100"></label>
           <label>商品名（ページが読めないとき）<input id="title" type="text" maxlength="200"></label>
           <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
+          <label class="wide">商品写真（任意・最大4枚。1688 のページが読めないとき）<input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+          <label class="wide check"><span><input id="enhance" type="checkbox" checked> 🎨 Gemini で写真の光と背景を整える（商品そのものは変えません）</span></label>
         </div>
         <div class="grid" style="margin-top:10px">
           <label>為替（円/元）<input id="rate" type="number" min="1" max="100" step="0.01"></label>
@@ -60,7 +63,8 @@
     </div>
   </main>
 <script>
-  const $=id=>document.getElementById(id),KEY='karry-admin-token';
+  const $=id=>document.getElementById(id),KEY='karry-admin-token',IMG=/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/;
+  function readPhoto(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('写真を読めませんでした。'));reader.readAsDataURL(file);});}
   const PRICING={rate:'cny_jpy_rate',agentFee:'agent_fee_rate',shipping:'shipping_jpy',markup:'markup'};
   const state={token:'',draft:null};
   const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
@@ -99,13 +103,17 @@
     const verdict=el('div',{className:'verdict',textContent:`法的審査: ${r.verdict||'—'}`});verdict.dataset.verdict=r.verdict||'';
     const checks=el('ul',{className:'checks'},...Object.values(r.checks||{}).map(c=>{const li=el('li',{textContent:`${c.label}: ${c.status} — ${c.reason}`});li.dataset.status=c.status;return li;}));
     const price=pr?el('table',{className:'price'},...[['原価',`${pr.cost_cny} 元`],['商品代金',yen(pr.goods_jpy)],['代行手数料',yen(pr.agent_fee_jpy)],['送料・関税',yen(pr.shipping_jpy)],['仕入れ総額',yen(pr.landed_cost_jpy)],['販売価格',yen(pr.selling_price_jpy)],['利益',`${yen(pr.profit_jpy)}（${Math.round((pr.margin_rate||0)*100)}%）`]].map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v})))):empty(d.pricing_error||'原価（元）を入力すると販売価格を計算できます。');
-    $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
+    const pics=el('div',{className:'photos'},...(p.images||[]).filter(src=>IMG.test(src)).slice(0,12).map(src=>{const i=el('img',{alt:p.title||'商品写真',loading:'lazy'});i.referrerPolicy='no-referrer';i.src=src;return i;}));
+    const ip=p.image_processing,art=!ip?'':ip.engine!=='gemini'?`写真 ${ip.sources} 枚をそのまま使います。`:ip.sources===0?'🎨 使える写真がありませんでした。商品写真を追加してください。':ip.enhanced===ip.sources?`🎨 Gemini で写真 ${ip.enhanced} 枚の光と背景を整えました。`:`🎨 Gemini で ${ip.enhanced}/${ip.sources} 枚を整えました（残りは元の写真）。`;
+    $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),pics,empty(art),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
   }
   async function evaluate(){
     const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
     if(!product){$('entryStatus').textContent='1688 の商品 URL を入れてください。';return;}
-    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim()};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;
-    $('evaluate').disabled=true;$('entryStatus').textContent='審査・計算しています…';
+    const files=[...($('photos').files||[])];if(files.length>4||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 4 枚まで、1 枚 8MB までです。';return;}
+    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;
+    $('evaluate').disabled=true;$('entryStatus').textContent=$('enhance').checked?'写真を Gemini で整えて、審査・計算しています（1 分ほどかかります）…':'審査・計算しています…';
+    try{body.photos=await Promise.all(files.map(readPhoto));}catch(error){$('entryStatus').textContent=error.message;$('evaluate').disabled=false;return;}
     try{const {response,data}=await api('/api/alibaba/evaluate',{method:'POST',body:JSON.stringify(body)});
       if(!response.ok){$('entryStatus').textContent=typeof data.detail==='string'?data.detail:'入力を確認してください。';return;}
       const draft={...data.draft,pricing_error:data.pricing_error};renderResult(draft);

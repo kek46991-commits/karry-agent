@@ -21,7 +21,8 @@ function setup(options={}){
       if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
       if(url==='/api/alibaba/evaluate'){
         const body=JSON.parse(request.body),cost=body.cost_cny;
-        const draft={id:'d'.repeat(32),product:{product_id:'573741401425',title:body.title||'1688 商品 573741401425',title_missing:!body.title,notes:['入力した値で計算しました。']},
+        state.lastBody=body;
+        const draft={id:'d'.repeat(32),product:{product_id:'573741401425',title:body.title||'1688 商品 573741401425',title_missing:!body.title,notes:['入力した値で計算しました。'],images:body.photos?.length?['/api/shop/images/'+'a'.repeat(32)+'.jpg','https://evil.example/x.jpg']:[],image_processing:body.photos?.length?{engine:body.enhance_images?'gemini':null,sources:body.photos.length,enhanced:body.enhance_images?body.photos.length:0}:undefined},
           review:{verdict:state.verdict,checks:{pse:{label:'PSE（電気用品安全法）',status:state.verdict,reason:'r'}},disclaimer:'参考'},
           pricing:cost?{cost_cny:cost,goods_jpy:2200,agent_fee_jpy:110,shipping_jpy:1200,landed_cost_jpy:3510,selling_price_jpy:4914,profit_jpy:1404,margin_rate:0.2857}:null};
         state.drafts=[draft];return json({draft,pricing_error:cost?null:'原価（元）を入力すると販売価格を計算できます。'});
@@ -38,7 +39,8 @@ function setup(options={}){
 test('dashboard stays hidden until the admin token is verified and has no OCR, preview or external links',async()=>{
   const s=setup();const {$}=s;
   assert.equal($('dashboard').hidden,true);assert.equal($('login').hidden,false);
-  assert.equal(s.dom.window.document.querySelector('input[type=file]'),null,'no screenshot upload');
+  assert.deepEqual([...s.dom.window.document.querySelectorAll('input[type=file]')].map(i=>i.id),['photos'],'only plain product photos, no OCR screenshot input');
+  assert.equal($('enhance').checked,true);
   assert.equal(s.dom.window.document.querySelectorAll('a').length,0,'no external links');
   assert.equal(s.dom.window.document.querySelector('iframe'),null);
   assert.doesNotMatch(s.dom.window.document.body.textContent,/スクショ|OCR|プレビュー一覧|ショップを開く/);
@@ -81,4 +83,17 @@ test('REJECT drafts cannot be registered and an expired token returns to the log
   const bad=setup({saved:'stale'});await tick(30);
   assert.equal(bad.$('dashboard').hidden,true);assert.match(bad.$('loginStatus').textContent,/ログイン/);
   s.dom.window.close();bad.dom.window.close();
+});
+
+test('product photos are posted as data URLs with the Gemini enhance flag and shown after review',async()=>{
+  const s=setup({saved:'good-token'});const {$}=s;await tick(30);
+  Object.defineProperty($('photos'),'files',{configurable:true,value:[new s.win.File([new Uint8Array([255,216,255])],'a.jpg',{type:'image/jpeg'})]});
+  $('productUrl').value='573741401425';$('costCny').value='100';$('title').value='陶瓷杯';$('evaluate').click();await tick(40);
+  assert.equal(s.state.lastBody.enhance_images,true);assert.match(s.state.lastBody.photos[0],/^data:image\/jpeg;base64,/);
+  const imgs=[...$('result').querySelectorAll('img')];assert.equal(imgs.length,1,'only shop-hosted or alicdn images');assert.match(imgs[0].src,/\/api\/shop\/images\/a{32}\.jpg$/);
+  assert.match($('result').textContent,/Gemini で写真 1 枚の光と背景を整えました/);
+  $('enhance').checked=false;$('evaluate').click();await tick(40);
+  assert.equal(s.state.lastBody.enhance_images,false);assert.match($('result').textContent,/写真 1 枚をそのまま使います/);
+  Object.defineProperty($('photos'),'files',{configurable:true,value:Array.from({length:5},()=>new s.win.File(['x'],'a.jpg',{type:'image/jpeg'}))});
+  $('evaluate').click();await tick(10);assert.match($('entryStatus').textContent,/4 枚まで/);s.dom.window.close();
 });

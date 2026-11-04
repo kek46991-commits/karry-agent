@@ -3,7 +3,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app as web
-from karry_agent import alibaba_api, alibaba_scrape, shop_api, shop_store
+from karry_agent import (
+    alibaba_api,
+    alibaba_scrape,
+    product_images,
+    shop_api,
+    shop_store,
+)
 
 OWNER = 'synthetic-owner-' + 'token'
 AUTH = {'Authorization': 'Bearer ' + OWNER}
@@ -34,6 +40,8 @@ def shop(monkeypatch):
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 'memory')
     shop_store._MEMORY.clear()
+    monkeypatch.setattr(product_images, 'download', lambda url, session=None: None)
+    monkeypatch.setattr(product_images, 'gemini_enhance', lambda photo, title: None)
     state = {'title': '北欧风陶瓷马克杯'}
 
     class Session:

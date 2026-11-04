@@ -7,7 +7,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import alibaba1688 as ali
-from . import alibaba_scrape, shop_store
+from . import alibaba_scrape, product_images, shop_store
 
 
 class PricingOverrides(BaseModel):
@@ -34,6 +34,9 @@ class FetchRequest(BaseModel):
 
 class EvaluateRequest(FetchRequest):
     pricing: PricingOverrides = Field(default_factory=PricingOverrides)
+    photos: list[Annotated[str, Field(max_length=12_000_000)]] = Field(
+        default_factory=list, max_length=product_images.MAX_PHOTOS, description="商品写真（data URL）。OCR はしません")
+    enhance_images: bool = Field(default=True, description="Gemini で光と背景を整える")
 
 
 class PublishRequest(BaseModel):
@@ -74,12 +77,14 @@ def _error(exc: ali.AlibabaError) -> JSONResponse:
 
 def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]] | None = None,
                  reviewer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-                 audit: AuditLog | None = None, store_factory: Callable[[], Any] | None = None) -> APIRouter:
+                 audit: AuditLog | None = None, store_factory: Callable[[], Any] | None = None,
+                 image_pipeline: Callable[..., dict[str, Any]] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/alibaba", tags=["alibaba"], dependencies=[Depends(auth)])
     read = intake or alibaba_scrape.intake
     review = reviewer or ali.review_product
     log = audit or AuditLog()
     stores = store_factory or shop_store.ShopStore
+    photos = image_pipeline or product_images.prepare
     router.audit = log
 
     def safe_id(product: str) -> str | None:
@@ -120,6 +125,7 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
         """取得して審査・価格計算: URL + manual cost → legal screening → JPY price → saved as a draft (not public)."""
         def work():
             product = fetch(request)
+            photos(product, request.photos, request.enhance_images, stores())
             review_result = review(product)
             pricing, pricing_error = None, None
             try:
