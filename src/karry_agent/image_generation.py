@@ -93,6 +93,30 @@ def _api_error(exc: Exception) -> dict[str, Any]:
     return {"status": "error", "error": message, "error_code": "generation_failed"}
 
 
+SCENE_STYLE = ("Photorealistic, cinematic still frame, natural lighting, rich detail, shallow depth of field. "
+               "No text, no letters, no captions, no watermark, no logo.")
+
+
+def scene_image(prompt: str, aspect_ratio: str = "16:9") -> bytes | None:
+    """One Gemini-generated JPEG for a video scene, or None (no key, API error, filtered) so callers fall back."""
+    text = prompt.strip() if isinstance(prompt, str) else ""
+    if not text:
+        return None
+    from google.genai import types
+
+    try:
+        response = _client().models.generate_content(
+            model=os.getenv("GEMINI_IMAGE_MODEL", DEFAULT_MODEL),
+            contents=f"{text[:MAX_PROMPT_CHARS - 300]}\n\n{SCENE_STYLE}",
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"],
+                                               image_config=types.ImageConfig(aspect_ratio=aspect_ratio)),
+        )
+        found = _inline_image(response)
+        return _to_jpeg(found[0]) if found else None
+    except Exception:  # noqa: BLE001 - a missing scene image must never fail the video
+        return None
+
+
 def generate_image(prompt: str) -> dict[str, Any]:
     """プロンプトから画像を 1 枚生成し、タスクに保存してチャットに表示する。"""
     text = prompt.strip() if isinstance(prompt, str) else ""

@@ -542,6 +542,7 @@ def update_calendar_event(
 
 def build_default_registry() -> ToolRegistry:
     from . import agent_core as integrated
+    from .git_workspace import run_git_command as safe_git_command
     from .url_analysis import fetch_and_summarize_url
     from .instant_website import prepare_instant_website
     from .image_generation import generate_image
@@ -556,6 +557,27 @@ def build_default_registry() -> ToolRegistry:
     registry.register("append_text_file", "ワークスペース内の UTF-8 テキストファイルへ追記する", {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}, append_text_file)
     registry.register("list_workspace", "ワークスペース内のファイル一覧を取得する", {"type": "object", "properties": {"path": string_param, "max_entries": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": []}, list_workspace)
     registry.register("run_command", "ワークスペース内で安全な読み取り系コマンドを実行する", {"type": "object", "properties": {"command": string_param, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["command"]}, run_command)
+    registry.register(
+        "run_git_command",
+        "安全なGit/GitHub操作。自由形式のshell文字列は受け取らず、version/status/remotes/branch_info/initialize/add_remote/create_branch/stage/review/commit/push/create_prから選択。main直push・force push・git add .・既存origin置換を拒否し、秘密パスはstageしない",
+        {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["version", "status", "remotes", "branch_info", "initialize", "add_remote", "create_branch", "stage", "review", "commit", "push", "create_pr"]},
+                "paths": {"type": "array", "items": string_param},
+                "message": string_param,
+                "branch_name": string_param,
+                "title": string_param,
+                "body": string_param,
+                "confirm_reviewed_diff": {"type": "boolean"},
+                "remote_url": string_param,
+                "confirm_initialization": {"type": "boolean"},
+                "confirm_remote_change": {"type": "boolean"},
+            },
+            "required": ["operation"],
+        },
+        safe_git_command,
+    )
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
     registry.register("fetch_and_summarize_url", "公開URLのページを1回取得し、タイトル・本文3000文字・見出し・構造を抽出する。URLの解析・改善提案は検索や再取得を繰り返さずこの結果から回答する", {"type": "object", "properties": {"url": string_param}, "required": ["url"]}, fetch_and_summarize_url)

@@ -8,7 +8,9 @@ def auth_error(settings, authorization):
         return None
     if not settings.api_token:
         return 503, "api_token_not_configured", "VIDEO_API_TOKENまたはKARRY_API_TOKENを設定してください。"
-    if not secrets.compare_digest(authorization.encode(), f"Bearer {settings.api_token}".encode()):
+    scheme, _, supplied = (authorization or "").strip().partition(" ")
+    supplied, expected = "".join(supplied.split()), "".join(settings.api_token.split())
+    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied.encode(), expected.encode()):
         return 401, "unauthorized", "有効なBearerトークンが必要です。"
     return None
 
