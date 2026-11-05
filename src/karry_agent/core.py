@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
@@ -26,6 +27,7 @@ from . import html_repair
 from . import secret_runtime
 from .knowledge_engine import gemini_embedder
 from .knowledge_sync_service import KnowledgeSyncService
+from .github_workflow import GITHUB_AUTO_SYNC_SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -47,6 +49,8 @@ WebページのURL解析にはfetch_and_summarize_urlを優先し、その本文
 画像の生成を頼まれたらgenerate_imageを使ってください。生成画像はチャットの回答に自動で表示されるため、ファイル名・URL・Markdownの画像リンクを書かないでください。
 公開確認前のURLや、ツール結果で存在を確認していないURLを、閲覧できるものとして案内しないでください。
 """
+
+SYSTEM_INSTRUCTION += "\n" + GITHUB_AUTO_SYNC_SYSTEM_PROMPT
 
 
 @dataclass
@@ -133,10 +137,26 @@ def get_client() -> Any:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key in {"your-gemini-api-key", "YOUR_GEMINI_API_KEY"}:
         raise ValueError("GEMINI_API_KEY is not set in environment variables.")
-    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
+    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=gemini_timeout_ms()))
 
 
-_RETRYABLE_ERRORS = (errors.APIError, TimeoutError, socket.timeout)
+def gemini_timeout_ms() -> int:
+    """Per-request Gemini timeout (KARRY_GEMINI_TIMEOUT_MS, 5–120 s, default 45 s)."""
+    try:
+        value = int(os.getenv("KARRY_GEMINI_TIMEOUT_MS", "45000"))
+    except ValueError:
+        value = 45_000
+    return max(5_000, min(value, 120_000))
+
+
+def gemini_status() -> dict[str, Any]:
+    """Whether GEMINI_API_KEY is readable from the environment; never returns the key itself."""
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    return {"configured": bool(key) and key not in {"your-gemini-api-key", "YOUR_GEMINI_API_KEY"},
+            "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash"), "timeout_ms": gemini_timeout_ms()}
+
+
+_RETRYABLE_ERRORS = (errors.APIError, TimeoutError, socket.timeout, httpx.TimeoutException, httpx.TransportError)
 
 _WEBSITE_TARGET_RE = re.compile(
     r"(?:ホームページ|(?:Web|ウェブ)サイト|(?:Web|ウェブ)ページ|HTML|website|web\s*site|web\s*page|landing\s*page)",

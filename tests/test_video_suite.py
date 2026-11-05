@@ -220,15 +220,115 @@ def autopilot_env(monkeypatch):
             rendered.append((prompt, aspect_ratio, seconds, bool(image), bool(narration)))
             return b'\x00\x00\x00\x18ftypmp42scene'
     renderer = Renderer()
+    scene_prompts = []
+    def scene_image(prompt, aspect_ratio):
+        scene_prompts.append((prompt, aspect_ratio))
+        return None if 'NOIMG' in prompt or scene_prompts[-1:] and len(scene_prompts) == 2 and 'PARTIAL' in prompt else b'\xff\xd8scene-jpeg'
     monkeypatch.setattr(vs, 'ffmpeg_exe', lambda: '/fake/ffmpeg')
     monkeypatch.setattr(vs, 'concatenate_mp4_clips', lambda clips: b'\x00\x00\x00\x18ftypmp42final' if len(clips) == 3 else b'')
     monkeypatch.setattr(vs, 'concatenate_wav_clips', lambda clips: b'RIFF' + b'final-audio')
+    monkeypatch.setattr(vs, 'mp4_has_audible_audio', lambda clip: clip.endswith(b'final') or clip.endswith(b'talking-final'))
+    talking = {'engine': FakeSadTalker(), 'normalized': []}
+    def normalize(clip, audio, aspect_ratio, seconds):
+        talking['normalized'].append((clip, aspect_ratio, seconds))
+        return b'\x00\x00\x00\x18ftypmp42talking-final'
     test_app = web.FastAPI()
     test_app.include_router(web.video_suite_api.build_router(
         web.require_tool_auth, lambda sid: None, lambda: FakeAdapter(), lambda: narrator, queued.append,
+        lip_sync_factory=lambda: talking['engine'], lip_sync_normalizer=normalize,
         autopilot_text_generator=text_generator, autopilot_image_generator=image_generator,
-        autopilot_renderer_factory=lambda: renderer))
-    return TestClient(test_app), narrator, queued, rendered, generated
+        autopilot_renderer_factory=lambda: renderer, scene_image_generator=scene_image))
+    client = TestClient(test_app)
+    client.talking = talking
+    client.scene_prompts = scene_prompts
+    return client, narrator, queued, rendered, generated
+
+
+class FakeSadTalker:
+    def __init__(self):
+        self.fail, self.calls = None, []
+
+    async def generate(self, image, audio):
+        self.calls.append((image[:8], audio[:4]))
+        if self.fail:
+            from karry_agent.sadtalker import SadTalkerError
+            raise SadTalkerError(self.fail)
+        return b'\x00\x00\x00\x18ftypmp42sadtalker'
+
+
+def finish(client, queued, **data):
+    files = data.pop('files', None)
+    response = client.post('/api/video/autopilot', data={'session_id': 'task-1', **data}, files=files, headers=AUTH)
+    assert response.status_code == 202, response.text
+    queued.pop()()
+    return client.get(f"/api/video/jobs/{response.json()['id']}", params={'session_id': 'task-1'}, headers=AUTH).json()
+
+
+def test_autopilot_talking_uses_sadtalker_for_the_whole_narration_at_the_requested_length(autopilot_env):
+    client, _, queued, rendered, _ = autopilot_env
+    done = finish(client, queued, novel_text='喋るジミー', talking='true', duration_seconds='30',
+                  files={'image': ('face.png', png(), 'image/png')})
+    assert done['status'] == 'succeeded' and done['duration_seconds'] == 30 and done['autopilot']['requested_seconds'] == 30
+    assert done['autopilot']['lip_sync'] == {'requested': True, 'status': 'succeeded', 'engine': 'sadtalker'}
+    assert rendered == [] and client.talking['normalized'] == [(b'\x00\x00\x00\x18ftypmp42sadtalker', '16:9', 30)]
+    assert client.get(done['segments'][0]['url'], headers=AUTH).content.endswith(b'talking-final')
+
+
+@pytest.mark.parametrize('failure', ['sadtalker_busy', 'sadtalker_timeout', 'sadtalker_unavailable', 'sadtalker_configuration'])
+def test_autopilot_talking_falls_back_to_free_local_render_when_sadtalker_fails(autopilot_env, failure):
+    client, _, queued, rendered, _ = autopilot_env
+    client.talking['engine'].fail = failure
+    done = finish(client, queued, novel_text='喋るジミー', talking='true', files={'image': ('face.png', png(), 'image/png')})
+    assert done['status'] == 'succeeded' and len(rendered) == 3
+    assert done['autopilot']['lip_sync'] == {'requested': True, 'status': 'fallback', 'engine': 'local', 'fallback_reason': failure}
+    assert client.get(done['segments'][0]['url'], headers=AUTH).content.endswith(b'final')
+
+
+def test_autopilot_talking_without_photo_falls_back_and_never_calls_sadtalker(autopilot_env):
+    client, _, queued, rendered, _ = autopilot_env
+    done = finish(client, queued, novel_text='喋るジミー', talking='true')
+    assert done['autopilot']['lip_sync']['fallback_reason'] == 'no_photo' and client.talking['engine'].calls == [] and len(rendered) == 3
+
+
+def test_autopilot_duration_is_validated_and_scales_scenes(autopilot_env):
+    client, _, queued, rendered, _ = autopilot_env
+    bad = client.post('/api/video/autopilot', data={'session_id': 'task-1', 'novel_text': 'x', 'duration_seconds': '2'}, headers=AUTH)
+    assert bad.status_code == 422 and bad.json()['code'] == 'invalid_duration'
+    done = finish(client, queued, novel_text='海', duration_seconds='10')
+    assert done['duration_seconds'] == 10 and sorted(item[2] for item in rendered) == [3, 3, 4]
+
+
+def test_autopilot_scene_never_cuts_long_narration(autopilot_env):
+    client, narrator, queued, rendered, _ = autopilot_env
+    narrator.synthesize = lambda text, voice: wav_bytes(7.0)
+    done = finish(client, queued, novel_text='長いナレーション')
+    assert [item[2] for item in rendered] == [8, 8, 8] and done['duration_seconds'] == 24
+
+
+def test_autopilot_without_audible_audio_is_an_error_not_a_silent_success(autopilot_env, monkeypatch):
+    client, _, queued, _, _ = autopilot_env
+    monkeypatch.setattr(vs, 'mp4_has_audible_audio', lambda clip: False)
+    done = finish(client, queued, novel_text='海')
+    assert done['status'] == 'failed' and done['autopilot']['error'] == 'audio_missing' and 'url' not in done['segments'][0]
+
+
+def test_fit_scene_seconds_keeps_exact_total():
+    assert vs.fit_scene_seconds([5, 5, 5], 30) == [10, 10, 10]
+    fitted = vs.fit_scene_seconds([3, 5, 7], 10)
+    assert sum(fitted) == 10 and min(fitted) >= 1
+    assert vs.fit_scene_seconds([1, 1, 1], 3) == [1, 1, 1]
+    with pytest.raises(vs.VideoError):
+        vs.fit_scene_seconds([5, 5, 5], 2)
+
+
+def test_real_scene_concat_keeps_an_audible_narration_track():
+    if not vs.ffmpeg_exe():
+        pytest.skip('ffmpeg unavailable')
+    renderer = vs.LocalVideoRenderer()
+    voice = tone_wav(1.5)
+    final = vs.concatenate_mp4_clips([renderer.render('a', '16:9', 2, None, voice), renderer.render('b', '16:9', 2, None, voice)])
+    assert vs.mp4_has_audible_audio(final)
+    assert not vs.mp4_has_audible_audio(renderer.render('silent', '16:9', 1, None, None))
 
 
 def test_autopilot_turns_text_into_narrated_scene_loop_and_one_mp4(autopilot_env):
@@ -242,8 +342,10 @@ def test_autopilot_turns_text_into_narrated_scene_loop_and_one_mp4(autopilot_env
     assert done['status'] == 'succeeded' and done['duration_seconds'] == 15
     assert done['autopilot']['status'] == 'succeeded' and done['autopilot']['current_scene'] == 3
     assert len(done['segments']) == 1 and done['segments'][0]['status'] == 'succeeded'
-    assert len(rendered) == 3 and all(item[1:] == ('16:9', 5, False, True) for item in rendered)
+    assert len(rendered) == 3 and all(item[1:] == ('16:9', 5, True, True) for item in rendered)
     assert generated == [('text', '夕焼けの海辺を歩く。', 3)]
+    assert client.scene_prompts == [(f'Cinematic scene {i}.', '16:9') for i in range(1, 4)]
+    assert done['autopilot']['scene_images'] == {'engine': 'gemini', 'requested': 3, 'generated': 3}
     assert [call[0] for call in narrator.calls] == ['日本語ナレーション1。', '日本語ナレーション2。', '日本語ナレーション3。']
     clip = client.get(done['segments'][0]['url'], headers=AUTH)
     assert clip.status_code == 200 and clip.content.endswith(b'final')
@@ -260,6 +362,7 @@ def test_autopilot_accepts_one_image_without_text_and_rejects_empty_input(autopi
     assert response.status_code == 202 and response.json()['with_image'] is True
     queued.pop()()
     assert generated[0][0] == 'image' and all(item[3] for item in rendered)
+    assert client.scene_prompts == [], 'the uploaded photo is used, no Gemini scene images'
 
 
 @pytest.mark.parametrize('source', ['[raise] 海辺を歩く物語。', '[invalid] 星を見上げる夜。'])
@@ -448,7 +551,7 @@ def test_download_rejects_untrusted_urls(url):
 
 
 def test_gemini_narrator_uses_documented_interactions_api():
-    wav = b'RIFF' + b'\x00' * 40
+    wav = wav_bytes(0.5)
     session = Mock()
     session.post.return_value = reply(200, {'steps': [{'type': 'model_output', 'content': [{'type': 'audio', 'mime_type': 'audio/wav', 'data': base64.b64encode(wav).decode()}]}]})
     narrator = vs.GeminiNarrator(api_key='synthetic-gemini', session=session)
@@ -462,6 +565,33 @@ def test_gemini_narrator_uses_documented_interactions_api():
     with pytest.raises(vs.VideoError):
         narrator.synthesize('x', 'jimmy')
     assert vs.GeminiNarrator(api_key='').available is False
+    silent = silent_wav(0.5)
+    session.post.return_value = reply(200, {'steps': [{'type': 'model_output', 'content': [{'type': 'audio', 'data': base64.b64encode(silent).decode()}]}]})
+    with pytest.raises(vs.VideoError) as exc:
+        narrator.synthesize('x', 'jimmy')
+    assert exc.value.code == 'tts_invalid_audio'  # a silent Gemini WAV falls through to the free TTS instead of muxing silence
+
+
+def silent_wav(seconds=1.0, rate=16000):
+    out = io.BytesIO()
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b'\x00\x00' * int(rate * seconds))
+    return out.getvalue()
+
+
+def tone_wav(seconds=1.0, rate=16000):
+    import math
+    import struct
+    out = io.BytesIO()
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b''.join(struct.pack('<h', int(8000 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(int(rate * seconds))))
+    return out.getvalue()
 
 
 def wav_bytes(seconds=1.0, rate=16000):
@@ -767,3 +897,40 @@ def test_local_job_lipsync_succeeds_or_falls_back_with_reason(local_env, monkeyp
     assert probe(client.get(done['segments'][0]['url'], headers=AUTH).content)[2]
     plain = create(client, duration_seconds='2', narration_text='まいど').json()
     assert plain['lipsync'] is None
+
+
+def test_autopilot_scene_images_fall_back_to_the_title_card_and_can_be_disabled(autopilot_env, monkeypatch):
+    client, _, queued, rendered, _ = autopilot_env
+    original = client.scene_prompts
+    done = finish(client, queued, novel_text='夕焼けの海辺を歩く。')
+    assert done['status'] == 'succeeded' and done['autopilot']['scene_images']['generated'] == 3
+    rendered.clear(); original.clear()
+    monkeypatch.setenv('KARRY_VIDEO_SCENE_IMAGES', '0')
+    done = finish(client, queued, novel_text='夕焼けの海辺を歩く。')
+    assert done['status'] == 'succeeded' and 'scene_images' not in done['autopilot'] and original == []
+    assert all(item[3] is False for item in rendered)
+
+
+def test_scene_image_returns_jpeg_or_none_and_never_raises(monkeypatch):
+    import io
+
+    from PIL import Image
+    from karry_agent import image_generation as ig
+    png = io.BytesIO()
+    Image.new('RGB', (16, 9), (10, 20, 30)).save(png, 'PNG')
+    calls = []
+
+    class Models:
+        def generate_content(self, **kw):
+            calls.append(kw)
+            part = type('P', (), {'inline_data': type('I', (), {'data': png.getvalue(), 'mime_type': 'image/png'})()})()
+            return type('R', (), {'candidates': [type('C', (), {'content': type('X', (), {'parts': [part]})()})()]})()
+    monkeypatch.setattr(ig, '_client', lambda: type('Cl', (), {'models': Models()})())
+    body = ig.scene_image('夕焼けの海辺', '16:9')
+    assert body[:2] == b'\xff\xd8' and calls[0]['config'].image_config.aspect_ratio == '16:9' and 'No text' in calls[0]['contents']
+    assert ig.scene_image('   ') is None
+
+    def boom():
+        raise ValueError('GEMINI_API_KEY is not set')
+    monkeypatch.setattr(ig, '_client', boom)
+    assert ig.scene_image('海') is None

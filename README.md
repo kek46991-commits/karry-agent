@@ -25,6 +25,20 @@ flowchart LR
     API --> Core
 ```
 
+## 公開モードと実験機能
+
+本番（`main`）は安定したコア機能（タスク管理・チャット・ReAct 実行モニター・Calendar・Web ページ生成・Knowledge Sync/RAG）だけを公開します。
+動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core、自己修正ループ（[docs/self-correction.md](docs/self-correction.md)）、小説→縦読みマンガ（[docs/webtoon.md](docs/webtoon.md)）は **実験機能** として既定で無効です。
+無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*`・`/api/agent/self-correction`・`/api/webtoon/*` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
+
+| 環境 | 設定 | 用途 |
+| --- | --- | --- |
+| 本番（`main`） | `KARRY_EXPERIMENTAL_FEATURES` 未設定 | 公開・ポートフォリオ用のコア機能のみ |
+| 本番でマンガだけ公開 | `KARRY_WEBTOON=1` | 小説→縦読みマンガ（チャットと `/api/webtoon/*`）だけを有効化。ほかの実験機能は無効のまま |
+| サンドボックス | `KARRY_EXPERIMENTAL_FEATURES=1` | 動画生成などの実験（マンガも含む） |
+
+画面は `GET /api/features`（認証不要・`{"experimental": bool, "webtoon": bool}` のみ）を見て、実験機能の表示を切り替えます。
+
 ## Core Capabilities
 
 | 領域 | 内容 | 主な実装 |
@@ -154,12 +168,31 @@ Phase 16 の FastAPI では `/chat` がセッション履歴を保持し、`/run
 
 マイクはクリック時に明示的に権限を要求し、全Trackの停止、認識開始/終了/拒否/未対応、手入力と途中結果の合成、タスク切替後の遅延結果を処理します。API・無保存の範囲・対応条件と検証は [docs/secret-chat-microphone.md](docs/secret-chat-microphone.md) を参照してください。
 
+### Gemini のタイムアウトと接続切れからの復旧
+- Gemini の呼び出しは 1 回 `KARRY_GEMINI_TIMEOUT_MS`（既定 45 秒）で打ち切ります。時間切れや通信エラー（`httpx` のタイムアウト・接続エラー）は再試行し、それでも駄目なら `failed` として返します。
+- `GET /api/gemini/status`（オーナーのみ）で、Render の環境変数から `GEMINI_API_KEY` が読めているか（`configured`）を確かめられます。キーそのものは返しません。
+- 画面は、`network error`・応答の停止（150 秒）・`409 session is already running` のときに再送しません。かわりにタスクを読み直して、サーバーの結果が出たら表示します。待つのは最大 3 分で、「待つのをやめる」で止められます。
+- 画像つきの送信が失敗したり時間切れになったりしたときは、**手動入力モード**に切り替えます。次の送信は画像を使わず、文字だけで送ります。
+
 ### チャットでの画像生成
 
 チャットで画像を依頼すると、`generate_image` ツールが Gemini（`GEMINI_IMAGE_MODEL`、既定は `gemini-2.5-flash-image`）で画像を作ります。画像はタスクの非公開ストアに保存し、回答の下に表示します。存在しないファイル名や URL は返しません。詳細は [docs/image-generation.md](docs/image-generation.md) を参照してください。
 
+### 法務・AIダッシュボード（管理者専用の商品登録・審査・価格計算）
+`/admin` は管理者専用の 1 画面です。`KARRY_API_TOKEN` でログインしたときだけ表示され、API もすべて同じトークンが必要です（未設定なら 503 で閉じます）。1688 の API キーは要りません。
+1. 「1688 商品 URL」と「原価（元）」を手で入れます。為替・国際送料・代行手数料・販売倍率から、販売価格 =（原価 × 22 × 1.05 ＋ 1,200 円）× 1.4 をその場で表示します。
+2. 「取得して審査・価格計算」で、商品ページを普通に 1 回だけ読み（ボット対策の回避はしません）、商標権・薬機法・PSE を SAFE / REJECT で判定し、非公開の下書きに保存します。ページが読めなくても、原価を入れていればエラーにしません。
+3. 商品写真（1688 のページの写真、または自分でアップロードした写真・最大 4 枚）は、Gemini（`GEMINI_IMAGE_MODEL`）で光と背景を整えてショップ用の画像にします。商品そのもの（形・色・部品）は変えません。Gemini が失敗したときは元の写真を使います。チェックを外すと加工しません。
+4. SAFE で価格と商品名がそろった下書きだけ「ショップに登録」で `/shop` に並びます。下書き・掲載中の商品・注文・審査ログも同じ画面で管理します。
+
+手順は [docs/alibaba-1688.md](docs/alibaba-1688.md)。
+
 ### Creative Video Suite（画像→動画・ナレーション）
-チャット下の「🎬 動画を作る」から、写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して動画を作ります。既定は **0円ローカル合成モード**（`KARRY_VIDEO_PROVIDER=local`）で、Replicate などの有料動画APIは一切呼ばず、サーバー内の ffmpeg（`imageio-ffmpeg` 同梱）で写真またはタイトルカードにゆっくりしたパンとフェードを付け、ナレーション音声を重ねた1本の MP4 を合成して非公開ストレージに保存します。ナレーションは Gemini TTS（低めの男性声 `Charon`、既存の `GEMINI_API_KEY`）で作り、キー未設定や失敗時はキー不要の無料音声合成（gTTS）で作って MP4 の音声トラックに入れます。どちらも使えないときは無音で「成功」にせず、仮の合図音を入れて `partial`（一部失敗）として画面に理由を出します。Replicate Kling / Runway は `KARRY_VIDEO_PROVIDER` と `KARRY_VIDEO_GENERATION_ENABLED=1` を明示したときだけ使う任意機能です。APIはすべて所有者トークン必須で、キー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
+
+> 写真を付けずにチャットで動画を頼むと、各シーンの映像案（`visual_prompt`）から Gemini（`GEMINI_IMAGE_MODEL`、既定 `gemini-2.5-flash-image`）で 16:9 の写実的な画像を 1 枚ずつ作り、それを動かして MP4 にします。画像が作れなかったシーンだけ文字の画面になり、チャットに「Gemini の画像 n/3 枚」と表示します。`KARRY_VIDEO_SCENE_IMAGES=0` で止められます。
+
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
+動画はチャットで頼むだけで作れます。「夕焼けの海辺を歩く少女の動画を作って」のように送ると（画像を添付すればその画像から）、`chat_video.is_video_request` が依頼を判定してモデルを呼ばずにオートパイロット（Gemini 脚本 → ナレーション → ローカル合成）を開始し、完成した MP4 をそのチャットの返答内で再生・保存できます。専用の入力フォームはありません。API（`/api/video/*`）からは写真（任意）・縦横比（16:9 / 9:16）・長さ（1〜120秒）・ナレーションを指定して作ることもできます。既定は **0円ローカル合成モード**（`KARRY_VIDEO_PROVIDER=local`）で、Replicate などの有料動画APIは一切呼ばず、サーバー内の ffmpeg（`imageio-ffmpeg` 同梱）で写真またはタイトルカードにゆっくりしたパンとフェードを付け、ナレーション音声を重ねた1本の MP4 を合成して非公開ストレージに保存します。ナレーションは Gemini TTS（低めの男性声 `Charon`、既存の `GEMINI_API_KEY`）で作り、キー未設定や失敗時はキー不要の無料音声合成（gTTS）で作って MP4 の音声トラックに入れます。どちらも使えないときは無音で「成功」にせず、仮の合図音を入れて `partial`（一部失敗）として画面に理由を出します。Replicate Kling / Runway は `KARRY_VIDEO_PROVIDER` と `KARRY_VIDEO_GENERATION_ENABLED=1` を明示したときだけ使う任意機能です。APIはすべて所有者トークン必須で、キー・ジョブID・出力URLは応答に出しません。詳細は [docs/video-suite.md](docs/video-suite.md)。
 
 フォームの「動画の種類」で **静止画＋音声（0円・高速）**（既定）、**簡易口パク（0円・サーバー内の OpenCV で口元だけ開閉）**、**人物を喋らせる（SadTalker・GPU）** を選べます。SadTalker は写真の顔全体をナレーションに合わせて動かすリップシンクで、SadTalker 等の GPU モデルを Render の外（自分の Colab / Hugging Face Space）で動かし、`KARRY_LIPSYNC_PROVIDER=http|gradio` で接続します（既定は無効・有料APIへのフォールバックなし）。実行先が失敗したときは静止画＋音声の MP4 に戻して `partial` と理由を表示します。手順は [tools/lipsync_server/README.md](tools/lipsync_server/README.md)。
 
@@ -266,6 +299,8 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 
 ### Optimus Core（自己進化・クローン生成）
 
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
+
 `/api/optimus/*` で、クローン「ケリーエージェント」（2号以降）の生成・実行と、自己コードの変更案 → GitHub PR → CI成功後のマージ（Render自動デプロイ）を行います。変更案はプレビューとSHA-256確認が必須で、認証・秘密情報・CI・Render設定は書き換え禁止です。マージは `KARRY_OPTIMUS_AUTO_MERGE=1` の場合のみ実行します。詳しくは [docs/optimus-core.md](docs/optimus-core.md) を参照してください。
 
 ### ジミーのCore Context
@@ -279,5 +314,7 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 `schema.ts`のDrizzle定義とMigrationで`media_files`を作成し、Python/FastAPIから同じPostgreSQLへ画像を保存します。所有者認証付きの`/api/media/upload`、FLUX生成・状態照会、非公開一覧・読取を追加しています。旧チャット画像添付のR2/Gemini経路は維持します。管理者がDATABASE_URLを秘密設定へ登録して`npm run db:migrate`を適用してください。生成はREPLICATE_API_TOKENと明示有効化が必要で、既定では課金APIを呼びません。接続先・保存・再送・本番未適用の詳細は[メディアDBガイド](docs/media-postgres.md)を参照してください。
 
 ## SQL動画プロジェクトと0円プレビュー
+
+> 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
 
 動画プロジェクトCRUD（SQLite／PostgreSQL）と、アップロード画像＋ローカルTTSによるMP4プレビューを本体へ追加しました。動画UIの「0円プレビュー」は外部生成APIなしで動作し、既存のAI動画UIは保持します。要求された`/api/video/projects`と`/api/video/generate/*`を提供し、新しいジョブは既存ルートと衝突しない`/api/video/project-jobs/*`へ配置します。KARRY_API_TOKEN認証、OSツール、Renderネイティブ／Dockerの違い、永続ストレージ、AI最大10秒、日本語TTSの制約は[動画プロジェクトガイド](docs/video-projects.md)を参照してください。

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .auth_token import normalize_token
 from .self_healing import SelfHealingEngine, healing_engine
 
 
@@ -19,7 +20,7 @@ class HealingAPIClient:
         if base_url.rstrip("/") != "https://karry-agent-1.onrender.com":
             raise ValueError("unapproved API origin")
         self.base_url = base_url.rstrip("/")
-        self.credential_provider = credential_provider or (lambda: os.getenv("KARRY_API_TOKEN", ""))
+        self.credential_provider = credential_provider or (lambda: normalize_token(os.getenv("KARRY_API_TOKEN")))
         self.engine = engine or healing_engine
         self.transport = transport
 

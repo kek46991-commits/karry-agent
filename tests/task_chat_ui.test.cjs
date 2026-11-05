@@ -5,7 +5,7 @@ const {JSDOM}=require('jsdom');
 const html=fs.readFileSync('static/index.html','utf8');
 
 function setup(options={}){
-  const calls=[];
+  const calls=[],featureCalls=[];
   const data=new Map(options.sessions||[]);
   let counter=data.size;
   const dom=new JSDOM(html,{url:'https://example.onrender.com/',runScripts:'dangerously',beforeParse(window){
@@ -37,6 +37,7 @@ function setup(options={}){
     }
     if(options.saved)window.localStorage.setItem('karry-session',options.saved);
     window.fetch=async(url,request={})=>{
+      if(url==='/api/features'){featureCalls.push(url);return json({experimental:options.experimental===true,webtoon:options.webtoon===true||options.experimental===true});}
       calls.push({url,request});
       if(options.fetch){const result=await options.fetch(url,request);if(result)return result;}
       const body=request.body?JSON.parse(request.body):{};
@@ -73,7 +74,7 @@ function setup(options={}){
   }});
   const win=dom.window,doc=win.document;
   function authenticate(){doc.getElementById('apiToken').value='synthetic-owner';doc.getElementById('apiToken').dispatchEvent(new win.Event('input'));}
-  return {dom,win,doc,calls,data,authenticate};
+  return {dom,win,doc,calls,featureCalls,data,authenticate};
 }
 function json(data,status=200){return {ok:status>=200&&status<300,status,json:async()=>JSON.parse(JSON.stringify(data))};}
 function record(id,title,content){return {session_id:id,title,messages:content?[{role:'assistant',content}]:[],latest_url:'',last_run:null,persistence:'durable'};}
@@ -651,43 +652,197 @@ test('speech service refusal and device busy have distinct actionable reasons',a
   assert.match(s.win.micStatusForError({name:'NotReadableError'}),/他のアプリ/);s.dom.window.close();
 });
 
-function videoFetch(posts,provider='replicate'){
-  return async(url,request={})=>{
-    if(url==='/api/video/config')return json(provider==='local'?{enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,lipsync_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'}]}:{enabled:true,provider:'replicate',clip_lengths:[5,10],aspect_ratios:['16:9','9:16'],min_seconds:1,max_seconds:120,narration_available:true,voices:[{id:'jimmy',label:'ジミー（低めの男性）'},{id:'kore',label:'女性'}]});
-    if(url.startsWith('/api/video/jobs?'))return json([]);
-    if(url==='/api/video/jobs'&&request.method==='POST'){
-      const fields=Object.fromEntries([...request.body.entries()].map(([k,v])=>[k,typeof v==='string'?v:'FILE:'+v.name]));posts.push({fields,headers:request.headers});
-      return json({id:'job1',request_id:fields.request_id,status:'processing',prompt:fields.prompt,aspect_ratio:fields.aspect_ratio,duration_seconds:Number(fields.duration_seconds),provider:'replicate',with_image:!!fields.image,created_at:1,segments:[{index:0,status:'processing',clip_seconds:10,play_seconds:10},{index:1,status:'processing',clip_seconds:10,play_seconds:10},{index:2,status:'processing',clip_seconds:5,play_seconds:3}],narration:{text:fields.narration_text,voice:fields.voice,status:'succeeded'}},202);
-    }
+test('video creation has no standalone form: the chat composer is the only entry point',()=>{
+  const s=setup(),$=id=>s.doc.getElementById(id);
+  for(const id of ['videoSuite','autopilot-form','auto-prompt','auto-image','btn-run-autopilot','videoJobs'])assert.equal($(id),null,id);
+  assert.ok($('chatForm'));assert.ok($('videoChatHint'));s.dom.window.close();
+});
+
+test('portfolio mode hides the chat video hint unless the server enables experimental features',async()=>{
+  const core=setup();await new Promise(r=>setTimeout(r,5));assert.equal(core.featureCalls.length,1);assert.equal(core.doc.getElementById('videoChatHint').hidden,true);assert.equal(core.calls.length,0);core.dom.window.close();
+  const sandbox=setup({experimental:true});await new Promise(r=>setTimeout(r,5));assert.equal(sandbox.doc.getElementById('videoChatHint').hidden,false);sandbox.dom.window.close();
+});
+
+test('chat reply with a video job ID polls the job and plays the private MP4 inline',async()=>{
+  const job='a'.repeat(32),clip=`/api/video/jobs/${job}/clips/0?session_id=a`;let clipAuth=null,polls=0;
+  const fetch=async(url,request={})=>{
+    if(url===`/api/video/jobs/${job}?session_id=a`){polls++;return json({id:job,status:'succeeded',mode:'autopilot',autopilot:{status:'succeeded',title:'海辺の物語',scene_count:3,current_scene:3},segments:[{index:0,status:'succeeded',url:clip}]});}
+    if(url===clip){clipAuth=request.headers?.Authorization;return {ok:true,status:200,blob:async()=>new Blob(['mp4'])};}
   };
-}
-
-test('video generation screen exposes only text/image inputs and one automatic action',async()=>{
-  const s=setup(),$=id=>s.doc.getElementById(id),suite=$('videoSuite');
-  assert.ok($('auto-prompt'));assert.ok($('auto-image'));assert.ok($('btn-run-autopilot'));
-  assert.equal(suite.querySelectorAll('input[type=checkbox],input[type=radio],select').length,0);
-  assert.equal(suite.querySelectorAll('button:not(#btn-run-autopilot)').length,0);
-  assert.equal($('videoScriptGenerate'),null);assert.equal($('videoLipsync'),null);assert.equal($('videoLipSync'),null);assert.equal($('videoPreview'),null);assert.equal($('videoPreviewTts'),null);
-  assert.match($('btn-run-autopilot').textContent,/ワンクリックで自動動画を作る/);assert.match($('autopilot-heading').textContent,/ジミー 全自動動画生成/);s.dom.window.close();
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`動画の作成を始めました。\n動画ジョブID: ${job}`)]]});s.win.URL.createObjectURL=()=>'blob:chat-video';
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  const card=s.doc.querySelector('.chat-video');assert.ok(card);assert.equal(card.dataset.jobId,job);
+  assert.equal(polls,1);assert.equal(clipAuth,'Bearer synthetic-owner');
+  assert.match(card.querySelector('.chat-video-status').textContent,/「海辺の物語」が完成しました/);
+  assert.equal(card.querySelector('video').getAttribute('src'),'blob:chat-video');assert.equal(card.querySelector('a').download,`karry-video-${job.slice(0,8)}.mp4`);
+  s.dom.window.close();
 });
 
-test('automatic local video generation stays available when paid video providers are disabled',async()=>{
-  const fetch=async(url)=>{if(url==='/api/video/project-config')return json({enabled:false,script_generation_available:false});if(url==='/api/video/config')return json({enabled:false,provider:'replicate',narration_available:true});if(url.startsWith('/api/video/jobs?'))return json([]);};
-  const s=setup({fetch}),$=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));assert.equal($('btn-run-autopilot').disabled,false);s.dom.window.close();
+test('chat video keeps polling while processing and stops when the task view changes',async()=>{
+  const job='b'.repeat(32);let polls=0;
+  const fetch=async(url)=>{if(url.startsWith(`/api/video/jobs/${job}?`)){polls++;return json({id:job,status:'processing',autopilot:{status:'processing',scene_count:3,current_scene:2},segments:[{index:0,status:'processing'}]});}};
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`動画ジョブID: ${job}`)],['b',record('b','B')]]});
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-video-status').textContent,/シーン 2\/3/);assert.equal(s.win.eval('chatVideo.timers.size'),1);assert.equal(s.doc.getElementById('statusLamp').dataset.lamp,'processing');
+  s.win.eval('resetVideoSuite()');assert.equal(s.win.eval('chatVideo.timers.size'),0);assert.equal(polls,1);
+  s.dom.window.close();
 });
 
-test('video autopilot submits text or one image to the authenticated async endpoint',async()=>{
-  const calls=[],fetch=async(url,request={})=>{if(url==='/api/video/project-config')return json({enabled:true,preview_available:false,tts_available:true,script_generation_available:true,max_seconds:120});if(url==='/api/video/config')return json({enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],narration_available:true,lipsync_available:false,voices:[]});if(url.startsWith('/api/video/jobs?'))return json([]);if(url==='/api/video/autopilot'&&request.method==='POST'){calls.push({url,request});return json({id:'autopilot-job',mode:'autopilot',status:'processing',request_id:'request-1',prompt:'processing',aspect_ratio:'16:9',duration_seconds:30,provider:'local',with_image:false,created_at:1,segments:[{index:0,status:'processing',clip_seconds:30,play_seconds:30}],autopilot:{status:'processing',title:'script',scene_count:3,current_scene:0}},202);}};
-  const s=setup({fetch}),$=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));assert.equal($('btn-run-autopilot').disabled,false);$('auto-prompt').value='夕焼けの海辺を歩く。';$('btn-run-autopilot').click();await new Promise(r=>setTimeout(r,5));
-  assert.equal(calls.length,1);assert.equal(calls[0].request.headers.Authorization,'Bearer synthetic-owner');assert.equal(calls[0].request.body.get('session_id'),s.win.eval('sessionId'));assert.equal(calls[0].request.body.get('novel_text'),'夕焼けの海辺を歩く。');assert.equal(calls[0].request.body.get('request_id').length,36);assert.equal(s.win.eval("video.jobs.get('autopilot-job').mode"),'autopilot');assert.match($('autopilot-status').textContent,/開始しました/);assert.equal($('autopilot-result').hidden,false);s.win.eval('for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear()');s.dom.window.close();
+test('failed chat video shows the reason and never fetches a clip',async()=>{
+  const job='c'.repeat(32),seen=[];
+  const fetch=async(url)=>{seen.push(url);if(url.startsWith(`/api/video/jobs/${job}?`))return json({id:job,status:'failed',autopilot:{status:'failed',error:'tts_configuration'},segments:[{index:0,status:'failed',error:'tts_configuration'}]});};
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`動画ジョブID: ${job}`)]]});
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-video-status').textContent,/失敗しました（tts_configuration）/);assert.equal(s.doc.querySelector('.chat-video video'),null);assert.ok(!seen.some(url=>url.includes('/clips/')));
+  s.dom.window.close();
 });
 
-test('video autopilot can submit an image without text and never runs in secret mode',async()=>{
-  const calls=[],fetch=async(url,request={})=>{if(url==='/api/video/project-config')return json({enabled:true,preview_available:false,tts_available:true,script_generation_available:true,max_seconds:120});if(url==='/api/video/config')return json({enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],narration_available:true,lipsync_available:false,voices:[]});if(url.startsWith('/api/video/jobs?'))return json([]);if(url==='/api/video/autopilot'&&request.method==='POST'){calls.push(request);return json({id:'autopilot-image',mode:'autopilot',status:'processing',request_id:'request-2',prompt:'processing',aspect_ratio:'16:9',duration_seconds:30,provider:'local',with_image:true,created_at:1,segments:[],autopilot:{status:'processing',title:'image',scene_count:3,current_scene:0}},202);}};
-  const s=setup({fetch}),$=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));const file=new s.win.File(['image bytes'],'scene.png',{type:'image/png'});Object.defineProperty($('auto-image'),'files',{configurable:true,value:[file]});$('btn-run-autopilot').click();await new Promise(r=>setTimeout(r,5));assert.equal(calls.length,1);assert.equal(calls[0].body.get('novel_text'),'');assert.equal(calls[0].body.get('image').name,'scene.png');s.win.eval('for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear()');$('secretToggle').checked=true;await s.win.toggleSecretMode();await s.win.generateVideoAutopilot();assert.equal(calls.length,1);assert.equal($('btn-run-autopilot').disabled,true);s.dom.window.close();
+test('webtoon hint follows the webtoon feature flag only',async()=>{
+  const core=setup();await new Promise(r=>setTimeout(r,5));assert.equal(core.doc.getElementById('webtoonChatHint').hidden,true);core.dom.window.close();
+  const webtoon=setup({webtoon:true});await new Promise(r=>setTimeout(r,5));assert.equal(webtoon.doc.getElementById('webtoonChatHint').hidden,false);assert.equal(webtoon.doc.getElementById('videoChatHint').hidden,true);webtoon.dom.window.close();
 });
 
-test('video autopilot fetches its private final MP4 and shows the result player',async()=>{
-  let s;const fetch=async(url,request={})=>{if(url==='/api/video/project-config')return json({enabled:true,preview_available:false,tts_available:true,script_generation_available:true,max_seconds:120});if(url==='/api/video/config')return json({enabled:true,provider:'local',clip_lengths:[120],aspect_ratios:['16:9','9:16'],narration_available:true,lipsync_available:false,voices:[]});if(url.startsWith('/api/video/jobs?'))return json([]);if(url==='/api/video/autopilot'&&request.method==='POST')return json({id:'autopilot-result',mode:'autopilot',status:'processing',request_id:'request-3',prompt:'processing',aspect_ratio:'16:9',duration_seconds:15,provider:'local',with_image:false,created_at:1,segments:[],autopilot:{status:'processing',title:'result',scene_count:3,current_scene:0}},202);if(url==='/api/video/jobs/autopilot-result/clips/0?session_id=task-1')return {ok:true,blob:async()=>new s.win.Blob(['mp4'],{type:'video/mp4'})};};
-  s=setup({fetch});s.win.URL.createObjectURL=()=> 'blob:autopilot-test';const $=id=>s.doc.getElementById(id);s.authenticate();await s.win.connectSessions();$('videoSuite').open=true;$('videoSuite').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,5));$('auto-prompt').value='星空の下の物語。';$('btn-run-autopilot').click();await new Promise(r=>setTimeout(r,5));const context=s.win.eval('videoContext()');await s.win.showAutopilotVideo({id:'autopilot-result',segments:[{status:'succeeded',url:'/api/video/jobs/autopilot-result/clips/0?session_id=task-1'}]},context);assert.equal($('autopilot-video').hidden,false,`status=${$('autopilot-status').textContent}; job=${s.win.eval('video.autopilotJobId')}; owner=${context.owner}`);assert.match($('autopilot-video').src,/^blob:/);s.win.eval('for(const timer of video.timers.values())clearTimeout(timer);video.timers.clear()');s.dom.window.close();
+test('chat reply with a webtoon job ID shows the private panels and saves the ZIP with the owner token',async()=>{
+  const job='e'.repeat(32),auth=[];let polls=0,clicked=null;
+  const fetch=async(url,request={})=>{
+    if(url===`/api/webtoon/jobs/${job}`){polls++;return json({job_id:job,status:'succeeded',title:'図書室の古い日記',progress:{done:2,total:2},panels:[{index:1,url:`/api/webtoon/jobs/${job}/panels/1`},{index:2,url:`/api/webtoon/jobs/${job}/panels/2`},{index:3,url:'https://evil.example/x.png'}],archive_url:`/api/webtoon/jobs/${job}/archive`});}
+    if(url.startsWith(`/api/webtoon/jobs/${job}/`)){auth.push([url,request.headers?.Authorization]);return {ok:true,status:200,blob:async()=>new Blob(['png'])};}
+  };
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`マンガの作成を始めました。\nマンガジョブID: ${job}`)]]});let n=0;s.win.URL.createObjectURL=()=>`blob:webtoon-${++n}`;
+  s.win.HTMLAnchorElement.prototype.click=function(){clicked={href:this.getAttribute('href'),download:this.download};};
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  const card=s.doc.querySelector('.chat-webtoon');assert.ok(card);assert.equal(polls,1);
+  assert.match(card.querySelector('.chat-video-status').textContent,/「図書室の古い日記」が完成しました（3コマ）/);
+  assert.deepEqual([...card.querySelectorAll('img.webtoon-panel')].map(img=>img.getAttribute('src')),['blob:webtoon-1','blob:webtoon-2']);
+  card.querySelector('button').click();await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual(clicked,{href:'blob:webtoon-3',download:`webtoon-${job.slice(0,8)}.zip`});
+  assert.deepEqual(auth.map(a=>a[1]),['Bearer synthetic-owner','Bearer synthetic-owner','Bearer synthetic-owner']);assert.ok(auth.every(a=>!a[0].includes('evil')));
+  s.dom.window.close();
+});
+
+test('webtoon keeps polling while processing, explains a lost job, and stops on reset',async()=>{
+  const job='f'.repeat(32),lost='9'.repeat(32);let polls=0;
+  const fetch=async(url)=>{if(url===`/api/webtoon/jobs/${job}`){polls++;return json({job_id:job,status:'processing',progress:{done:1,total:4},panels:[]});}if(url===`/api/webtoon/jobs/${lost}`)return json({detail:'webtoon job not found'},404);};
+  const s=setup({fetch,saved:'a',sessions:[['a',record('a','A',`マンガジョブID: ${job}`)],['b',record('b','B',`マンガジョブID: ${lost}`)]]});
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-webtoon .chat-video-status').textContent,/コマ 1\/4/);assert.equal(s.win.eval('chatWebtoon.timers.size'),1);assert.equal(s.doc.getElementById('statusLamp').dataset.lamp,'processing');
+  s.win.eval('resetVideoSuite()');assert.equal(s.win.eval('chatWebtoon.timers.size'),0);assert.equal(polls,1);
+  await s.win.selectSession('b');await new Promise(r=>setTimeout(r,10));
+  assert.match(s.doc.querySelector('.chat-webtoon .chat-video-status').textContent,/サーバーに残っていません/);
+  s.dom.window.close();
+});
+
+test('owner token input ignores a Bearer prefix and any stray spaces or line breaks',()=>{
+  const s=setup();s.doc.getElementById('apiToken').value='  Bearer synthetic- owner\n';
+  assert.equal(s.win.eval('ownerToken()'),'synthetic-owner');assert.equal(s.win.eval('authHeaders()').Authorization,'Bearer synthetic-owner');s.dom.window.close();
+});
+
+test('chat video options send SadTalker/length and the project list shows lamps and seconds',async()=>{
+  const jobs=[{id:'1'.repeat(32),status:'processing',duration_seconds:30,mode:'autopilot',autopilot:{status:'processing',title:'生成中の動画',lip_sync:{requested:true,status:'processing'}},segments:[]},
+    {id:'2'.repeat(32),status:'succeeded',duration_seconds:15,mode:'autopilot',autopilot:{status:'succeeded',title:'完成した動画',lip_sync:{requested:true,status:'succeeded',engine:'sadtalker'}},segments:[]},
+    {id:'3'.repeat(32),status:'failed',duration_seconds:12,mode:'autopilot',autopilot:{status:'failed',title:'失敗した動画',error:'audio_missing'},segments:[]}];
+  const fetch=async(url)=>{if(url==='/api/video/jobs?session_id=a')return json(jobs);};
+  const s=setup({fetch,experimental:true,saved:'a',sessions:[['a',record('a','A')]]});const $=id=>s.doc.getElementById(id);
+  await new Promise(r=>setTimeout(r,5));assert.equal($('videoChatOptions').hidden,false);
+  s.authenticate();await s.win.connectSessions();
+  $('videoTalking').checked=true;$('videoSeconds').value='30';$('prompt').value='この写真の人が喋る動画を作って';
+  $('chatForm').dispatchEvent(new s.win.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);assert.equal(body.video_talking,true);assert.equal(body.video_seconds,30);
+  $('videoSeconds').value='500';assert.equal(s.win.eval('JSON.stringify(chatVideoOptions())'),'{"video_talking":true}');
+  $('videoProjectsPanel').open=true;$('videoProjectsPanel').dispatchEvent(new s.win.Event('toggle'));await new Promise(r=>setTimeout(r,10));
+  const items=[...s.doc.querySelectorAll('#videoProjectList .video-project')].map(e=>[e.dataset.lamp,e.querySelector('.video-project-status').textContent,e.querySelector('.video-project-seconds').textContent]);
+  assert.deepEqual(items,[['processing','生成中','30秒'],['online','完了','15秒'],['error','エラー','12秒']]);
+  assert.match($('videoProjectList').textContent,/🗣 SadTalker/);s.dom.window.close();
+});
+
+test('chat video label reports the SadTalker result or the automatic 0-yen fallback',()=>{
+  const s=setup();const label=job=>s.win.eval(`chatVideoLabel(${JSON.stringify(job)})`);
+  assert.match(label({status:'succeeded',duration_seconds:20,autopilot:{title:'喋る',lip_sync:{requested:true,status:'succeeded'}}}),/「喋る」（20秒）が完成しました。 🗣 写真の人物が喋る動画です（SadTalker）/);
+  assert.match(label({status:'succeeded',duration_seconds:9,autopilot:{title:'混雑',lip_sync:{requested:true,status:'fallback',fallback_reason:'sadtalker_busy'}}}),/⚠ SadTalker が混雑していたため、0円ローカル合成（静止画＋ナレーション）に切り替えました/);
+  assert.doesNotMatch(label({status:'succeeded',autopilot:{title:'普通'}}),/SadTalker/);s.dom.window.close();
+});
+
+test('KERRY shop lists products by category tab, switches thumbnails in the modal and submits an order',async()=>{
+  const shopHtml=fs.readFileSync('static/shop.html','utf8');const orders=[];
+  const products=[{id:'a'.repeat(32),title:'陶瓷杯',category:'杯子',price_jpy:1580,images:['https://cbu01.alicdn.com/img/1.jpg','https://cbu01.alicdn.com/img/2.jpg','https://evil.example/x.jpg'],specs:[{name:'材质',value:'陶瓷'}],variants:['颜色: 白色']},
+    {id:'b'.repeat(32),title:'收纳盒',category:'收纳',price_jpy:980,images:['https://cbu01.alicdn.com/img/3.jpg'],specs:[],variants:[]}];
+  const dom=new JSDOM(shopHtml,{url:'https://example.onrender.com/shop',runScripts:'dangerously',beforeParse(window){
+    window.fetch=async(url,request={})=>{
+      if(url==='/api/shop/products')return {ok:true,status:200,json:async()=>({products,categories:['收纳','杯子']})};
+      if(url==='/api/shop/orders'){orders.push(JSON.parse(request.body));return {ok:true,status:201,json:async()=>({order_id:'o',status:'received',total_jpy:3160})};}
+    };window.setInterval=()=>0;}});
+  const doc=dom.window.document,$=id=>doc.getElementById(id);await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual([...doc.querySelectorAll('#tabs button')].map(b=>b.textContent),['すべて','收纳','杯子']);
+  assert.equal(doc.querySelectorAll('.card').length,2);doc.querySelector('#tabs button[data-category="杯子"]').click();
+  assert.equal(doc.querySelectorAll('.card').length,1);assert.match(doc.querySelector('.card').textContent,/陶瓷杯1,580円/);
+  doc.querySelector('.card').click();assert.equal($('detailTitle').textContent,'陶瓷杯');assert.equal($('thumbs').children.length,2,'non-alicdn images dropped');
+  $('thumbs').children[1].click();assert.equal($('mainImage').src,'https://cbu01.alicdn.com/img/2.jpg');assert.equal($('thumbs').children[1].getAttribute('aria-current'),'true');
+  assert.match($('specs').textContent,/材质陶瓷/);assert.match($('specs').textContent,/颜色: 白色/);
+  $('orderQuantity').value='2';$('orderName').value='山田';$('orderContact').value='y@example.com';
+  $('orderForm').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  assert.deepEqual(JSON.parse(JSON.stringify(orders)),[{product_id:'a'.repeat(32),quantity:2,name:'山田',contact:'y@example.com',note:''}]);
+  assert.match($('orderStatus').textContent,/受け付けました（合計 3,160円）/);dom.window.close();
+});
+
+test('409 session is already running waits for the server result instead of showing an error or resending',async()=>{
+  let busy=true;const done=record('a','A');
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return json({detail:'session is already running'},409);
+    if(url==='/api/sessions/a'&&!request.method&&!busy)return json({...done,messages:[{role:'user',content:'Wait for me'},{role:'assistant',content:'Finished answer'}]});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='Wait for me';const sending=s.win.sendMessage({preventDefault(){}});
+  await new Promise(r=>setTimeout(r,20));assert.match(s.doc.getElementById('messages').textContent,/前の処理がまだ実行中/);
+  assert.doesNotMatch(s.doc.getElementById('messages').textContent,/送信エラー/);busy=false;await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/Finished answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);
+  assert.equal(s.doc.getElementById('status').textContent,'オンライン');s.dom.window.close();
+});
+
+test('a network error recovers the finished run from the session; a failed image run switches to manual input',async()=>{
+  const s=setup({sessions:[['a',withImage(record('a','A'))]],fetch:async(url,request)=>{
+    if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});
+    if(url==='/api/chat'&&JSON.parse(request.body).image_ids.length)throw new TypeError('network error');
+    if(url==='/api/sessions/a'&&!request.method&&s?.calls.filter(c=>c.url==='/api/chat').length===1)return json({...record('a','A'),messages:[{role:'user',content:'商品を読んで'},{role:'assistant',content:'[Error] Gemini API/Timeout Error'}],last_run:{status:'failed',trace:[]}});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='商品を読んで';await s.win.sendMessage({preventDefault(){}});
+  const text=s.doc.getElementById('messages').textContent;
+  assert.match(text,/手動入力モードに切り替えました/);assert.doesNotMatch(text,/送信エラー/);
+  assert.equal(s.doc.getElementById('manualModeHint').hidden,false);
+  s.doc.getElementById('prompt').value='商品名は陶瓷杯、価格は12元';await s.win.sendMessage({preventDefault(){}});
+  const posts=s.calls.filter(c=>c.url==='/api/chat').map(c=>JSON.parse(c.request.body));
+  assert.equal(posts.length,2);assert.deepEqual(posts[1].image_ids,[]);
+  assert.equal(s.doc.getElementById('manualModeHint').hidden,true);s.dom.window.close();
+});
+
+test('a stalled stream is aborted and gives up waiting with guidance; the prompt is kept',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return new Promise((_,reject)=>request.signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))));
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:30,stall:20};
+  s.doc.getElementById('prompt').value='Slow job';await s.win.sendMessage({preventDefault(){}});
+  assert.match(s.doc.getElementById('messages').textContent,/応答を待ちきれませんでした/);
+  assert.equal(s.doc.getElementById('prompt').value,'Slow job');assert.equal(s.doc.getElementById('send').disabled,false);s.dom.window.close();
+});
+
+test('409 inside the SSE stream (second tab) also waits and shows the first run result',async()=>{
+  let busy=true;
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/chat')return new Response('event: error\ndata: {"status_code":409,"detail":"session is already running"}\n\n',{headers:{'content-type':'text/event-stream'}});
+    if(url==='/api/sessions/a'&&!request.method&&!busy)return json({...record('a','A'),messages:[{role:'user',content:'Same prompt'},{role:'assistant',content:'First tab answer'}]});
+  }});
+  s.authenticate();await s.win.connectSessions();s.win.KARRY_RECOVERY={interval:5,limit:2000,stall:2000};
+  s.doc.getElementById('prompt').value='Same prompt';const sending=s.win.sendMessage({preventDefault(){}});
+  await new Promise(r=>setTimeout(r,20));const text=s.doc.getElementById('messages').textContent;
+  assert.match(text,/前の処理がまだ実行中/);assert.doesNotMatch(text,/送信エラー/);busy=false;await sending;
+  assert.match(s.doc.getElementById('messages').textContent,/First tab answer/);assert.equal(s.calls.filter(c=>c.url==='/api/chat').length,1);s.dom.window.close();
+});
+
+test('chat video label says when the scenes are Gemini images or fell back to the title card',()=>{
+  const s=setup();const label=job=>s.win.eval(`chatVideoLabel(${JSON.stringify(job)})`);
+  const done={status:'succeeded',duration_seconds:15,autopilot:{title:'海辺'}};
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:3}}}),/Gemini で作った画像（3枚）/);
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:1}}}),/Gemini の画像 1\/3 枚/);
+  assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:0}}}),/文字の画面にしました/);
+  assert.doesNotMatch(label(done),/Gemini/);s.dom.window.close();
 });

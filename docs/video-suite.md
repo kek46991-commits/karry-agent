@@ -93,6 +93,27 @@ If narration or the engine fails, the job falls back to the static render, keeps
 with an error code, and is reported as `partial` — it is never shown as a successful animation.
 `/api/video/config` exposes `talking.available/engine/reason` (never the URL or token) and `lipsync_available` for `mouth`.
 
+## Chat autopilot options (SadTalker, length, project list)
+
+Chat video requests (`POST /api/chat`) accept `video_talking` (bool) and `video_seconds` (3–120). The same fields are
+`talking` / `duration_seconds` on `POST /api/video/autopilot`. The UI shows them under the composer when
+experimental features are on: 🗣 人物を喋らせる（SadTalker）, 動画の長さ（秒）, and 🎬 動画プロジェクト一覧.
+
+- **Length:** with `video_seconds`, the scene lengths are scaled to exactly that total (`fit_scene_seconds`). Without it,
+  each scene lasts at least as long as its narration (`wav_seconds`), so speech is never cut off.
+- **Talking:** all scene narrations are joined and sent with the attached photo to SadTalker once (`KARRY_SADTALKER_SPACE`
+  on Hugging Face, or the `KARRY_LIPSYNC_*` endpoint). The result is normalized to 16:9 and the total length, and the
+  narration is muxed in.
+  - On no photo, no configuration, busy, timeout or any error, the job renders the free local scene video instead.
+  - The reason is recorded as `autopilot.lip_sync = {"status": "fallback", "fallback_reason": "sadtalker_busy" | ...}`.
+- **Audio guarantee:**
+  - Gemini TTS output now goes through `_validate_narration_wav`, so a silent or malformed WAV falls back to gTTS.
+  - The scene concat re-encodes AAC instead of stream-copying it.
+  - The final MP4 must pass `mp4_has_audible_audio` (an ffmpeg `volumedetect` check). Otherwise the job fails with
+    `audio_missing` and is never a silent success.
+- **Project list:** `GET /api/video/jobs` is shown with lamps: yellow blinking = 生成中, green = 完了, red = エラー.
+  Each entry also shows its length in seconds.
+
 ## Security
 
 - Owner bearer token on every route; the upload guard bounds the multipart body before parsing.
