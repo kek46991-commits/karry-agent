@@ -46,11 +46,26 @@ clip uses the smallest supported length and the player stops it at `play_seconds
 | `KARRY_VIDEO_PROVIDER` | Cost | Key | Model / endpoint |
 | --- | --- | --- | --- |
 | `local` (default) | free | none (narration uses `GEMINI_API_KEY` if set) | in-server ffmpeg |
-| `replicate` (opt-in) | paid | `REPLICATE_API_TOKEN` | `KARRY_VIDEO_REPLICATE_MODEL` (default `kwaivgi/kling-v2.5-turbo-pro`) |
+| `replicate` (opt-in) | paid (~$0.05 per 5 s clip at 480p) | `REPLICATE_API_TOKEN` | `KARRY_VIDEO_REPLICATE_MODEL` (default `wan-video/wan-2.2-i2v-fast`, photo required; `kwaivgi/kling-*` also supported) |
 | `runway` (opt-in) | paid | `RUNWAYML_API_SECRET` | `gen4_turbo` with a photo, `gen4.5` without |
 
 Paid providers additionally require `KARRY_VIDEO_GENERATION_ENABLED=1`; otherwise create requests
 fail closed with 503. Narration uses `KARRY_TTS_MODEL` (Interactions API).
+
+### Replicate image-to-video (Wan 2.2 Fast)
+
+The default Replicate model turns one photo into a ~5 s clip (81 frames @ 16 fps, 480p, or
+`KARRY_VIDEO_REPLICATE_RESOLUTION=720p` for ~$0.11). The photo is center-cropped to the requested
+aspect ratio and re-encoded to a ≤256 KB JPEG data URL (Replicate's recommended data-URL size); the
+prediction has a 15-minute `Cancel-After` deadline. `video_suite.image_to_video()` runs the whole
+submit → poll → download → MP4 check flow and is what the pipeline integration builds on.
+
+Connectivity check (each run is billed):
+
+```bash
+REPLICATE_API_TOKEN=... python scripts/replicate_i2v_smoke.py photo.jpg out.mp4 "gentle waves"
+KARRY_LIVE_REPLICATE=1 REPLICATE_API_TOKEN=... pytest tests/test_replicate_live.py
+```
 
 ## Talking-head mode (lip-sync)
 

@@ -2,7 +2,7 @@
 
 The default provider is ``local``: the server composes one MP4 (photo or title card,
 slow pan, fades, narration audio) with a bundled ffmpeg, so no paid API is called.
-Paid providers (Replicate Kling / Runway) are opt-in; they return clips of at most
+Paid providers (Replicate Wan 2.2 / Kling, Runway) are opt-in; they return clips of at most
 10 s, so a 1–120 s request is planned as an ordered list of segments that the UI plays
 in order and trims to the requested length.
 """
@@ -77,20 +77,33 @@ def plan_segments(duration: int, clip_lengths: tuple[int, ...]) -> list[dict[str
     return segments
 
 
-def image_data_uri(body: bytes) -> str:
-    """Re-encode an uploaded image as a JPEG data URI small enough for provider inputs (<1 MB)."""
+def _center_crop(image: Any, aspect_ratio: str) -> Any:
+    w, h = (int(n) for n in aspect_ratio.split(":"))
+    if image.width * h > image.height * w:
+        width = max(1, image.height * w // h)
+        left = (image.width - width) // 2
+        return image.crop((left, 0, left + width, image.height))
+    height = max(1, image.width * h // w)
+    top = (image.height - height) // 2
+    return image.crop((0, top, image.width, top + height))
+
+
+def image_data_uri(body: bytes, max_bytes: int = MAX_DATA_URI_BYTES, aspect_ratio: str | None = None) -> str:
+    """Re-encode an uploaded image as a JPEG data URI of at most ``max_bytes`` (optionally center-cropped)."""
     from PIL import Image, ImageOps
     try:
         with Image.open(io.BytesIO(body)) as source:
             image = ImageOps.exif_transpose(source).convert("RGB")
     except Exception:
         raise VideoError("画像を読み込めませんでした。JPG / PNG / WEBP を選んでください。", 422, "invalid_image") from None
-    for side, quality in ((1280, 85), (1280, 70), (1024, 70), (768, 65), (512, 60)):
+    if aspect_ratio in ASPECT_RATIOS:
+        image = _center_crop(image, aspect_ratio)
+    for side, quality in ((1280, 85), (1280, 70), (1024, 70), (832, 75), (768, 65), (640, 60), (512, 60)):
         copy_ = image.copy()
         copy_.thumbnail((side, side))
         out = io.BytesIO()
         copy_.save(out, "JPEG", quality=quality)
-        if out.tell() <= MAX_DATA_URI_BYTES:
+        if out.tell() <= max_bytes:
             return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
     raise VideoError("画像を十分に小さくできませんでした。", 413, "image_too_large")
 
@@ -156,17 +169,36 @@ class _HttpAdapter:
         return _download(url, self.output_hosts)
 
 
+REPLICATE_DEFAULT_MODEL = "wan-video/wan-2.2-i2v-fast"
+_REPLICATE_MODEL = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}/[a-z0-9][a-z0-9_.-]{0,99}")
+WAN_FRAMES, WAN_FPS = 81, 16
+WAN_MAX_IMAGE_BYTES = 256 * 1024  # Replicate recommends data URLs only up to 256 KB.
+
+
 class ReplicateVideoAdapter(_HttpAdapter):
-    """Kling on Replicate (``kwaivgi/kling-v2.5-turbo-pro``: prompt, start_image, aspect_ratio, duration 5|10)."""
+    """Image-to-video on Replicate.
+
+    Default ``wan-video/wan-2.2-i2v-fast`` (prompt, image, 81 frames @ 16 fps ≈ 5 s, 480p;
+    about $0.05 per clip). ``kwaivgi/kling-*`` models keep their own payload
+    (prompt, start_image, aspect_ratio, duration 5|10).
+    """
 
     name = "replicate"
-    clip_lengths = (5, 10)
     output_hosts = ("replicate.delivery",)
     api = "https://api.replicate.com/v1"
 
     def __init__(self, token: str | None = None, model: str | None = None, session: Any | None = None):
         super().__init__(token if token is not None else os.getenv("REPLICATE_API_TOKEN", ""), session)
-        self.model = model or os.getenv("KARRY_VIDEO_REPLICATE_MODEL", "kwaivgi/kling-v2.5-turbo-pro")
+        self.model = (model or os.getenv("KARRY_VIDEO_REPLICATE_MODEL", "") or REPLICATE_DEFAULT_MODEL).strip().lower()
+        if not _REPLICATE_MODEL.fullmatch(self.model):
+            raise VideoError("KARRY_VIDEO_REPLICATE_MODEL は owner/name の形で指定してください。", 503, "video_configuration")
+        self.family = "kling" if self.model.startswith("kwaivgi/kling") else "wan"
+        if self.family == "wan":
+            self.clip_lengths, self.max_image_bytes, self.requires_image = (5,), WAN_MAX_IMAGE_BYTES, True
+            resolution = os.getenv("KARRY_VIDEO_REPLICATE_RESOLUTION", "480p").strip().lower()
+            self.resolution = resolution if resolution in {"480p", "720p"} else "480p"
+        else:
+            self.clip_lengths, self.max_image_bytes, self.requires_image = (5, 10), MAX_DATA_URI_BYTES, False
 
     @staticmethod
     def _submission(data: dict[str, Any]) -> Submission:
@@ -180,9 +212,16 @@ class ReplicateVideoAdapter(_HttpAdapter):
         return Submission(data["id"], "processing")
 
     def submit(self, prompt, aspect_ratio, seconds, image_data_uri):
-        payload: dict[str, Any] = {"prompt": prompt, "duration": seconds, "aspect_ratio": aspect_ratio}
-        if image_data_uri:
-            payload["start_image"] = image_data_uri
+        if self.family == "wan":
+            if not image_data_uri:
+                raise VideoError("この動画モデルは写真から動画を作ります。写真を1枚選んでください。", 422, "image_required")
+            payload: dict[str, Any] = {"prompt": prompt or "subtle natural motion, cinematic", "image": image_data_uri,
+                                       "num_frames": WAN_FRAMES, "frames_per_second": WAN_FPS,
+                                       "resolution": self.resolution, "go_fast": True}
+        else:
+            payload = {"prompt": prompt, "duration": seconds, "aspect_ratio": aspect_ratio}
+            if image_data_uri:
+                payload["start_image"] = image_data_uri
         return self._submission(self._call("POST", f"{self.api}/models/{self.model}/predictions",
                                            json={"input": payload}, headers={"Cancel-After": "15m"}))
 
@@ -190,6 +229,34 @@ class ReplicateVideoAdapter(_HttpAdapter):
         if not _ID.fullmatch(provider_id):
             raise VideoError("保存された生成IDが不正です。", 500, "job_integrity")
         return self._submission(self._call("GET", f"{self.api}/predictions/{provider_id}"))
+
+
+def is_mp4(body: bytes) -> bool:
+    return len(body) > 12 and body[4:8] == b"ftyp"
+
+
+def image_to_video(image: bytes, prompt: str = "", aspect_ratio: str = "16:9", adapter: VideoAdapter | None = None,
+                   timeout: float = 420, poll_interval: float = 5,
+                   sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> bytes:
+    """Turn one photo into a few-second MP4 via the external image-to-video API (blocking)."""
+    adapter = adapter or ReplicateVideoAdapter()
+    limit = getattr(adapter, "max_image_bytes", MAX_DATA_URI_BYTES)
+    data_uri = image_data_uri(image, max_bytes=limit, aspect_ratio=aspect_ratio)
+    result = adapter.submit(prompt, aspect_ratio, min(adapter.clip_lengths), data_uri)
+    deadline = clock() + timeout
+    while result.status == "processing":
+        if clock() >= deadline:
+            raise VideoError("動画生成APIが時間内に終わりませんでした。", 504, "provider_timeout")
+        sleep(poll_interval)
+        result = adapter.poll(result.provider_id)
+    if result.status != "succeeded":
+        raise VideoError("動画生成APIが失敗しました。", 502, result.error or "prediction_failed")
+    if not result.output_url:
+        raise VideoError("生成結果に動画がありません。", 502, "output_missing")
+    clip = adapter.download(result.output_url)
+    if not is_mp4(clip):
+        raise VideoError("生成結果がMP4ではありません。", 502, "output_invalid")
+    return clip
 
 
 class RunwayVideoAdapter(_HttpAdapter):
