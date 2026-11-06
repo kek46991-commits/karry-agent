@@ -543,6 +543,7 @@ def update_calendar_event(
 def build_default_registry() -> ToolRegistry:
     from . import agent_core as integrated
     from .git_workspace import run_git_command as safe_git_command
+    from .github_repo import run_github_repository
     from .url_analysis import fetch_and_summarize_url
     from .instant_website import prepare_instant_website
     from .image_generation import generate_image
@@ -577,6 +578,29 @@ def build_default_registry() -> ToolRegistry:
             "required": ["operation"],
         },
         safe_git_command,
+    )
+    registry.register(
+        "github_repository",
+        "GitHub APIで許可リスト内のリポジトリを操作する（gh・ローカル認証不要）。status / ship（agent/*ブランチ作成→1コミット→PR→CI待ち→全CI成功かつKARRY_GIT_AUTO_MERGE=1のときだけSHA固定でマージ）/ pr_status / merge_pr。main直push・保護パス(.github/・render.yaml・認証系)・秘密情報を含む内容は拒否",
+        {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["status", "ship", "pr_status", "merge_pr"]},
+                "repo": {"type": "string", "description": "owner/name。KARRY_GIT_ALLOWED_REPOSに含まれるもの"},
+                "title": string_param,
+                "body": string_param,
+                "message": string_param,
+                "files": {"type": "array", "items": {"type": "object", "properties": {"path": string_param, "content": string_param}, "required": ["path", "content"]}},
+                "paths": {"type": "array", "items": string_param},
+                "pr_number": {"type": "integer", "minimum": 1},
+                "expected_sha": string_param,
+                "wait_for_checks": {"type": "boolean"},
+                "merge": {"type": "boolean"},
+                "confirm_merge": {"type": "boolean"},
+            },
+            "required": ["operation"],
+        },
+        run_github_repository,
     )
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)

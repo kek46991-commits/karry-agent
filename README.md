@@ -303,6 +303,8 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 
 `/api/optimus/*` で、クローン「ケリーエージェント」（2号以降）の生成・実行と、自己コードの変更案 → GitHub PR → CI成功後のマージ（Render自動デプロイ）を行います。変更案はプレビューとSHA-256確認が必須で、認証・秘密情報・CI・Render設定は書き換え禁止です。マージは `KARRY_OPTIMUS_AUTO_MERGE=1` の場合のみ実行します。詳しくは [docs/optimus-core.md](docs/optimus-core.md) を参照してください。
 
+エージェントからの GitHub 反映は `github_repository` ツールで行います。`agent/*` ブランチ作成 → 1コミット → PR → CI 待ち → 全 CI 成功時だけ SHA 固定でマージ、までを GitHub API だけで実行するため、Render 上でも動きます。対象は `KARRY_GIT_ALLOWED_REPOS` のリポジトリだけで、マージは `KARRY_GIT_AUTO_MERGE=1` の場合のみです。詳しくは [docs/github-automation.md](docs/github-automation.md) を参照してください。
+
 ### ジミーのCore Context
 
 `src/karry_agent/jimmy_core_memory.json` は、ジミーの大阪弁の相棒像・長期目標・開発原則を含む汎用公開テンプレートです。個人名は保存せず、呼称は非公開環境変数 `PARTNER_NAME` または `CORE_USER_NAME` から読み込みます。未設定時は `Partner`。wheelにも汎用JSONだけを同梱し、新しいセッションや再起動でも設定を読み込みます。
