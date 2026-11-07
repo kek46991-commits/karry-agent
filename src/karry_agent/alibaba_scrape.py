@@ -9,11 +9,11 @@ import html as html_lib
 import re
 import uuid
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
 
-from .alibaba1688 import MAX_IMAGES, AlibabaError, _image_url, _number, parse_product_id
+from .alibaba1688 import MAX_IMAGES, AlibabaError, _number, image_url, parse_product_id
 
 MAX_PAGE_BYTES = 3 * 1024 * 1024
 MAX_REDIRECTS = 3
@@ -28,14 +28,36 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 BLOCKED_MESSAGE = "1688 がページの読み取りを止めました（ログイン・ボット確認の画面になりました）。原価（元）を入力すると計算できます。"
 
 
+_RAKUMART_HOST = re.compile(r"^(?:[a-z0-9-]+\.)*rakumart\.(?:com|cn)$")
+
+
+def rakumart_offer_id(value: str) -> str | None:
+    """Rakumart (ラクマート) product URL → 1688 offer ID; None for other URLs. Rakumart's ``goods_id`` is the 1688 offer ID."""
+    value = (value or "").strip()
+    parts = urlsplit(value if "://" in value else "https://" + value)
+    if parts.scheme not in ("http", "https") or not _RAKUMART_HOST.match((parts.hostname or "").lower()):
+        return None
+    query = {k.lower(): v[0].strip() for k, v in parse_qs(parts.query).items() if v}
+    platform = (query.get("fromplatform") or query.get("type") or "1688").lower()
+    goods_id = query.get("goods_id", "")
+    if platform != "1688":
+        raise AlibabaError("ラクマートの 1688 商品の URL を入れてください（タオバオ・天猫の商品はまだ使えません）。", 422, "unsupported_platform")
+    if not re.fullmatch(r"\d{6,20}", goods_id):
+        raise AlibabaError("ラクマートの商品ページ（ProductDetails?goods_id=…）の URL を入れてください。", 422, "invalid_product")
+    return goods_id
+
+
 def normalize_url(value: str) -> str:
     value = (value or "").strip()
+    rakumart = rakumart_offer_id(value)
+    if rakumart:
+        return f"https://detail.1688.com/offer/{rakumart}.html"
     if re.fullmatch(r"\d{6,20}", value):
         return f"https://detail.1688.com/offer/{value}.html"
     parts = urlsplit(value if "://" in value else "https://" + value)
     host = (parts.hostname or "").lower()
     if parts.scheme not in ("http", "https") or not _HOST.match(host) or parts.port not in (None, 443, 80):
-        raise AlibabaError("1688 の商品 URL（detail.1688.com など）か商品 ID を入れてください。", 422, "invalid_product")
+        raise AlibabaError("1688 かラクマートの商品 URL か、商品 ID を入れてください。", 422, "invalid_product")
     return f"https://{host}{parts.path or '/'}" + (f"?{parts.query}" if parts.query else "")
 
 
@@ -104,7 +126,7 @@ def parse_page(page: str, url: str) -> dict[str, Any]:
     title = re.sub(r"\s*[-_|｜]\s*(?:阿里巴巴|1688\.com|1688).*$", "", title)[:200]
     images: list[str] = []
     for raw in [_meta(page, "og:image"), *_IMAGE.findall(page)]:
-        clean = _image_url(re.sub(r"(\.(?:jpe?g|png|webp))_[^/]*$", r"\1", raw.replace("\\/", "/"), flags=re.IGNORECASE)) if raw else None
+        clean = image_url(re.sub(r"(\.(?:jpe?g|png|webp))_[^/]*$", r"\1", raw.replace("\\/", "/"), flags=re.IGNORECASE)) if raw else None
         if clean and clean not in images:
             images.append(clean)
     prices = sorted({p for p in (_number(v) for v in _PRICE.findall(page)) if p and p > 0})
@@ -141,7 +163,7 @@ def photo_product(cost_cny: float | None = None, title: str = "", category: str 
 def intake(url: str, cost_cny: float | None = None, title: str = "", category: str = "", session: Any = None) -> dict[str, Any]:
     """URL (+ manual cost / title / category) → product dict used by the reviewer, pricing and shop listing."""
     target = normalize_url(url)
-    notes: list[str] = []
+    notes: list[str] = ["ラクマートの URL から 1688 の商品を開きました。"] if rakumart_offer_id(url) else []
     try:
         final, page = fetch_page(target, session=session)
         product = parse_page(page, final)

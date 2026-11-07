@@ -37,6 +37,9 @@ class EvaluateRequest(FetchRequest):
     photos: list[Annotated[str, Field(max_length=12_000_000)]] = Field(
         default_factory=list, max_length=product_images.MAX_PHOTOS, description="商品写真（data URL）。OCR はしません")
     enhance_images: bool = Field(default=True, description="Gemini で光と背景を整える")
+    image_urls: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list, max_length=product_images.MAX_PHOTOS,
+        description="ブラウザ（ラクマートのブックマーク）で読んだ商品写真の URL。alicdn のみ")
 
 
 class PublishRequest(BaseModel):
@@ -123,6 +126,8 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
     def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
         product = fetch(request) if request.product.strip() else alibaba_scrape.photo_product(
             request.cost_cny, request.title, request.category)
+        if request.image_urls and not product.get("images"):
+            product["images"] = [u for u in map(ali.image_url, request.image_urls) if u][:product_images.MAX_PHOTOS]
         photos(product, [*(photo_bytes or []), *request.photos][:product_images.MAX_PHOTOS], request.enhance_images, stores())
         review_result = review(product)
         pricing, pricing_error = None, None

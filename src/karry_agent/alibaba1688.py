@@ -33,7 +33,7 @@ def parse_product_id(value: str) -> str:
     return match.group(1)
 
 
-def _image_url(path: Any) -> str | None:
+def image_url(path: Any) -> str | None:
     if not isinstance(path, str) or not path.strip():
         return None
     path = path.strip()

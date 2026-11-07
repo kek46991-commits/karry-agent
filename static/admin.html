@@ -38,7 +38,7 @@
       <section aria-labelledby="entryTitle">
         <h2 id="entryTitle">🛒 商品登録（1688 商品 URL ＋ 原価）</h2>
         <div class="grid">
-          <label class="wide">1688 商品 URL<input id="productUrl" type="url" maxlength="500" placeholder="https://detail.1688.com/offer/573741401425.html"></label>
+          <label class="wide">1688 / ラクマート 商品 URL<input id="productUrl" type="url" maxlength="500" placeholder="https://www.rakumart.com/ProductDetails?goods_id=573741401425&amp;fromPlatform=1688"></label><div id="autofillStatus" class="wide hint" aria-live="polite">URL を貼ると、商品名・原価（元）・カテゴリーを自動で入れます。</div>
           <label>原価（元）<input id="costCny" type="number" min="0.01" max="100000" step="0.01" placeholder="例: 100"></label>
           <label>商品名（ページが読めないとき）<input id="title" type="text" maxlength="200"></label>
           <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
@@ -51,6 +51,10 @@
           <label>代行手数料率<input id="agentFee" type="number" min="0" max="1" step="0.01"></label>
           <label>販売倍率（×）<input id="markup" type="number" min="1" max="5" step="0.05"></label>
         </div>
+        <details class="wide" id="bookmarkletHelp"><summary>🔖 ラクマートのページから取り込むボタン（ブックマーク）</summary>
+          <p class="hint">1688 がページを止めるときに使います。下のボタンをブックマークバーへドラッグするか、「コピー」してブックマークの URL に貼ってください。ログイン済みのブラウザでラクマートの商品ページを開いて押すと、商品名・原価（元）・写真がこの画面に入ります。トークンは含みません。</p>
+          <p><a id="bookmarklet" href="#">🔖 KERRY に取り込む</a> <button id="copyBookmarklet" type="button">コピー</button></p>
+        </details>
         <p id="pricePreview" class="preview" aria-live="polite">原価（元）を入れると販売価格を計算します。</p>
         <div class="actions"><button id="evaluate" type="button">取得して審査・価格計算</button><button id="register" type="button" disabled>ショップに登録</button></div>
         <p id="entryStatus" class="status" aria-live="polite"></p>
@@ -107,11 +111,45 @@
     const ip=p.image_processing,art=!ip?'':ip.engine!=='gemini'?`写真 ${ip.sources} 枚をそのまま使います。`:ip.sources===0?'🎨 使える写真がありませんでした。商品写真を追加してください。':ip.enhanced===ip.sources?`🎨 Gemini で写真 ${ip.enhanced} 枚の光と背景を整えました。`:`🎨 Gemini で ${ip.enhanced}/${ip.sources} 枚を整えました（残りは元の写真）。`;
     $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),pics,empty(art),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
   }
+  const BOOKMARKLET="(()=>{const A='ORIGIN',find=v=>{const q=[v];while(q.length){const c=q.shift();if(c&&c.details&&c.details.goodsId&&Array.isArray(c.details.images))return c.details;q.push(...(c&&c.$children||[]));}},r=document.querySelector('#app'),d=r&&r.__vue__&&find(r.__vue__);if(!d){alert('ラクマートの商品ページが開き終わってから押してください。');return;}const p=((d.goodsInfo||{}).priceRanges||[]).map(x=>Number(x.priceMin)).filter(n=>n>0),o={v:1,goods_id:String(d.goodsId),platform:String(d.fromPlatform||''),title:String(d.titleT||d.titleC||'').slice(0,200),cost_cny:p.length?Math.min(...p):null,images:d.images.filter(u=>typeof u==='string').slice(0,4)};window.open(A+'/admin#rakumart='+encodeURIComponent(JSON.stringify(o)),'_blank');})()";
+  function bookmarkletHref(){return 'javascript:'+encodeURIComponent(BOOKMARKLET.replace('ORIGIN',location.origin));}
+  function readImport(){
+    const m=location.hash.match(/^#rakumart=(.+)$/);if(!m)return;
+    history.replaceState(null,'',location.pathname+location.search);
+    const status=$('autofillStatus');let d;
+    try{d=JSON.parse(decodeURIComponent(m[1]));}catch(_){status.textContent='⚠ 取り込みデータを読めませんでした。';return;}
+    const id=String(d?.goods_id||'');if(!/^\d{6,20}$/.test(id)){status.textContent='⚠ ラクマートの商品 ID を読めませんでした。';return;}
+    if(d.platform&&String(d.platform)!=='1688'){status.textContent='⚠ ラクマートの 1688 商品だけ取り込めます（タオバオ・天猫はまだ使えません）。';return;}
+    const url=`https://www.rakumart.com/ProductDetails?goods_id=${id}&fromPlatform=1688`,filled=[];
+    $('productUrl').value=url;state.autofilled=url;state.importUrl=url;
+    const title=typeof d.title==='string'?d.title.trim().slice(0,200):'';if(title){$('title').value=title;filled.push('商品名');}
+    const cost=Number(d.cost_cny);if(cost>0&&cost<=100000){$('costCny').value=String(Math.round(cost*100)/100);filled.push('原価');preview();}
+    state.importImages=(Array.isArray(d.images)?d.images:[]).filter(u=>typeof u==='string').map(u=>u.startsWith('//')?'https:'+u:u).filter(u=>/^https:\/\/(cbu01|img)\.alicdn\.com\//.test(u)).slice(0,4);
+    if(state.importImages.length)filled.push(`写真 ${state.importImages.length} 枚`);
+    status.textContent=filled.length?`✅ ラクマートから取り込みました（${filled.join('・')}）。商品 ID: ${id}`:`商品 ID ${id} を取り込みました。商品名と原価（元）を入れてください。`;
+  }
+  const PRODUCT_URL=/^(?:\d{6,20}|https?:\/\/[^\s]*(?:1688\.com|rakumart\.(?:com|cn))\/\S+)$/i;
+  async function autofill(){
+    const product=$('productUrl').value.trim(),status=$('autofillStatus');
+    if(product!==state.importUrl)state.importImages=[];
+    if(!PRODUCT_URL.test(product)||product===state.autofilled)return;
+    state.autofilled=product;status.textContent='🔎 商品ページを読み取っています…';
+    try{const {response,data}=await api('/api/alibaba/fetch',{method:'POST',body:JSON.stringify({product})});
+      if($('productUrl').value.trim()!==product)return;
+      if(!response.ok){status.textContent=`⚠ 自動入力できませんでした: ${typeof data.detail==='string'?data.detail:'入力を確認してください。'} 商品名と原価（元）を手で入れてください。`;return;}
+      const p=data.product||{},filled=[];
+      if(!p.title_missing&&p.title&&!$('title').value.trim()){$('title').value=p.title;filled.push('商品名');}
+      if(p.min_price_cny>0&&$('costCny').value===''){$('costCny').value=p.min_price_cny;filled.push('原価');preview();}
+      if(p.category&&!$('category').value.trim()){$('category').value=p.category;filled.push('カテゴリー');}
+      const pics=(p.images||[]).length;if(pics)filled.push(`写真 ${pics} 枚`);
+      status.textContent=filled.length?`✅ 自動入力しました（${filled.join('・')}）。商品 ID: ${p.product_id}`:`商品 ID ${p.product_id} を確認しました。ページから読めた項目がないため、商品名と原価（元）を入れてください。`;}
+    catch(error){if(error.message!=='unauthorized')status.textContent='通信に失敗しました。';state.autofilled='';}
+  }
   async function evaluate(){
     const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
-    if(!product){$('entryStatus').textContent='1688 の商品 URL を入れてください。';return;}
+    if(!product){$('entryStatus').textContent='1688 かラクマートの商品 URL を入れてください。';return;}
     const files=[...($('photos').files||[])];if(files.length>4||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 4 枚まで、1 枚 8MB までです。';return;}
-    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;
+    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;if(!files.length&&product===state.importUrl&&state.importImages?.length)body.image_urls=state.importImages;
     $('evaluate').disabled=true;$('entryStatus').textContent=$('enhance').checked?'写真を Gemini で整えて、審査・計算しています（1 分ほどかかります）…':'審査・計算しています…';
     try{body.photos=await Promise.all(files.map(readPhoto));}catch(error){$('entryStatus').textContent=error.message;$('evaluate').disabled=false;return;}
     try{const {response,data}=await api('/api/alibaba/evaluate',{method:'POST',body:JSON.stringify(body)});
@@ -145,9 +183,15 @@
   $('loginForm').addEventListener('submit',event=>{event.preventDefault();login($('adminToken').value);});
   $('logout').addEventListener('click',()=>logout('ログアウトしました。'));
   $('evaluate').addEventListener('click',evaluate);
+  $('productUrl').addEventListener('change',autofill);
+  $('productUrl').addEventListener('paste',()=>setTimeout(autofill,0));
   $('register').addEventListener('click',()=>{if(state.draft)publish(state.draft.id);});
   for(const id of ['costCny',...Object.keys(PRICING)])$(id).addEventListener('input',preview);
   setInterval(()=>{if(!$('dashboard').hidden)refresh();},15000);
+  $('bookmarklet').href=bookmarkletHref();
+  $('bookmarklet').addEventListener('click',event=>{event.preventDefault();$('autofillStatus').textContent='このボタンはブックマークに入れて、ラクマートの商品ページで押してください。';});
+  $('copyBookmarklet').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(bookmarkletHref());$('autofillStatus').textContent='📋 コピーしました。ブックマークの URL に貼ってください。';}catch(_){$('autofillStatus').textContent='コピーできませんでした。ボタンを長押しして URL をコピーしてください。';}});
+  readImport();
   const saved=sessionStorage.getItem(KEY);if(saved)login(saved);
 </script>
 </body>

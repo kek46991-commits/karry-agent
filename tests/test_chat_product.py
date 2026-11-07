@@ -13,6 +13,8 @@ def test_fields_are_read_from_the_message():
                       "title": "木製ブックスタンド", "category": "インテリア"}
     assert chat_product.parse_fields("この写真を出品して")["cost_cny"] is None
     assert chat_product.parse_fields("38.5RMB")["cost_cny"] == 38.5
+    rakumart = "https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688"
+    assert chat_product.parse_fields(f"{rakumart} を出品")["product"] == rakumart
 
 
 @pytest.mark.parametrize("text", ["出品して", "下書きに保存", "商品写真です", "1688 の商品"])

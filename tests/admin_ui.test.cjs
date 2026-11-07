@@ -8,7 +8,7 @@ const json=(body,status=200)=>({ok:status<400,status,json:async()=>body});
 
 function setup(options={}){
   const calls=[],state={drafts:[],products:[],verdict:options.verdict||'SAFE',untitled:false};
-  const dom=new JSDOM(html,{url:'https://example.onrender.com/admin',runScripts:'dangerously',beforeParse(window){
+  const dom=new JSDOM(html,{url:options.url||'https://example.onrender.com/admin',runScripts:'dangerously',beforeParse(window){
     if(options.saved)window.sessionStorage.setItem('karry-admin-token',options.saved);
     window.fetch=async(url,request={})=>{
       const auth=request.headers?.Authorization;calls.push({url,method:request.method||'GET',auth,body:request.body?JSON.parse(request.body):null});
@@ -19,6 +19,9 @@ function setup(options={}){
       if(url==='/api/shop/admin/products')return json({products:state.products});
       if(url==='/api/shop/admin/orders')return json({orders:[]});
       if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
+      if(url==='/api/alibaba/fetch'){const body=JSON.parse(request.body);state.fetched=body.product;
+        if(options.blocked)return json({detail:'1688 のページを読めませんでした（ボット確認で止められました）。'},502);
+        return json({product:{product_id:'573741401425',title:'硅胶折叠水杯',title_missing:false,min_price_cny:12.5,category:'杯子',images:['https://cbu01.alicdn.com/a.jpg']}});}
       if(url==='/api/alibaba/evaluate'){
         const body=JSON.parse(request.body),cost=body.cost_cny;
         state.lastBody=body;
@@ -41,7 +44,8 @@ test('dashboard stays hidden until the admin token is verified and has no OCR, p
   assert.equal($('dashboard').hidden,true);assert.equal($('login').hidden,false);
   assert.deepEqual([...s.dom.window.document.querySelectorAll('input[type=file]')].map(i=>i.id),['photos'],'only plain product photos, no OCR screenshot input');
   assert.equal($('enhance').checked,true);
-  assert.equal(s.dom.window.document.querySelectorAll('a').length,0,'no external links');
+  assert.equal(s.dom.window.document.querySelectorAll('a:not(#bookmarklet)').length,0,'no external links');
+  assert.match(s.$('bookmarklet').getAttribute('href'),/^javascript:/);
   assert.equal(s.dom.window.document.querySelector('iframe'),null);
   assert.doesNotMatch(s.dom.window.document.body.textContent,/スクショ|OCR|プレビュー一覧|ショップを開く/);
   $('adminToken').value='wrong';$('loginForm').dispatchEvent(new s.win.Event('submit',{cancelable:true}));await tick();
@@ -96,4 +100,38 @@ test('product photos are posted as data URLs with the Gemini enhance flag and sh
   assert.equal(s.state.lastBody.enhance_images,false);assert.match($('result').textContent,/写真 1 枚をそのまま使います/);
   Object.defineProperty($('photos'),'files',{configurable:true,value:Array.from({length:5},()=>new s.win.File(['x'],'a.jpg',{type:'image/jpeg'}))});
   $('evaluate').click();await tick(10);assert.match($('entryStatus').textContent,/4 枚まで/);s.dom.window.close();
+});
+
+test('pasting a Rakumart URL auto-fills title, cost and category without overwriting typed values',async()=>{
+  const s=setup({saved:'good-token'});const {$}=s;await tick(30);
+  const url='https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688';
+  $('category').value='キッチン';$('productUrl').value=url;$('productUrl').dispatchEvent(new s.win.Event('change'));await tick(30);
+  assert.equal(s.state.fetched,url);assert.equal($('title').value,'硅胶折叠水杯');assert.equal($('costCny').value,'12.5');assert.equal($('category').value,'キッチン');
+  assert.match($('autofillStatus').textContent,/✅ 自動入力しました（商品名・原価・写真 1 枚）/);assert.match($('pricePreview').textContent,/販売価格（目安）/);
+  $('productUrl').dispatchEvent(new s.win.Event('change'));await tick(30);
+  assert.equal(s.calls.filter(c=>c.url==='/api/alibaba/fetch').length,1);s.dom.window.close();
+  const b=setup({saved:'good-token',blocked:true});await tick(30);
+  b.$('productUrl').value=url;b.$('productUrl').dispatchEvent(new b.win.Event('change'));await tick(30);
+  assert.match(b.$('autofillStatus').textContent,/自動入力できませんでした.*手で入れて/);assert.equal(b.$('title').value,'');b.dom.window.close();
+});
+
+test('the Rakumart bookmarklet reads the product page and /admin fills the form from the #rakumart= fragment',async()=>{
+  const s=setup({saved:'good-token'});await tick(30);
+  const href=s.$('bookmarklet').href;assert.match(href,/^javascript:/);assert.ok(!href.includes('good-token'));
+  const code=decodeURIComponent(href.slice('javascript:'.length));assert.ok(code.includes("A='https://example.onrender.com'")&&code.includes("'/admin#rakumart='"));s.dom.window.close();
+  const page=new JSDOM('<div id="app"></div>',{url:'https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688',runScripts:'outside-only'});
+  let opened=null;page.window.open=u=>{opened=u;};page.window.alert=()=>{throw new Error('alert');};
+  page.window.document.getElementById('app').__vue__={$children:[{$children:[{details:{goodsId:'573741401425',fromPlatform:'1688',titleT:'シリコン折りたたみカップ',titleC:'硅胶折叠水杯',
+    images:['https://cbu01.alicdn.com/img/a.jpg','https://evil.example/x.jpg'],goodsInfo:{priceRanges:[{priceMin:'15.5'},{priceMin:'12.8'}]}}}]}]};
+  page.window.eval(code);page.window.close();
+  assert.match(opened,/^https:\/\/example\.onrender\.com\/admin#rakumart=/);
+  const t=setup({saved:'good-token',url:opened});const {$}=t;await tick(30);
+  assert.equal(t.win.location.hash,'');assert.equal($('title').value,'シリコン折りたたみカップ');assert.equal($('costCny').value,'12.8');
+  assert.equal($('productUrl').value,'https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688');
+  assert.match($('autofillStatus').textContent,/✅ ラクマートから取り込みました（商品名・原価・写真 1 枚）/);
+  $('evaluate').click();await tick(30);
+  assert.deepEqual(t.state.lastBody.image_urls,['https://cbu01.alicdn.com/img/a.jpg']);assert.equal(t.state.lastBody.cost_cny,12.8);
+  assert.equal(t.calls.filter(c=>c.url==='/api/alibaba/fetch').length,0);t.dom.window.close();
+  const bad=setup({saved:'good-token',url:'https://example.onrender.com/admin#rakumart='+encodeURIComponent(JSON.stringify({goods_id:'573741401425',platform:'taobao'}))});await tick(30);
+  assert.match(bad.$('autofillStatus').textContent,/タオバオ/);assert.equal(bad.$('productUrl').value,'');bad.dom.window.close();
 });
