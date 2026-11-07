@@ -60,6 +60,13 @@ def decode_photo(value: str) -> bytes:
     return _jpeg(raw)
 
 
+def decode_bytes(raw: bytes) -> bytes:
+    """Already-uploaded photo bytes (e.g. a chat attachment) → validated JPEG (max 1600 px)."""
+    if not 0 < len(raw) <= MAX_PHOTO_BYTES:
+        raise AlibabaError("写真は 1 枚 8MB までです。", 413, "invalid_photo")
+    return _jpeg(raw)
+
+
 def download(url: str, session: Any = None) -> bytes | None:
     """One 1688 (alicdn) product photo as JPEG, or None. Only alicdn over https, no redirects, 8 MB cap."""
     if not isinstance(url, str) or not ALICDN.match(url):
@@ -123,12 +130,12 @@ def shop_jpeg(body: bytes, limit: int = MAX_SHOP_IMAGE_BYTES) -> bytes:
         side = int(side * 0.75)
 
 
-def prepare(product: dict[str, Any], photos: list[str], enhance: bool, store: Any,
+def prepare(product: dict[str, Any], photos: list[str | bytes], enhance: bool, store: Any,
             editor: Editor | None = None, session: Any = None) -> dict[str, Any]:
     """Store polished shop images for a draft and put them first in ``product["images"]``."""
     edit = editor or gemini_enhance
     page = [u for u in product.get("images") or [] if isinstance(u, str) and ALICDN.match(u)]
-    sources = [(decode_photo(p), None) for p in photos[:MAX_PHOTOS]]
+    sources = [(decode_photo(p) if isinstance(p, str) else decode_bytes(p), None) for p in photos[:MAX_PHOTOS]]
     used: set[str] = set()
     if enhance:
         for url in page:

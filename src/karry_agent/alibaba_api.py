@@ -26,7 +26,7 @@ class PricingOverrides(BaseModel):
 
 
 class FetchRequest(BaseModel):
-    product: str = Field(min_length=1, max_length=500, description="1688 商品 URL または商品 ID")
+    product: str = Field(default="", max_length=500, description="1688 商品 URL または商品 ID（チャットの写真だけなら空）")
     cost_cny: float | None = Field(default=None, gt=0, le=100000, description="原価（人民元）の手入力")
     title: str = Field(default="", max_length=200)
     category: str = Field(default="", max_length=80)
@@ -120,32 +120,45 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
             log.add(action="fetch", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             return _error(exc)
 
-    @router.post("/evaluate")
-    async def evaluate(request: EvaluateRequest):
-        """取得して審査・価格計算: URL + manual cost → legal screening → JPY price → saved as a draft (not public)."""
-        def work():
-            product = fetch(request)
-            photos(product, request.photos, request.enhance_images, stores())
-            review_result = review(product)
-            pricing, pricing_error = None, None
-            try:
-                pricing = ali.price_product(product.get("min_price_cny"), request.pricing.model_dump(exclude_none=True))
-            except ali.AlibabaError as exc:
-                if exc.code == "invalid_pricing":
-                    raise
-                pricing_error = "原価（元）を入力すると販売価格を計算できます。"
-            draft = stores().save_draft({"product": product, "review": review_result, "pricing": pricing})
-            return {"draft": draft, "product": product, "review": review_result, "pricing": pricing, "pricing_error": pricing_error}
+    def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
+        product = fetch(request) if request.product.strip() else alibaba_scrape.photo_product(
+            request.cost_cny, request.title, request.category)
+        photos(product, [*(photo_bytes or []), *request.photos][:product_images.MAX_PHOTOS], request.enhance_images, stores())
+        review_result = review(product)
+        pricing, pricing_error = None, None
         try:
-            result = await run_in_threadpool(work)
+            pricing = ali.price_product(product.get("min_price_cny"), request.pricing.model_dump(exclude_none=True))
+        except ali.AlibabaError as exc:
+            if exc.code == "invalid_pricing":
+                raise
+            pricing_error = "原価（元）を入力すると販売価格を計算できます。"
+        draft = stores().save_draft({"product": product, "review": review_result, "pricing": pricing})
+        return {"draft": draft, "product": product, "review": review_result, "pricing": pricing, "pricing_error": pricing_error}
+
+    def create_draft(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
+        """Shared by /evaluate and chat photo intake. Raises AlibabaError (logged) on bad input."""
+        try:
+            result = draft_work(request, photo_bytes)
         except ali.AlibabaError as exc:
             log.add(action="evaluate", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
-            return _error(exc)
+            raise
         review_result = result["review"]
         result["log"] = log.add(action="evaluate", status="ok", **summary(result["product"]), verdict=review_result["verdict"],
                                 engine=review_result["engine"], checks=checks(review_result),
                                 selling_price_jpy=(result["pricing"] or {}).get("selling_price_jpy"))
-        return _json(result)
+        return result
+
+    router.create_draft = create_draft
+
+    @router.post("/evaluate")
+    async def evaluate(request: EvaluateRequest):
+        """取得して審査・価格計算: URL + manual cost → legal screening → JPY price → saved as a draft (not public)."""
+        if not request.product.strip():
+            return _error(ali.AlibabaError("1688 の商品 URL（/offer/<数字>.html）か商品 ID を入れてください。", 422, "invalid_product"))
+        try:
+            return _json(await run_in_threadpool(create_draft, request))
+        except ali.AlibabaError as exc:
+            return _error(exc)
 
     @router.get("/drafts")
     def drafts():

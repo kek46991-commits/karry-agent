@@ -846,3 +846,22 @@ test('chat video label says when the scenes are Gemini images or fell back to th
   assert.match(label({...done,autopilot:{...done.autopilot,scene_images:{engine:'gemini',requested:3,generated:0}}}),/文字の画面にしました/);
   assert.doesNotMatch(label(done),/Gemini/);s.dom.window.close();
 });
+
+test('product-photo switch sends product_draft and the reply shows the polished draft photos',async()=>{
+  const draft='d'.repeat(32),img=`/api/shop/images/${'a'.repeat(32)}.jpg`;
+  const s=setup({sessions:[['a',withImage(record('a','A'))]],fetch:async(url)=>{
+    if(url.startsWith('/api/images/'))return json({image_url:IMAGE_URL});
+    if(url==='/api/alibaba/drafts')return json({drafts:[{id:draft,review:{verdict:'SAFE'},pricing:{selling_price_jpy:2489},product:{title:'マグカップ',images:[img,'https://evil.example/x.jpg']}}]});
+    return null;}});
+  s.authenticate();await s.win.connectSessions();
+  const toggle=s.doc.getElementById('productDraft');toggle.checked=true;toggle.dispatchEvent(new s.win.Event('change'));
+  await s.win.sendMessage({preventDefault(){}});
+  const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);
+  assert.equal(body.product_draft,true);assert.equal(body.prompt,'商品写真を下書きに保存して');assert.deepEqual(body.image_ids,[IMAGE_ID]);
+  assert.equal(s.win.localStorage.getItem('karry-product-draft'),'1');
+  s.win.addMessage('agent',`🛍 商品写真を下書きに保存しました。\n商品下書きID: ${draft}`);await new Promise(r=>setTimeout(r,5));
+  const card=[...s.doc.querySelectorAll('.chat-product')].at(-1);
+  assert.match(card.querySelector('.chat-product-status').textContent,/SAFE｜マグカップ｜2,489 円/);
+  assert.deepEqual([...card.querySelectorAll('img')].map(i=>i.getAttribute('src')),[img]);
+  assert.equal(card.querySelector('a').getAttribute('href'),'/admin');s.dom.window.close();
+});
