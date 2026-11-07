@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import binascii
 import io
+import logging
 import os
 import re
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from typing import Any
 
 from .alibaba1688 import AlibabaError
 
+logger = logging.getLogger(__name__)
 MAX_PHOTOS = 4
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_ENHANCE = 3
@@ -96,8 +98,11 @@ def gemini_enhance(photo: bytes, title: str) -> bytes | None:
                                                image_config=types.ImageConfig(aspect_ratio="1:1")),
         )
         found = ig._inline_image(response)
+        if not found:
+            logger.warning("Gemini photo edit: no image returned (finish=%s)", ig.finish_reasons(response))
         return ig._to_jpeg(found[0]) if found else None
-    except Exception:  # noqa: BLE001 - keep the original photo instead
+    except Exception as exc:  # noqa: BLE001 - keep the original photo instead
+        logger.warning("Gemini photo edit failed: %s %s", type(exc).__name__, getattr(exc, "code", ""))
         return None
 
 
