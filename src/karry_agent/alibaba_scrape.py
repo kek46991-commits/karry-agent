@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
 
-from .alibaba1688 import MAX_IMAGES, AlibabaError, _image_url, _number, parse_product_id
+from .alibaba1688 import MAX_IMAGES, AlibabaError, _number, image_url, parse_product_id
 
 MAX_PAGE_BYTES = 3 * 1024 * 1024
 MAX_REDIRECTS = 3
@@ -126,7 +126,7 @@ def parse_page(page: str, url: str) -> dict[str, Any]:
     title = re.sub(r"\s*[-_|｜]\s*(?:阿里巴巴|1688\.com|1688).*$", "", title)[:200]
     images: list[str] = []
     for raw in [_meta(page, "og:image"), *_IMAGE.findall(page)]:
-        clean = _image_url(re.sub(r"(\.(?:jpe?g|png|webp))_[^/]*$", r"\1", raw.replace("\\/", "/"), flags=re.IGNORECASE)) if raw else None
+        clean = image_url(re.sub(r"(\.(?:jpe?g|png|webp))_[^/]*$", r"\1", raw.replace("\\/", "/"), flags=re.IGNORECASE)) if raw else None
         if clean and clean not in images:
             images.append(clean)
     prices = sorted({p for p in (_number(v) for v in _PRICE.findall(page)) if p and p > 0})

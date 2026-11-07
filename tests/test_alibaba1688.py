@@ -356,3 +356,19 @@ def test_evaluate_with_photos_stores_enhanced_shop_images_and_publishes_them(api
     assert bad.status_code == 422 and bad.json()['code'] == 'invalid_photo'
     assert http.post('/api/alibaba/evaluate', json={'product': '1', 'photos': ['x'] * 5}, headers=AUTH).status_code == 422
     assert http.get('/api/shop/images/..%2Fcatalog.jpg').status_code == 404
+
+
+def test_bookmarklet_image_urls_are_used_only_from_alicdn_when_the_page_is_blocked(api, monkeypatch):
+    http, state, _ = api
+    seen = []
+    monkeypatch.setattr(product_images, 'download', lambda url, session=None: seen.append(url))
+    state['blocked'] = True
+    data = http.post('/api/alibaba/evaluate', json={
+        'product': 'https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688', 'cost_cny': 12.8,
+        'title': 'シリコン折りたたみカップ', 'enhance_images': False,
+        'image_urls': ['//cbu01.alicdn.com/img/a.jpg', 'https://evil.example/x.jpg', 'http://127.0.0.1/y.jpg']}, headers=AUTH).json()
+    assert seen == [] and data['product']['images'] == ['https://cbu01.alicdn.com/img/a.jpg']
+    assert data['product']['url'] == 'https://detail.1688.com/offer/573741401425.html' and data['pricing']['cost_cny'] == 12.8
+    too_many = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'image_urls': ['https://cbu01.alicdn.com/a.jpg'] * 5},
+                         headers=AUTH)
+    assert too_many.status_code == 422
