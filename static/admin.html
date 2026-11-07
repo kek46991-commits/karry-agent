@@ -38,7 +38,7 @@
       <section aria-labelledby="entryTitle">
         <h2 id="entryTitle">🛒 商品登録（1688 商品 URL ＋ 原価）</h2>
         <div class="grid">
-          <label class="wide">1688 商品 URL<input id="productUrl" type="url" maxlength="500" placeholder="https://detail.1688.com/offer/573741401425.html"></label>
+          <label class="wide">1688 / ラクマート 商品 URL<input id="productUrl" type="url" maxlength="500" placeholder="https://www.rakumart.com/ProductDetails?goods_id=573741401425&amp;fromPlatform=1688"></label><div id="autofillStatus" class="wide hint" aria-live="polite">URL を貼ると、商品名・原価（元）・カテゴリーを自動で入れます。</div>
           <label>原価（元）<input id="costCny" type="number" min="0.01" max="100000" step="0.01" placeholder="例: 100"></label>
           <label>商品名（ページが読めないとき）<input id="title" type="text" maxlength="200"></label>
           <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
@@ -107,9 +107,25 @@
     const ip=p.image_processing,art=!ip?'':ip.engine!=='gemini'?`写真 ${ip.sources} 枚をそのまま使います。`:ip.sources===0?'🎨 使える写真がありませんでした。商品写真を追加してください。':ip.enhanced===ip.sources?`🎨 Gemini で写真 ${ip.enhanced} 枚の光と背景を整えました。`:`🎨 Gemini で ${ip.enhanced}/${ip.sources} 枚を整えました（残りは元の写真）。`;
     $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),pics,empty(art),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
   }
+  const PRODUCT_URL=/^(?:\d{6,20}|https?:\/\/[^\s]*(?:1688\.com|rakumart\.(?:com|cn))\/\S+)$/i;
+  async function autofill(){
+    const product=$('productUrl').value.trim(),status=$('autofillStatus');
+    if(!PRODUCT_URL.test(product)||product===state.autofilled)return;
+    state.autofilled=product;status.textContent='🔎 商品ページを読み取っています…';
+    try{const {response,data}=await api('/api/alibaba/fetch',{method:'POST',body:JSON.stringify({product})});
+      if($('productUrl').value.trim()!==product)return;
+      if(!response.ok){status.textContent=`⚠ 自動入力できませんでした: ${typeof data.detail==='string'?data.detail:'入力を確認してください。'} 商品名と原価（元）を手で入れてください。`;return;}
+      const p=data.product||{},filled=[];
+      if(!p.title_missing&&p.title&&!$('title').value.trim()){$('title').value=p.title;filled.push('商品名');}
+      if(p.min_price_cny>0&&$('costCny').value===''){$('costCny').value=p.min_price_cny;filled.push('原価');preview();}
+      if(p.category&&!$('category').value.trim()){$('category').value=p.category;filled.push('カテゴリー');}
+      const pics=(p.images||[]).length;if(pics)filled.push(`写真 ${pics} 枚`);
+      status.textContent=filled.length?`✅ 自動入力しました（${filled.join('・')}）。商品 ID: ${p.product_id}`:`商品 ID ${p.product_id} を確認しました。ページから読めた項目がないため、商品名と原価（元）を入れてください。`;}
+    catch(error){if(error.message!=='unauthorized')status.textContent='通信に失敗しました。';state.autofilled='';}
+  }
   async function evaluate(){
     const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
-    if(!product){$('entryStatus').textContent='1688 の商品 URL を入れてください。';return;}
+    if(!product){$('entryStatus').textContent='1688 かラクマートの商品 URL を入れてください。';return;}
     const files=[...($('photos').files||[])];if(files.length>4||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 4 枚まで、1 枚 8MB までです。';return;}
     const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;
     $('evaluate').disabled=true;$('entryStatus').textContent=$('enhance').checked?'写真を Gemini で整えて、審査・計算しています（1 分ほどかかります）…':'審査・計算しています…';
@@ -145,6 +161,8 @@
   $('loginForm').addEventListener('submit',event=>{event.preventDefault();login($('adminToken').value);});
   $('logout').addEventListener('click',()=>logout('ログアウトしました。'));
   $('evaluate').addEventListener('click',evaluate);
+  $('productUrl').addEventListener('change',autofill);
+  $('productUrl').addEventListener('paste',()=>setTimeout(autofill,0));
   $('register').addEventListener('click',()=>{if(state.draft)publish(state.draft.id);});
   for(const id of ['costCny',...Object.keys(PRICING)])$(id).addEventListener('input',preview);
   setInterval(()=>{if(!$('dashboard').hidden)refresh();},15000);

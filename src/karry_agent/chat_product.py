@@ -14,8 +14,8 @@ from . import alibaba1688 as ali
 from .core import AgentMetrics, AgentResult, ExecutionEvent
 
 ACTION = "create_product_draft"
-_INTENT = re.compile(r"出品|下書き|商品写真|商品画像|ショップに|仕入れ|1688")
-_URL = re.compile(r"https?://[^\s<>\"']*1688\.com/[^\s<>\"']+")
+_INTENT = re.compile(r"出品|下書き|商品写真|商品画像|ショップに|仕入れ|1688|ラクマート|rakumart", re.IGNORECASE)
+_URL = re.compile(r"https?://[^\s<>\"']*(?:1688\.com|rakumart\.(?:com|cn))/[^\s<>\"']+")
 _COST = re.compile(r"(?:原価|仕入れ値|仕入値|価格)\s*[:：は]?\s*(\d+(?:\.\d+)?)\s*(?:元|RMB|CNY|人民元)?|"
                    r"(\d+(?:\.\d+)?)\s*(?:元|RMB|CNY|人民元)", re.IGNORECASE)
 _TITLE = re.compile(r"(?:商品名|タイトル)\s*[:：は]?\s*([^\n]+)")

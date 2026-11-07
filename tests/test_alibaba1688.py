@@ -56,6 +56,30 @@ def test_only_1688_urls_are_accepted(value, expected):
     assert alibaba_scrape.normalize_url(value) == expected
 
 
+@pytest.mark.parametrize('value', ['https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688',
+                                   'rakumart.com/ProductDetails?fromPlatform=1688&goods_id=573741401425&mid=x',
+                                   'https://www.rakumart.cn/ProductDetails?goods_id=573741401425'])
+def test_rakumart_urls_open_the_1688_offer(value):
+    assert alibaba_scrape.normalize_url(value) == 'https://detail.1688.com/offer/573741401425.html'
+    assert alibaba_scrape.rakumart_offer_id(value) == '573741401425'
+
+
+@pytest.mark.parametrize('value,code', [('https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=taobao', 'unsupported_platform'),
+                                        ('https://www.rakumart.com/ProductDetails?goods_id=abc', 'invalid_product'),
+                                        ('https://www.rakumart.com/', 'invalid_product'),
+                                        ('https://rakumart.com.evil.example/ProductDetails?goods_id=573741401425', 'invalid_product')])
+def test_bad_rakumart_urls_are_rejected(value, code):
+    with pytest.raises(ali.AlibabaError) as exc:
+        alibaba_scrape.normalize_url(value)
+    assert exc.value.code == code
+
+
+def test_rakumart_intake_reads_the_1688_page_and_notes_the_source():
+    product = alibaba_scrape.intake('https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688', cost_cny=8.5,
+                                    session=Session(Response(302, location='https://login.1688.com/')))
+    assert product['product_id'] == '573741401425' and 'ラクマート' in product['notes'][0]
+
+
 @pytest.mark.parametrize('value', ['https://evil.example/offer/1.html', 'https://1688.com.evil.example/offer/1.html',
                                    'ftp://detail.1688.com/x', 'https://detail.1688.com:8443/x', 'http://127.0.0.1/', 'file:///etc/passwd'])
 def test_other_hosts_are_rejected(value):

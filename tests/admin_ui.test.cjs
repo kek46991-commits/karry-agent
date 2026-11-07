@@ -19,6 +19,9 @@ function setup(options={}){
       if(url==='/api/shop/admin/products')return json({products:state.products});
       if(url==='/api/shop/admin/orders')return json({orders:[]});
       if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
+      if(url==='/api/alibaba/fetch'){const body=JSON.parse(request.body);state.fetched=body.product;
+        if(options.blocked)return json({detail:'1688 のページを読めませんでした（ボット確認で止められました）。'},502);
+        return json({product:{product_id:'573741401425',title:'硅胶折叠水杯',title_missing:false,min_price_cny:12.5,category:'杯子',images:['https://cbu01.alicdn.com/a.jpg']}});}
       if(url==='/api/alibaba/evaluate'){
         const body=JSON.parse(request.body),cost=body.cost_cny;
         state.lastBody=body;
@@ -96,4 +99,17 @@ test('product photos are posted as data URLs with the Gemini enhance flag and sh
   assert.equal(s.state.lastBody.enhance_images,false);assert.match($('result').textContent,/写真 1 枚をそのまま使います/);
   Object.defineProperty($('photos'),'files',{configurable:true,value:Array.from({length:5},()=>new s.win.File(['x'],'a.jpg',{type:'image/jpeg'}))});
   $('evaluate').click();await tick(10);assert.match($('entryStatus').textContent,/4 枚まで/);s.dom.window.close();
+});
+
+test('pasting a Rakumart URL auto-fills title, cost and category without overwriting typed values',async()=>{
+  const s=setup({saved:'good-token'});const {$}=s;await tick(30);
+  const url='https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688';
+  $('category').value='キッチン';$('productUrl').value=url;$('productUrl').dispatchEvent(new s.win.Event('change'));await tick(30);
+  assert.equal(s.state.fetched,url);assert.equal($('title').value,'硅胶折叠水杯');assert.equal($('costCny').value,'12.5');assert.equal($('category').value,'キッチン');
+  assert.match($('autofillStatus').textContent,/✅ 自動入力しました（商品名・原価・写真 1 枚）/);assert.match($('pricePreview').textContent,/販売価格（目安）/);
+  $('productUrl').dispatchEvent(new s.win.Event('change'));await tick(30);
+  assert.equal(s.calls.filter(c=>c.url==='/api/alibaba/fetch').length,1);s.dom.window.close();
+  const b=setup({saved:'good-token',blocked:true});await tick(30);
+  b.$('productUrl').value=url;b.$('productUrl').dispatchEvent(new b.win.Event('change'));await tick(30);
+  assert.match(b.$('autofillStatus').textContent,/自動入力できませんでした.*手で入れて/);assert.equal(b.$('title').value,'');b.dom.window.close();
 });
