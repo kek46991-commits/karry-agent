@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="gemini-scenes-20261027">
+  <meta name="karry-ui-version" content="product-chat-20261107">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -15,7 +15,7 @@
     .stop-speech{border:1px solid #c0566a;background:#3a1622;color:#ffd7de;border-radius:999px;padding:4px 12px;font:inherit;cursor:pointer}.voice-hint{color:#f2c46d;font-size:12px}
     form{border-top:1px solid var(--line);padding:15px;display:flex;gap:10px;align-items:stretch}textarea{flex:1;resize:vertical;min-height:52px;max-height:220px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0c1426;color:var(--text);font:inherit}input[type="text"],input[type="password"]{padding:10px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit}button{border:0;border-radius:11px;padding:0 18px;background:var(--accent);color:#071326;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid #9ec9ff;outline-offset:3px}.icon-button{min-width:42px;padding:0 10px;background:#263c61;color:var(--text);font-size:18px}.icon-button.active{background:#a34b67}.voice-options{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:0 15px 12px}.voice-options input{accent-color:var(--accent)}.speech-settings{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}.speech-settings select{max-width:190px;background:#0c1426;color:var(--text);border:1px solid #344766;border-radius:8px;padding:3px 6px;font:inherit}.speech-settings input[type=range]{width:90px}
     aside{padding:18px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #202d47;padding:9px 0;color:var(--muted)}.metric strong{color:var(--text);font-variant-numeric:tabular-nums}.trace{margin-top:22px}.trace-list{max-height:280px;overflow:auto}.event{border-left:2px solid var(--accent);padding:8px 10px;margin:9px 0;background:#0d1629;border-radius:0 8px 8px 0;font-size:12px}.event .kind{color:var(--accent);font-weight:800}.event pre{margin:4px 0 0;white-space:pre-wrap;color:#bdc9df;overflow-wrap:anywhere}.session{color:var(--muted);font-size:11px;word-break:break-all;margin-top:12px}.hint{color:var(--muted);font-size:12px;margin-top:14px}a{color:#8fc3ff}.auth{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}.auth input{width:min(100%,360px)}.auth button{padding:10px 16px}.auth label{width:100%}[hidden]{display:none!important}
-    .attachments{padding:12px 15px 0;border-top:1px solid var(--line)}.attachments label{display:inline-block;padding:6px 12px;border:1px solid #4378c7;border-radius:8px;color:#a5cdff;cursor:pointer}.attachments input{max-width:230px;font-size:12px}.image-previews{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.image-card{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.image-card img{width:64px;height:64px;object-fit:contain;background:#0b1020;border-radius:5px}.image-card button{padding:4px 8px}.history-image{display:block;max-width:100%;max-height:240px;object-fit:contain;margin:8px 0}.image-link{padding:4px 8px;margin-top:8px;font-size:11px}
+    .product-draft-toggle{display:block!important;border:0!important;padding:8px 0 0!important;color:inherit!important}.chat-product img{width:120px;height:120px;object-fit:cover;border-radius:8px;margin:6px 6px 0 0}.attachments{padding:12px 15px 0;border-top:1px solid var(--line)}.attachments label{display:inline-block;padding:6px 12px;border:1px solid #4378c7;border-radius:8px;color:#a5cdff;cursor:pointer}.attachments input{max-width:230px;font-size:12px}.image-previews{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.image-card{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.image-card img{width:64px;height:64px;object-fit:contain;background:#0b1020;border-radius:5px}.image-card button{padding:4px 8px}.history-image{display:block;max-width:100%;max-height:240px;object-fit:contain;margin:8px 0}.image-link{padding:4px 8px;margin-top:8px;font-size:11px}
     @media(max-width:1100px){.grid{grid-template-columns:220px minmax(0,1fr)}aside{grid-column:1/-1}.trace-list{max-height:180px}}
     @media(max-width:700px){.grid{grid-template-columns:1fr}.chat{min-height:560px}.task-list{max-height:170px}aside{grid-column:auto}header{align-items:flex-start;flex-direction:column}.shell{padding:18px 12px 32px}form{gap:7px;padding:12px}button{padding:0 12px}}
   </style>
@@ -56,7 +56,7 @@
         <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
-        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
+        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品写真として下書き保存（Gemini で光と背景を整える）</label><div id="productDraftHint" class="hint">オンで写真を送るだけで、加工した写真を管理画面の下書きに保存します。「商品名: ○○ 原価 25元」と書くと価格も計算します。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
@@ -251,7 +251,7 @@
   function addMessage(kind,text){
     $('empty')?.remove();const el=document.createElement('div');el.className=`message ${kind}`;
     el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`;
-    $('messages').appendChild(el);if(kind==='agent'){addSpeakButton(el,text);if(typeof attachChatVideo==='function')attachChatVideo(el,text);if(typeof attachChatWebtoon==='function')attachChatWebtoon(el,text);}$('messages').scrollTop=$('messages').scrollHeight;return el;
+    $('messages').appendChild(el);if(kind==='agent'){addSpeakButton(el,text);if(typeof attachChatVideo==='function')attachChatVideo(el,text);if(typeof attachChatWebtoon==='function')attachChatWebtoon(el,text);if(typeof attachChatProduct==='function')attachChatProduct(el,text);}$('messages').scrollTop=$('messages').scrollHeight;return el;
   }
   const SECRET_PATTERNS=[/\b(sk-(?:ant-|proj-)?)[A-Za-z0-9_-]{16,}/g,/\b(AIza)[0-9A-Za-z_-]{30,}/g,/\b(github_pat_)[A-Za-z0-9_]{20,}/g,/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g,/\b(xox[abpr]-)[A-Za-z0-9-]{10,}/g,/\b(rnd_)[A-Za-z0-9]{16,}/g,/\b(r8_)[A-Za-z0-9]{16,}/g,/\b(AKIA)[0-9A-Z]{16}\b/g,/\b(ya29\.)[A-Za-z0-9_-]{20,}/g];
   function maskSecrets(text){let out=String(text);const token=ownerToken();if(token&&token.length>=8)out=out.split(token).join('[REDACTED]');for(const re of SECRET_PATTERNS)out=out.replace(re,(m,p)=>`${p}...${m.slice(-4)}`);return out.replace(/((?:postgres(?:ql)?|mysql|redis|rediss|mongodb(?:\+srv)?):\/\/)[^\s\/@:]+:[^\s\/@]+@/gi,'$1[REDACTED]@').replace(/(bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/gi,'$1[REDACTED]');}
@@ -543,10 +543,27 @@
     return null;
   }
   $('manualModeOff').addEventListener('click',disableManualInput);
+  $('productDraft').checked=readSetting('karry-product-draft')==='1';
+  $('productDraft').addEventListener('change',()=>{try{localStorage.setItem('karry-product-draft',$('productDraft').checked?'1':'0');}catch(_){}});
+  const CHAT_PRODUCT_RE=/商品下書きID: ([a-f0-9]{32})/,SHOP_IMAGE_RE=/^\/api\/shop\/images\/[a-f0-9]{32}\.jpg$/;
+  async function attachChatProduct(element,text){
+    const match=CHAT_PRODUCT_RE.exec(String(text||''));if(!match||!sessionId||isSecret)return;
+    const owner=sessionId,card=document.createElement('div');card.className='chat-product';card.dataset.draftId=match[1];
+    const status=document.createElement('div');status.className='hint chat-product-status';status.textContent='🛍 下書きを読み込み中…';card.append(status);element.appendChild(card);
+    let draft;try{const data=await requestJson('/api/alibaba/drafts');draft=(data.drafts||[]).find(d=>d.id===match[1]);}
+    catch(error){if(card.isConnected)status.textContent=`下書きを読み込めませんでした: ${error.message}`;return;}
+    if(owner!==sessionId||!card.isConnected)return;
+    if(!draft){status.textContent='この下書きは登録済みか削除済みです。';return;}
+    const price=draft.pricing?`${Number(draft.pricing.selling_price_jpy).toLocaleString('ja-JP')} 円`:'価格未計算';
+    status.textContent=`${draft.review?.verdict||'—'}｜${draft.product?.title||''}｜${price}`;
+    for(const src of (draft.product?.images||[]).filter(src=>SHOP_IMAGE_RE.test(src)).slice(0,4)){const img=document.createElement('img');img.alt='加工した商品写真';img.loading='lazy';img.src=src;card.append(img);}
+    const link=document.createElement('a');link.href='/admin';link.className='image-link';link.textContent='管理画面で確認・登録';card.append(document.createElement('br'),link);
+  }
   function isCurrentSend(owner,mode,secretId,version){return (mode?version===viewVersion:!busy)&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
   async function sendMessage(event){
     event.preventDefault();const mode=isSecret;
-    const prompt=$('prompt').value.trim()||(mode?'':selectedImages.length?'添付画像を確認してください。':'');
+    const productDraft=!mode&&!manualInput&&$('productDraft').checked&&selectedImages.length>0;
+    const prompt=$('prompt').value.trim()||(mode?'':productDraft?'商品写真を下書きに保存して':selectedImages.length?'添付画像を確認してください。':'');
     if(!prompt||busy||!connected||!sessionId||inFlight.has(sessionId))return;
     const owner=sessionId,version=viewVersion,secretState=mode?secretStateFor(owner,true):null,secretId=secretState?.secretSessionId||null;
     const imageIds=mode||manualInput?[]:selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds),usedImages=imageIds.length>0;
@@ -559,6 +576,7 @@
     try{
       const body={prompt,session_id:owner,request_id:requestId,image_ids:imageIds,stream:true,is_secret:mode,isSecret:mode};
       if(!mode)Object.assign(body,chatVideoOptions());
+      if(productDraft)body.product_draft=true;
       if(mode)body.secret_session_id=secretId;
       arm();const response=await fetch('/api/chat',{method:'POST',headers:headers(),body:JSON.stringify(body),signal:controller.signal});
       if(!mode&&response.status===409)throw Object.assign(new Error('session is already running'),{recover:true});

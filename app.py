@@ -48,7 +48,7 @@ from karry_agent import optimus_core
 from karry_agent import resource_errors
 from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
-from karry_agent import video_suite_api, video_projects
+from karry_agent import chat_product, video_suite_api, video_projects
 from karry_agent import feature_flags, chat_video, chat_webtoon
 from karry_agent.auth_token import configured_token, token_matches
 from karry_agent.secret_masking import mask_secrets, mask_text
@@ -329,6 +329,7 @@ class RunRequest(SecretRequest):
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
     video_talking: bool = Field(default=False, description="チャット動画で写真の人物を SadTalker で喋らせる")
     video_seconds: int | None = Field(default=None, ge=3, le=120, description="チャット動画の長さ（秒）。未指定は脚本に合わせる")
+    product_draft: bool = Field(default=False, description="添付写真を Gemini で整えて商品の下書き（/admin）に保存する")
 
 
 class AgentTaskRequest(SecretRequest):
@@ -358,6 +359,7 @@ class MessageRequest(SecretRequest):
     image_ids: list[ImageId] | None = Field(default=None, max_length=4)
     video_talking: bool = False
     video_seconds: int | None = Field(default=None, ge=3, le=120)
+    product_draft: bool = False
 
     @field_validator("prompt")
     @classmethod
@@ -945,6 +947,10 @@ def _chat_webtoon_request(prompt: str) -> bool:
     return feature_flags.webtoon_enabled() and chat_webtoon.is_webtoon_request(prompt)
 
 
+def _chat_product_request(request: RunRequest | MessageRequest, has_images: bool) -> bool:
+    return request.product_draft or (has_images and chat_product.is_product_request(request.prompt))
+
+
 def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[dict] | None = None) -> RunResponse:
     run_id = _new_run()
     if not request.session_id:
@@ -961,6 +967,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         result = _pending_calendar_result(session_id, request.prompt)
         if result is None and not private_mode and _chat_webtoon_request(request.prompt):
             result = chat_webtoon.run(_WEBTOON_ROUTER.start_job, request.prompt)
+        if result is None and not private_mode and _chat_product_request(request, bool(images)):
+            result = chat_product.run(_ALIBABA_ROUTER.create_draft, request.prompt, images)
         if result is None and not private_mode and _chat_video_request(request.prompt):
             result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id,
                                     talking=request.video_talking, duration_seconds=request.video_seconds)
@@ -1293,7 +1301,8 @@ app.include_router(_WEBTOON_ROUTER)
 
 from karry_agent import alibaba_api  # noqa: E402
 
-app.include_router(alibaba_api.build_router(require_tool_auth))
+_ALIBABA_ROUTER = alibaba_api.build_router(require_tool_auth)
+app.include_router(_ALIBABA_ROUTER)
 
 from karry_agent import shop_api  # noqa: E402
 
@@ -1473,9 +1482,12 @@ def task_chat(request: MessageRequest):
                 raise HTTPException(status_code=404, detail="Session not found")
     # Do not initialize the model for list/create/detail/unknown-session requests or chat video/webtoon requests.
     agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-    agent = None if _chat_webtoon_request(request.prompt) or _chat_video_request(request.prompt) else agent_factory()
+    skip_model = (_chat_webtoon_request(request.prompt) or _chat_video_request(request.prompt)
+                  or _chat_product_request(request, bool(request.image_ids)))
+    agent = None if skip_model else agent_factory()
     run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream, request_id=request.request_id,
-                             image_ids=request.image_ids, video_talking=request.video_talking, video_seconds=request.video_seconds)
+                             image_ids=request.image_ids, video_talking=request.video_talking, video_seconds=request.video_seconds,
+                             product_draft=request.product_draft)
     if request.stream:
         return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
     return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "no-store"})

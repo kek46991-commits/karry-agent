@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html as html_lib
 import re
+import uuid
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -117,6 +118,24 @@ def parse_page(page: str, url: str) -> dict[str, Any]:
             "images": images[:MAX_IMAGES], "price_ranges": [], "skus": [], "variants": [],
             "min_price_cny": prices[0] if prices else None, "max_price_cny": prices[-1] if prices else None, "unit": "",
             "attributes": [], "supplier": "", "description_excerpt": _meta(page, "description")[:600]}
+
+
+def photo_product(cost_cny: float | None = None, title: str = "", category: str = "") -> dict[str, Any]:
+    """Product dict for photos sent without a 1688 URL (chat intake); the ID is unique per draft."""
+    product = parse_page("", "")
+    product["product_id"] = f"photo-{uuid.uuid4().hex[:12]}"
+    product["category"] = category.strip()[:80]
+    notes = ["1688 の URL がないため、送られた写真と入力した値だけで下書きにしました。"]
+    if cost_cny is not None:
+        product["min_price_cny"] = product["max_price_cny"] = round(float(cost_cny), 2)
+        notes.append("原価は入力した値を使いました。")
+    product["title"] = title.strip()[:200]
+    product["title_missing"] = not product["title"]
+    if product["title_missing"]:
+        product["title"] = "商品写真（商品名未入力）"
+        notes.append("商品名が未入力のため仮の名前です。登録前に商品名を入れてください。")
+    product["notes"] = notes
+    return product
 
 
 def intake(url: str, cost_cny: float | None = None, title: str = "", category: str = "", session: Any = None) -> dict[str, Any]:
