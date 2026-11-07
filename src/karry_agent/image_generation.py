@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import contextvars
 import io
 import os
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 DEFAULT_MODEL = "gemini-2.5-flash-image"
+logger = logging.getLogger(__name__)
 MAX_IMAGES_PER_RUN = 4
 MAX_PROMPT_CHARS = 4000
 _SAFE_STORE_ERRORS = {"ImageAttachmentError", "TaskStorageError"}
@@ -69,6 +71,10 @@ def _inline_image(response: Any) -> tuple[bytes, str] | None:
     return None
 
 
+def finish_reasons(response: Any) -> list[str]:
+    return [str(getattr(c, "finish_reason", "")) for c in getattr(response, "candidates", None) or []][:3]
+
+
 def _to_jpeg(body: bytes) -> bytes:
     from PIL import Image
 
@@ -112,8 +118,11 @@ def scene_image(prompt: str, aspect_ratio: str = "16:9") -> bytes | None:
                                                image_config=types.ImageConfig(aspect_ratio=aspect_ratio)),
         )
         found = _inline_image(response)
+        if not found:
+            logger.warning("Gemini scene image: no image returned (finish=%s)", finish_reasons(response))
         return _to_jpeg(found[0]) if found else None
-    except Exception:  # noqa: BLE001 - a missing scene image must never fail the video
+    except Exception as exc:  # noqa: BLE001 - a missing scene image must never fail the video
+        logger.warning("Gemini scene image failed: %s %s", type(exc).__name__, getattr(exc, "code", ""))
         return None
 
 
