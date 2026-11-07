@@ -90,7 +90,8 @@ def gemini_enhance(photo: bytes, title: str) -> bytes | None:
 
     from . import image_generation as ig
     try:
-        response = ig._client().models.generate_content(
+        client = ig._client()  # keep a reference: a collected Client closes its HTTP session mid-request
+        response = client.models.generate_content(
             model=os.getenv("GEMINI_IMAGE_MODEL", ig.DEFAULT_MODEL),
             contents=[types.Part.from_bytes(data=photo, mime_type="image/jpeg"),
                       ENHANCE_PROMPT.format(title=(title or "general goods")[:200])],

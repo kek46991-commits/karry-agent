@@ -111,7 +111,8 @@ def scene_image(prompt: str, aspect_ratio: str = "16:9") -> bytes | None:
     from google.genai import types
 
     try:
-        response = _client().models.generate_content(
+        client = _client()  # keep a reference: a collected Client closes its HTTP session mid-request
+        response = client.models.generate_content(
             model=os.getenv("GEMINI_IMAGE_MODEL", DEFAULT_MODEL),
             contents=f"{text[:MAX_PROMPT_CHARS - 300]}\n\n{SCENE_STYLE}",
             config=types.GenerateContentConfig(response_modalities=["IMAGE"],
