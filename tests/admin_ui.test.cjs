@@ -17,7 +17,8 @@ function setup(options={}){
       if(url==='/api/alibaba/config')return json({pricing:{cny_jpy_rate:22,agent_fee_rate:0.05,shipping_jpy:1200,markup:1.4}});
       if(url==='/api/alibaba/drafts')return json({drafts:state.drafts});
       if(url==='/api/shop/admin/products')return json({products:state.products});
-      if(url==='/api/shop/admin/orders')return json({orders:[]});
+      if(url==='/api/shop/admin/orders')return json({orders:options.orders||[]});
+      if(request.method==='PATCH'){const body=JSON.parse(request.body);state.patched=[url,body];state.products=state.products.map(p=>({...p,list_price_jpy:body.list_price_jpy,discount_percent:body.list_price_jpy?40:null}));return json({product:{discount_percent:40}});}
       if(url==='/api/alibaba/logs?limit=50')return json({entries:[]});
       if(url==='/api/alibaba/fetch'){const body=JSON.parse(request.body);state.fetched=body.product;
         if(options.blocked)return json({detail:'1688 のページを読めませんでした（ボット確認で止められました）。'},502);
@@ -147,4 +148,19 @@ test('with a manual cost and SAFE, 取得して審査・価格計算 publishes s
   assert.equal(s.state.lastBody.auto_publish,true);
   assert.equal(s.state.lastBody.pricing.domestic_shipping_jpy,500);assert.equal(s.state.lastBody.pricing.mall_fee_rate,0.1);
   assert.match($('entryStatus').textContent,/SAFE のため、ショップに掲載しました/);s.dom.window.close();
+});
+
+test('paid Stripe orders show phone and shipping address; 通常価格 sets a list price for % OFF',async()=>{
+  const orders=[{created_at:1700000000,status:'paid',stripe_mode:'test',title:'青いマグカップ',quantity:2,total_jpy:4978,name:'山田 太郎',phone:'+819012345678',email:'taro@example.com',
+    address:{postal_code:'150-0001',state:'東京都',city:'渋谷区',line1:'神宮前1-2-3',line2:'101',country:'JP'}},
+    {created_at:1690000000,status:'received',title:'木製ブックスタンド',quantity:1,total_jpy:3980,name:'申込',contact:'a@example.com'}];
+  const s=setup({saved:'good-token',orders});s.state.products=[{id:'p'.repeat(32),title:'青いマグカップ',category:'キッチン',price_jpy:2489}];
+  s.win.prompt=()=>'4,150';await tick(40);
+  const rows=[...s.$('orders').querySelectorAll('.row')].map(r=>r.textContent);
+  assert.match(rows[0],/💳 決済済み（テスト）｜青いマグカップ×2｜4,978円｜山田 太郎｜☎ \+819012345678｜taro@example.com｜🚚 〒150-0001 東京都 渋谷区 神宮前1-2-3 101/);
+  assert.match(rows[1],/📝 申込（未決済）｜木製ブックスタンド×1｜3,980円｜申込｜a@example.com/);
+  [...s.$('products').querySelectorAll('button')].find(b=>b.textContent==='通常価格').click();await tick(40);
+  assert.deepEqual(s.state.patched,[`/api/shop/admin/products/${'p'.repeat(32)}`,{list_price_jpy:4150}]);
+  assert.match(s.$('entryStatus').textContent,/通常価格を 4,150円 にしました（40% OFF）/);assert.match(s.$('products').textContent,/通常 4,150円（40% OFF）/);
+  s.dom.window.close();
 });

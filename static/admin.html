@@ -172,6 +172,19 @@
     catch(error){if(error.message!=='unauthorized')$('entryStatus').textContent='通信に失敗しました。';}
   }
   async function remove(url){try{await api(url,{method:'DELETE'});refresh();}catch(_){}}
+  function address(a){return a?[a.postal_code&&`〒${a.postal_code}`,a.state,a.city,a.line1,a.line2].filter(Boolean).join(' '):'';}
+  function orderText(o){
+    const paid=o.status==='paid',status=paid?`💳 決済済み${o.stripe_mode==='test'?'（テスト）':''}`:'📝 申込（未決済）';
+    return [new Date(Number(o.created_at)*1000).toLocaleString('ja-JP'),status,`${o.title}×${o.quantity}${o.variant?`（${o.variant}）`:''}`,yen(o.total_jpy),
+      o.name,paid?`☎ ${o.phone||'—'}`:o.contact,paid&&o.email?o.email:'',paid?`🚚 ${address(o.address)||'—'}`:o.note||''].filter(Boolean).join('｜');
+  }
+  async function setListPrice(p){
+    const input=prompt(`「${p.title}」の通常価格（円）。販売価格 ${yen(p.price_jpy)} より高い、実際に販売していた価格だけを入れてください（景品表示法の二重価格表示）。空欄で解除します。`,p.list_price_jpy||'');
+    if(input==null)return;const value=input.trim()===''?null:Number(input.replace(/[^0-9]/g,''));
+    try{const {response,data}=await api(`/api/shop/admin/products/${p.id}`,{method:'PATCH',body:JSON.stringify({list_price_jpy:value})});
+      $('entryStatus').textContent=response.ok?(value?`✅ 通常価格を ${yen(value)} にしました（${data.product?.discount_percent}% OFF）。`:'✅ 通常価格を外しました。'):`⛔ ${typeof data.detail==='string'?data.detail:'通常価格を保存できませんでした。'}`;refresh();}
+    catch(error){if(error.message!=='unauthorized')$('entryStatus').textContent='通信に失敗しました。';}
+  }
   function row(text,...buttons){return el('div',{className:'row'},el('span',{textContent:text}),el('span',{className:'acts'},...buttons));}
   function button(text,cls,onclick,disabled=false){const b=el('button',{type:'button',className:cls,textContent:text,disabled});b.addEventListener('click',onclick);return b;}
   async function refresh(withConfig=false){
@@ -180,8 +193,8 @@
       if(withConfig){const {data}=await api('/api/alibaba/config');for(const [id,key] of Object.entries(PRICING))if($(id).value===''&&data.pricing?.[key]!=null)$(id).value=data.pricing[key];preview();}
       const [drafts,products,orders,log]=await Promise.all(['/api/alibaba/drafts','/api/shop/admin/products','/api/shop/admin/orders','/api/alibaba/logs?limit=50'].map(u=>api(u).then(r=>r.data)));
       const ds=drafts.drafts||[];$('drafts').replaceChildren(...(ds.length?ds.map(d=>row(`${d.review?.verdict||'—'}｜${d.product?.title||''}｜${d.pricing?yen(d.pricing.selling_price_jpy):'価格未計算'}`,button('登録','',()=>publish(d.id),!canRegister(d)),button('削除','danger',()=>remove(`/api/alibaba/drafts/${d.id}`)))):[empty('まだ下書きはありません。')]));
-      const ps=products.products||[];$('products').replaceChildren(...(ps.length?ps.map(p=>row(`${p.title}｜${p.category}｜${yen(p.price_jpy)}`,button('掲載停止','danger',()=>remove(`/api/shop/admin/products/${p.id}`)))):[empty('まだ掲載していません。')]));
-      const os=orders.orders||[];$('orders').replaceChildren(...(os.length?os.slice(0,50).map(o=>row(`${new Date(Number(o.created_at)*1000).toLocaleString('ja-JP')}｜${o.title}×${o.quantity}｜${yen(o.total_jpy)}｜${o.name}（${o.contact}）`)):[empty('まだ注文はありません。')]));
+      const ps=products.products||[];$('products').replaceChildren(...(ps.length?ps.map(p=>row(`${p.title}｜${p.category}｜${yen(p.price_jpy)}${p.discount_percent?`｜通常 ${yen(p.list_price_jpy)}（${p.discount_percent}% OFF）`:''}${p.sold?`｜販売 ${p.sold} 個`:''}${p.bestseller?'｜🔥 売れ筋':''}`,button('掲載停止','danger',()=>remove(`/api/shop/admin/products/${p.id}`)),button('通常価格','',()=>setListPrice(p)))):[empty('まだ掲載していません。')]));
+      const os=orders.orders||[];$('orders').replaceChildren(...(os.length?os.slice(0,50).map(o=>{const r=row(orderText(o));r.dataset.level=o.status==='paid'?'SAFE':'';return r;}):[empty('まだ注文はありません。')]));
       const es=log.entries||[];$('log').replaceChildren(...(es.length?es.map(e=>{const r=row(`${new Date(Number(e.at||e.created_at||0)*1000).toLocaleTimeString('ja-JP')}｜${e.action}｜${e.verdict||e.status}｜${e.product_id||'—'} ${e.title||''}${e.message?`｜${e.message}`:''}`);r.dataset.level=e.status==='error'?'error':e.verdict||e.status;return r;}):[empty('まだ記録はありません。')]));
     }catch(_){}
   }

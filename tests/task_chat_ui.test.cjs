@@ -778,9 +778,9 @@ test('KERRY shop lists products by category tab, switches thumbnails in the moda
   doc.querySelector('.card').click();assert.equal($('detailTitle').textContent,'陶瓷杯');assert.equal($('thumbs').children.length,2,'non-alicdn images dropped');
   $('thumbs').children[1].click();assert.equal($('mainImage').src,'https://cbu01.alicdn.com/img/2.jpg');assert.equal($('thumbs').children[1].getAttribute('aria-current'),'true');
   assert.match($('specs').textContent,/材质陶瓷/);assert.match($('specs').textContent,/颜色: 白色/);
-  $('orderQuantity').value='2';$('orderName').value='山田';$('orderContact').value='y@example.com';
+  $('buyQuantity').value='2';$('checkoutButton').click();assert.equal($('orderForm').hidden,false);$('orderName').value='山田';$('orderContact').value='y@example.com';
   $('orderForm').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
-  assert.deepEqual(JSON.parse(JSON.stringify(orders)),[{product_id:'a'.repeat(32),quantity:2,name:'山田',contact:'y@example.com',note:''}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(orders)),[{product_id:'a'.repeat(32),quantity:2,name:'山田',contact:'y@example.com',note:'バリエーション: 颜色: 白色'}]);
   assert.match($('orderStatus').textContent,/受け付けました（合計 3,160円）/);dom.window.close();
 });
 
