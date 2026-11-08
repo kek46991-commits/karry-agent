@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import copy
 import hashlib
+import os
 import threading
 import time
 import uuid
@@ -60,7 +61,8 @@ class ShopStore:
             existing = next((p for p in items.values() if p.get("source_product_id") == listing["source_product_id"]), None)
             now = time.time()
             record = {**listing, "id": existing["id"] if existing else uuid.uuid4().hex,
-                      "created_at": existing["created_at"] if existing else now, "updated_at": now, "status": "published"}
+                      "created_at": existing["created_at"] if existing else now, "updated_at": now, "status": "published",
+                      **({"list_price_jpy": existing["list_price_jpy"]} if existing and existing.get("list_price_jpy") else {})}
             items[record["id"]] = record
             for old in sorted(items.values(), key=lambda p: p["created_at"])[:-MAX_PRODUCTS]:
                 items.pop(old["id"], None)
@@ -124,6 +126,47 @@ class ShopStore:
             return record
         return self._update("orders.json", apply)
 
+    def record_paid_order(self, order: dict[str, Any]) -> dict[str, Any]:
+        """Store one Stripe-paid order; replaying the same Checkout session returns the first record."""
+        def apply(current):
+            orders = current.setdefault("orders", {})
+            existing = next((o for o in orders.values() if o.get("stripe_session_id") == order["stripe_session_id"]), None)
+            if existing is not None:
+                return copy.deepcopy(existing)
+            record = {**order, "id": uuid.uuid4().hex, "created_at": time.time(), "status": "paid"}
+            orders[record["id"]] = record
+            for old in sorted(orders.values(), key=lambda o: o["created_at"])[:-MAX_ORDERS]:
+                orders.pop(old["id"], None)
+            return copy.deepcopy(record)
+        return self._update("orders.json", apply)
+
+    def set_list_price(self, product_id: str, list_price_jpy: int | None) -> dict[str, Any] | None:
+        def apply(current):
+            item = current.get("products", {}).get(product_id)
+            if item is None:
+                return None
+            if list_price_jpy:
+                item["list_price_jpy"] = int(list_price_jpy)
+            else:
+                item.pop("list_price_jpy", None)
+            item["updated_at"] = time.time()
+            return copy.deepcopy(item)
+        return self._update("catalog.json", apply)
+
+    def sold_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for order in self.orders():
+            if order.get("status") == "paid" and order.get("product_id"):
+                counts[order["product_id"]] = counts.get(order["product_id"], 0) + int(order.get("quantity") or 1)
+        return counts
+
+
+def bestseller_min() -> int:
+    try:
+        return max(1, int(os.getenv("KARRY_SHOP_BESTSELLER_MIN", "3")))
+    except ValueError:
+        return 3
+
 
 def listing_from(product: dict[str, Any], review: dict[str, Any], pricing: dict[str, Any]) -> dict[str, Any]:
     specs = [a for a in product.get("attributes") or [] if a.get("name") and a.get("value")][:30]
@@ -142,6 +185,12 @@ def published_product(store: Any, product_id: str) -> dict[str, Any] | None:
     return next((p for p in store.products() if p["id"] == product_id and p.get("status") == "published"), None)
 
 
-def public_product(item: dict[str, Any]) -> dict[str, Any]:
+def public_product(item: dict[str, Any], sold: int = 0) -> dict[str, Any]:
+    """Badges only from real data: % OFF needs an owner-entered list price above the price, 売れ筋 needs paid sales."""
     keys = ("id", "title", "category", "images", "specs", "description", "price_jpy", "variants", "created_at")
-    return {k: item.get(k) for k in keys}
+    out = {k: item.get(k) for k in keys}
+    price, list_price = int(item.get("price_jpy") or 0), int(item.get("list_price_jpy") or 0)
+    discount = (list_price - price) * 100 // list_price if list_price > price > 0 else 0
+    out.update(list_price_jpy=list_price if discount >= 1 else None, discount_percent=discount if discount >= 1 else None,
+               bestseller=sold >= bestseller_min(), free_shipping=True)
+    return out

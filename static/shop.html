@@ -1,64 +1,94 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-shop-version" content="shop-photo-20261108">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="karry-shop-version" content="shop-temu-stripe-20261109"><meta name="theme-color" content="#ff4d1c">
   <title>KERRY ショップ</title>
   <style>
-    :root{--bg:#0b1222;--card:#111b30;--line:#263451;--text:#e8eefc;--muted:#9fb0cf;--accent:#7cc4ff}
-    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text)}
-    header{padding:18px 16px;border-bottom:1px solid var(--line)}header h1{margin:0;font-size:22px}header p{margin:4px 0 0;color:var(--muted);font-size:13px}
-    .tabs{display:flex;gap:8px;overflow-x:auto;padding:12px 16px}.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:7px 14px;cursor:pointer}
-    .tabs button[aria-selected="true"]{background:var(--accent);color:#06101f;border-color:var(--accent)}
-    main{padding:0 16px 24px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-    .card{display:block;text-decoration:none;border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;cursor:pointer;text-align:left;color:inherit;padding:0}
-    header a{color:inherit;text-decoration:none}.noimg{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1;background:#0c1426;color:#8aa0c0;font-size:13px}.notice{color:#ffcf7c;font-size:13px;margin:0 0 10px}.notice:empty{display:none}
-    .card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#0c1426}.card div{padding:8px 10px}.card .title{font-size:13px;line-height:1.4;max-height:3.6em;overflow:hidden}.price{font-weight:800;color:var(--accent);margin-top:4px}
-    .empty{color:var(--muted);padding:30px 0;text-align:center}
-    dialog{max-width:720px;width:calc(100% - 24px);border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--text);padding:16px}dialog::backdrop{background:#000a}
-    .main-image{width:100%;aspect-ratio:1;object-fit:contain;background:#0c1426;border-radius:12px}.thumbs{display:flex;gap:6px;overflow-x:auto;margin:8px 0}
-    .thumbs button{flex:none;border:2px solid transparent;border-radius:8px;padding:0;background:none;cursor:pointer}.thumbs button[aria-current="true"]{border-color:var(--accent)}.thumbs img{width:60px;height:60px;object-fit:cover;border-radius:6px;display:block}
-    table{width:100%;border-collapse:collapse;font-size:13px}td{border-bottom:1px solid var(--line);padding:5px 4px;vertical-align:top}td:first-child{color:var(--muted);width:35%}
-    form{display:grid;gap:8px;margin-top:12px}input,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0c1426;color:var(--text)}
-    .actions{display:flex;gap:8px;justify-content:flex-end}.actions button,form button{border:0;border-radius:10px;padding:9px 16px;font-weight:700;cursor:pointer;background:var(--accent);color:#06101f}.ghost{background:#24324f!important;color:var(--text)!important}
-    .hint{color:var(--muted);font-size:12px}
+    :root{--bg:#f4f4f6;--card:#fff;--line:#ececf0;--text:#222;--muted:#777;--orange:#ff6a00;--red:#f2292e;--accent:#ff4d1c;--grad:linear-gradient(135deg,#ff8a00,#f2292e)}
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent}
+    header{position:sticky;top:0;z-index:5;background:var(--grad);color:#fff;padding:12px 12px 10px;box-shadow:0 2px 8px #f2292e33}
+    header h1{margin:0;font-size:20px;font-weight:900;letter-spacing:.02em}header a{color:inherit;text-decoration:none}
+    .perks{display:flex;gap:6px;margin-top:6px;overflow-x:auto;font-size:11px;font-weight:700;white-space:nowrap}.perks span{background:#ffffff2e;border-radius:999px;padding:3px 9px}
+    .tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 10px 6px;scrollbar-width:none}.tabs button{flex:none;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:700;cursor:pointer}
+    .tabs button[aria-selected="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+    main{padding:0 8px 28px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    @media(min-width:640px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}main{padding:0 14px 28px}}
+    @media(min-width:960px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}main,.tabs{max-width:1080px;margin:0 auto}}
+    .card{display:flex;flex-direction:column;text-decoration:none;border-radius:10px;background:var(--card);overflow:hidden;cursor:pointer;color:inherit;box-shadow:0 1px 3px #0000000f}
+    .thumb{position:relative}.card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#f0f0f0}
+    .noimg{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1;background:#f0f0f2;color:#999;font-size:13px}
+    .off{position:absolute;left:0;top:8px;background:var(--red);color:#fff;font-size:12px;font-weight:900;padding:3px 8px;border-radius:0 999px 999px 0}
+    .hot{position:absolute;right:6px;top:6px;background:var(--orange);color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px}
+    .body{padding:7px 8px 9px;display:flex;flex-direction:column;gap:4px}.card .title{font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.7em}
+    .prices{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap}.price{font-weight:900;color:var(--red);font-size:18px}.price small{font-size:12px}.was{color:#999;font-size:12px;text-decoration:line-through}
+    .tags{display:flex;gap:4px;flex-wrap:wrap}.tag{font-size:10.5px;font-weight:800;color:var(--orange);border:1px solid #ffb98a;background:#fff4ec;border-radius:4px;padding:1px 5px}.tag.hot-tag{color:#fff;background:var(--orange);border-color:var(--orange)}
+    .empty{color:var(--muted);padding:30px 0;text-align:center;grid-column:1/-1}.notice{background:#fff4ec;color:#b34700;border:1px solid #ffd2b0;border-radius:10px;padding:10px 12px;font-size:13px;margin:8px 0}.notice:empty{display:none}.notice.ok{background:#eefaf0;color:#17663a;border-color:#bfe8cb}
+    dialog{max-width:620px;width:100%;max-height:100dvh;margin:auto auto 0;border:0;border-radius:18px 18px 0 0;background:#fff;color:var(--text);padding:0}dialog::backdrop{background:#0008}
+    @media(min-width:640px){dialog{margin:auto;border-radius:18px;max-height:92vh}}
+    .sheet{padding:14px 14px 0}#detailTitle{font-size:17px;margin:0 0 10px;line-height:1.4;outline:none}
+    .gallery{position:relative}.main-image{width:100%;aspect-ratio:1;object-fit:contain;background:#f6f6f6;border-radius:12px;display:block}.gallery .off{top:12px}
+    .thumbs{display:flex;gap:6px;overflow-x:auto;margin:8px 0}.thumbs button{flex:none;border:2px solid transparent;border-radius:8px;padding:0;background:none;cursor:pointer}.thumbs button[aria-current="true"]{border-color:var(--accent)}.thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px;display:block}
+    .detail-prices{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:6px 0}.detail-prices .price{font-size:26px}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}td{border-bottom:1px solid var(--line);padding:6px 4px;vertical-align:top}td:first-child{color:var(--muted);width:35%}
+    label{display:grid;gap:4px;font-size:13px;font-weight:700}input,textarea,select{width:100%;padding:10px;border-radius:10px;border:1px solid #ddd;background:#fff;color:var(--text);font-size:16px}
+    .buy{display:grid;gap:10px;margin-top:10px}.qty{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+    .buybar{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;margin-top:12px}
+    .cta{flex:1;border:0;border-radius:999px;padding:13px 16px;font-size:16px;font-weight:900;cursor:pointer;background:var(--grad);color:#fff;box-shadow:0 3px 10px #f2292e40}.cta:disabled{opacity:.6}
+    .ghost{flex:none;border:1px solid #ddd;border-radius:999px;padding:12px 16px;font-weight:700;background:#fff;color:var(--text);cursor:pointer}
+    form{display:grid;gap:8px;margin-top:4px}.hint{color:var(--muted);font-size:12px;margin:0}.testmode{background:#fff8d6;color:#7a5b00;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700}
   </style>
 </head>
 <body>
-  <header><h1><a href="/shop">KERRY ショップ</a></h1><p>法的チェック（商標権・薬機法・PSE）を通過した商品だけを掲載しています。</p></header>
+  <header><h1><a href="/shop">KERRY ショップ</a></h1>
+    <div class="perks" aria-label="ショップの特長"><span>🚚 全品送料無料</span><span>✅ 法的チェック済み</span><span>💳 カード決済</span></div></header>
   <nav id="tabs" class="tabs" role="tablist" aria-label="カテゴリー"></nav>
   <main><p id="notice" class="notice" role="status"></p><div id="grid" class="grid" aria-live="polite"><p class="empty">読み込み中…</p></div></main>
   <dialog id="detail" aria-labelledby="detailTitle">
-    <h2 id="detailTitle" tabindex="-1" autofocus></h2>
-    <img id="mainImage" class="main-image" alt="" referrerpolicy="no-referrer">
-    <div id="thumbs" class="thumbs" aria-label="商品画像の切り替え"></div>
-    <p id="detailPrice" class="price"></p>
-    <p id="detailDescription" class="hint"></p>
-    <table id="specs"></table>
-    <form id="orderForm">
-      <h3>購入を申し込む</h3>
-      <label>数量 <input id="orderQuantity" type="number" min="1" max="99" value="1" required></label>
-      <label>お名前 <input id="orderName" maxlength="80" required autocomplete="name"></label>
-      <label>連絡先（メールまたは電話） <input id="orderContact" maxlength="200" required autocomplete="email"></label>
-      <label>備考 <textarea id="orderNote" maxlength="500" rows="2"></textarea></label>
-      <p class="hint">お支払い方法と発送予定は、確認後にご連絡します。</p>
-      <div class="actions"><button type="button" class="ghost" id="closeDetail">閉じる</button><button type="submit" id="orderSubmit">申し込む</button></div>
-      <p id="orderStatus" class="hint" aria-live="polite"></p>
-    </form>
+    <div class="sheet">
+      <h2 id="detailTitle" tabindex="-1" autofocus></h2>
+      <div class="gallery"><img id="mainImage" class="main-image" alt="" referrerpolicy="no-referrer"><span id="detailOff" class="off" hidden></span></div>
+      <div id="thumbs" class="thumbs" aria-label="商品画像の切り替え"></div>
+      <div class="detail-prices"><span id="detailPrice" class="price"></span><span id="detailWas" class="was"></span></div>
+      <div id="detailTags" class="tags"></div>
+      <p id="detailDescription" class="hint"></p>
+      <table id="specs"></table>
+      <div class="buy">
+        <div class="qty"><label>数量 <input id="buyQuantity" type="number" inputmode="numeric" min="1" max="99" value="1"></label>
+          <label id="variantLabel" hidden>バリエーション <select id="buyVariant"></select></label></div>
+        <p id="checkoutHint" class="hint">次の画面（Stripe）でカード番号・お届け先・電話番号を入力します。</p>
+        <p id="testMode" class="testmode" hidden>テスト決済モードです。実際の請求はありません（テストカード 4242 4242 4242 4242）。</p>
+        <form id="orderForm" hidden>
+          <label>お名前 <input id="orderName" maxlength="80" required autocomplete="name"></label>
+          <label>連絡先（メールまたは電話） <input id="orderContact" maxlength="200" required autocomplete="email"></label>
+          <label>備考 <textarea id="orderNote" maxlength="500" rows="2"></textarea></label>
+          <p class="hint">お支払い方法と発送予定は、確認後にご連絡します。</p>
+        </form>
+        <p id="orderStatus" class="hint" aria-live="polite"></p>
+      </div>
+    </div>
+    <div class="buybar"><button type="button" class="ghost" id="closeDetail">閉じる</button><button type="button" class="cta" id="checkoutButton">購入手続きへ進む</button></div>
   </dialog>
 <script>
   const $=id=>document.getElementById(id),IMG=/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/;
-  const shop={products:[],category:'すべて',current:null},TITLE=document.title,ID_RE=/^[a-f0-9]{32}$/;
+  const shop={products:[],category:'すべて',current:null,checkout:'request',mode:null,go:url=>location.assign(url)},TITLE=document.title,ID_RE=/^[a-f0-9]{32}$/;
   const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
   function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}
-  function image(src,alt){if(!IMG.test(src||''))return el('span',{className:'noimg',textContent:'写真準備中'});const i=el('img',{alt,loading:'lazy'});i.referrerPolicy='no-referrer';if(IMG.test(src||''))i.src=src;return i;}
+  function image(src,alt){if(!IMG.test(src||''))return el('span',{className:'noimg',textContent:'写真準備中'});const i=el('img',{alt,loading:'lazy'});i.referrerPolicy='no-referrer';i.src=src;return i;}
+  const off=p=>Number(p.discount_percent)>=1&&Number(p.list_price_jpy)>Number(p.price_jpy);
+  function tags(p){return [...(p.bestseller?[el('span',{className:'tag hot-tag',textContent:'🔥 売れ筋'})]:[]),...(p.free_shipping!==false?[el('span',{className:'tag',textContent:'送料無料'})]:[])];}
   function renderTabs(categories){
     $('tabs').replaceChildren(...['すべて',...categories].map(name=>{const b=el('button',{type:'button',textContent:name});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(name===shop.category));b.dataset.category=name;b.addEventListener('click',()=>{shop.category=name;renderTabs(categories);renderGrid();});return b;}));
   }
+  function card(p){
+    const thumb=el('div',{className:'thumb'},image(p.images?.[0],p.title),...(off(p)?[el('span',{className:'off',textContent:`${p.discount_percent}% OFF`})]:[]),...(p.bestseller?[el('span',{className:'hot',textContent:'売れ筋'})]:[]));
+    const prices=el('div',{className:'prices'},el('span',{className:'price',textContent:yen(p.price_jpy)}),...(off(p)?[el('span',{className:'was',textContent:yen(p.list_price_jpy)})]:[]));
+    const a=el('a',{className:'card',href:`/products/${p.id}`},thumb,el('div',{className:'body'},el('div',{className:'title',textContent:p.title}),prices,el('div',{className:'tags'},...tags(p))));
+    a.dataset.productId=p.id;a.addEventListener('click',event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.button)return;event.preventDefault();openDetail(p,true);});return a;
+  }
   function renderGrid(){
     const items=shop.products.filter(p=>shop.category==='すべて'||p.category===shop.category);
-    if(!items.length){$('grid').replaceChildren(el('p',{className:'empty',textContent:'まだ商品がありません。'}));return;}
-    $('grid').replaceChildren(...items.map(p=>{const card=el('a',{className:'card',href:`/products/${p.id}`},image(p.images?.[0],p.title),el('div',{},el('div',{className:'title',textContent:p.title}),el('div',{className:'price',textContent:yen(p.price_jpy)})));card.dataset.productId=p.id;card.addEventListener('click',event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.button)return;event.preventDefault();openDetail(p,true);});return card;}));
+    $('grid').replaceChildren(...(items.length?items.map(card):[el('p',{className:'empty',textContent:'まだ商品がありません。'})]));
   }
   function showImage(p,index){
     const src=(p.images||[])[index],ok=IMG.test(src||'');$('mainImage').hidden=!ok;if(ok)$('mainImage').src=src;else $('mainImage').removeAttribute('src');$('mainImage').alt=`${p.title}（画像 ${index+1}）`;
@@ -76,29 +106,59 @@
     if(!p){closeDetail(false);history.replaceState({},'','/shop');$('notice').textContent='この商品は見つかりませんでした（掲載を終えた可能性があります）。';return;}
     openDetail(p,false);
   }
+  function setMode(){
+    const stripe=shop.checkout==='stripe';$('orderForm').hidden=true;$('checkoutHint').hidden=!stripe;$('testMode').hidden=!(stripe&&shop.mode==='test');
+    $('checkoutButton').textContent='購入手続きへ進む';
+  }
   function openDetail(p,push=false){
-    $('notice').textContent='';if(push)history.pushState({id:p.id},'',`/products/${p.id}`);document.title=`${p.title}｜KERRY ショップ`;
+    if(push){$('notice').textContent='';history.pushState({id:p.id},'',`/products/${p.id}`);}document.title=`${p.title}｜KERRY ショップ`;
     shop.current=p;$('detailTitle').textContent=p.title;$('detailPrice').textContent=`${yen(p.price_jpy)}（税込・送料込）`;$('detailDescription').textContent=p.description||'';
+    $('detailWas').textContent=off(p)?`通常 ${yen(p.list_price_jpy)}`:'';$('detailOff').hidden=!off(p);$('detailOff').textContent=off(p)?`${p.discount_percent}% OFF`:'';$('detailTags').replaceChildren(...tags(p));
     $('thumbs').replaceChildren(...(p.images||[]).filter(s=>IMG.test(s)).map((src,i)=>{const b=el('button',{type:'button'},image(src,`サムネイル ${i+1}`));b.addEventListener('click',()=>showImage(p,i));return b;}));
     showImage(p,0);
     const rows=[...(p.specs||[]).map(s=>[s.name,s.value]),...((p.variants||[]).length?[['バリエーション',p.variants.join(' / ')]]:[])];
     $('specs').replaceChildren(...rows.map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v}))));
-    $('orderStatus').textContent='';if(!$('detail').open){if(typeof $('detail').showModal==='function')$('detail').showModal();else $('detail').setAttribute('open','');}$('detail').scrollTop=0;$('detailTitle').focus({preventScroll:true});
+    const variants=p.variants||[];$('variantLabel').hidden=!variants.length;$('buyVariant').replaceChildren(...variants.map(v=>el('option',{value:v,textContent:v})));
+    $('buyQuantity').value='1';$('orderStatus').textContent='';setMode();$('checkoutButton').disabled=false;
+    if(!$('detail').open){if(typeof $('detail').showModal==='function')$('detail').showModal();else $('detail').setAttribute('open','');}$('detail').scrollTop=0;$('detailTitle').focus({preventScroll:true});
   }
-  async function submitOrder(event){
-    event.preventDefault();const p=shop.current;if(!p)return;$('orderSubmit').disabled=true;$('orderStatus').textContent='送信しています…';
-    try{const response=await fetch('/api/shop/orders',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({product_id:p.id,quantity:Number($('orderQuantity').value)||1,name:$('orderName').value.trim(),contact:$('orderContact').value.trim(),note:$('orderNote').value.trim()})});
-      const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'申し込みを送れませんでした。入力内容を確認してください。');
-      $('orderStatus').textContent=`申し込みを受け付けました（合計 ${yen(data.total_jpy)}）。確認のご連絡をお待ちください。`;$('orderForm').reset();}
-    catch(error){$('orderStatus').textContent=error.message;}finally{$('orderSubmit').disabled=false;}
+  const quantity=()=>Math.min(99,Math.max(1,Math.floor(Number($('buyQuantity').value)||1)));
+  async function post(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify(body)});return {response,data:await response.json().catch(()=>({}))};}
+  async function proceed(){
+    const p=shop.current;if(!p)return;
+    if(shop.checkout!=='stripe')return requestOrder(p);
+    $('checkoutButton').disabled=true;$('orderStatus').textContent='決済ページを準備しています…';
+    try{const {response,data}=await post('/api/shop/checkout',{product_id:p.id,quantity:quantity(),variant:$('variantLabel').hidden?'':$('buyVariant').value});
+      if(!response.ok||!/^https:\/\/checkout\.stripe\.com\//.test(data.url||''))throw new Error(typeof data.detail==='string'?data.detail:'決済ページを開けませんでした。');
+      $('orderStatus').textContent='Stripe の決済ページに移動します…';shop.go(data.url);}
+    catch(error){$('orderStatus').textContent=error.message;$('checkoutButton').disabled=false;}
   }
+  async function requestOrder(p){
+    const form=$('orderForm');if(form.hidden){form.hidden=false;$('checkoutButton').textContent='この内容で申し込む';$('orderName').focus();return;}
+    if(!form.reportValidity())return;$('checkoutButton').disabled=true;$('orderStatus').textContent='送信しています…';
+    try{const {response,data}=await post('/api/shop/orders',{product_id:p.id,quantity:quantity(),name:$('orderName').value.trim(),contact:$('orderContact').value.trim(),note:[$('variantLabel').hidden?'':`バリエーション: ${$('buyVariant').value}`,$('orderNote').value.trim()].filter(Boolean).join('\n')});
+      if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'申し込みを送れませんでした。入力内容を確認してください。');
+      $('orderStatus').textContent=`申し込みを受け付けました（合計 ${yen(data.total_jpy)}）。確認のご連絡をお待ちください。`;form.reset();}
+    catch(error){$('orderStatus').textContent=error.message;}finally{$('checkoutButton').disabled=false;}
+  }
+  async function checkoutResult(){
+    const params=new URLSearchParams(location.search),result=params.get('checkout');if(!result)return;
+    history.replaceState({},'',location.pathname);
+    if(result==='cancel'){$('notice').textContent='お支払いをキャンセルしました。請求はされていません。';return;}
+    const id=params.get('session_id')||'';if(result!=='success'||!/^cs_(test|live)_[A-Za-z0-9]+$/.test(id))return;
+    $('notice').textContent='お支払いを確認しています…';
+    try{const {response,data}=await post('/api/shop/checkout/confirm',{session_id:id});if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'お支払いを確認できませんでした。');
+      $('notice').classList.add('ok');$('notice').textContent=`ご注文ありがとうございます。お支払いを確認しました（${data.title} ×${data.quantity}・合計 ${yen(data.total_jpy)}・注文番号 ${String(data.order_id).slice(0,8)}）。`;}
+    catch(error){$('notice').textContent=`${error.message} お手数ですが、ショップまでお問い合わせください。`;}
+  }
+  async function loadConfig(){try{const response=await fetch('/api/shop/config',{cache:'no-store'});if(response.ok){const c=await response.json();shop.checkout=c.checkout==='stripe'?'stripe':'request';shop.mode=c.stripe_mode||null;}}catch(_){}}
   async function loadProducts(){
     try{const response=await fetch('/api/shop/products',{cache:'no-store'});const data=await response.json();shop.products=Array.isArray(data.products)?data.products:[];renderTabs(Array.isArray(data.categories)?data.categories:[]);renderGrid();}
     catch(_){$('grid').replaceChildren(el('p',{className:'empty',textContent:'商品を読み込めませんでした。時間をおいて再読み込みしてください。'}));}
   }
-  $('orderForm').addEventListener('submit',submitOrder);$('closeDetail').addEventListener('click',()=>closeDetail());
+  $('checkoutButton').addEventListener('click',proceed);$('orderForm').addEventListener('submit',event=>{event.preventDefault();proceed();});$('closeDetail').addEventListener('click',()=>closeDetail());
   $('detail').addEventListener('close',()=>{if(shop.current)closeDetail();});window.addEventListener('popstate',route);
-  loadProducts().then(route);setInterval(()=>{if(!$('detail').open)loadProducts();},30000);
+  checkoutResult();Promise.all([loadConfig(),loadProducts()]).then(route);setInterval(()=>{if(!$('detail').open)loadProducts();},30000);
 </script>
 </body>
 </html>
