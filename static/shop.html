@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-shop-version" content="kerry-admin-20261026">
+  <meta name="karry-shop-version" content="shop-routes-20261107">
   <title>KERRY ショップ</title>
   <style>
     :root{--bg:#0b1222;--card:#111b30;--line:#263451;--text:#e8eefc;--muted:#9fb0cf;--accent:#7cc4ff}
@@ -11,7 +11,8 @@
     .tabs{display:flex;gap:8px;overflow-x:auto;padding:12px 16px}.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:7px 14px;cursor:pointer}
     .tabs button[aria-selected="true"]{background:var(--accent);color:#06101f;border-color:var(--accent)}
     main{padding:0 16px 24px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-    .card{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;cursor:pointer;text-align:left;color:inherit;padding:0}
+    .card{display:block;text-decoration:none;border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;cursor:pointer;text-align:left;color:inherit;padding:0}
+    header a{color:inherit;text-decoration:none}.notice{color:#ffcf7c;font-size:13px;margin:0 0 10px}.notice:empty{display:none}
     .card img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#0c1426}.card div{padding:8px 10px}.card .title{font-size:13px;line-height:1.4;max-height:3.6em;overflow:hidden}.price{font-weight:800;color:var(--accent);margin-top:4px}
     .empty{color:var(--muted);padding:30px 0;text-align:center}
     dialog{max-width:720px;width:calc(100% - 24px);border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--text);padding:16px}dialog::backdrop{background:#000a}
@@ -24,9 +25,9 @@
   </style>
 </head>
 <body>
-  <header><h1>KERRY ショップ</h1><p>法的チェック（商標権・薬機法・PSE）を通過した商品だけを掲載しています。</p></header>
+  <header><h1><a href="/shop">KERRY ショップ</a></h1><p>法的チェック（商標権・薬機法・PSE）を通過した商品だけを掲載しています。</p></header>
   <nav id="tabs" class="tabs" role="tablist" aria-label="カテゴリー"></nav>
-  <main><div id="grid" class="grid" aria-live="polite"><p class="empty">読み込み中…</p></div></main>
+  <main><p id="notice" class="notice" role="status"></p><div id="grid" class="grid" aria-live="polite"><p class="empty">読み込み中…</p></div></main>
   <dialog id="detail" aria-labelledby="detailTitle">
     <h2 id="detailTitle"></h2>
     <img id="mainImage" class="main-image" alt="" referrerpolicy="no-referrer">
@@ -47,7 +48,7 @@
   </dialog>
 <script>
   const $=id=>document.getElementById(id),IMG=/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/;
-  const shop={products:[],category:'すべて',current:null};
+  const shop={products:[],category:'すべて',current:null},TITLE=document.title,ID_RE=/^[a-f0-9]{32}$/;
   const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
   function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}
   function image(src,alt){const i=el('img',{alt,loading:'lazy'});i.referrerPolicy='no-referrer';if(IMG.test(src||''))i.src=src;return i;}
@@ -57,19 +58,32 @@
   function renderGrid(){
     const items=shop.products.filter(p=>shop.category==='すべて'||p.category===shop.category);
     if(!items.length){$('grid').replaceChildren(el('p',{className:'empty',textContent:'まだ商品がありません。'}));return;}
-    $('grid').replaceChildren(...items.map(p=>{const card=el('button',{type:'button',className:'card'},image(p.images?.[0],p.title),el('div',{},el('div',{className:'title',textContent:p.title}),el('div',{className:'price',textContent:yen(p.price_jpy)})));card.dataset.productId=p.id;card.addEventListener('click',()=>openDetail(p));return card;}));
+    $('grid').replaceChildren(...items.map(p=>{const card=el('a',{className:'card',href:`/products/${p.id}`},image(p.images?.[0],p.title),el('div',{},el('div',{className:'title',textContent:p.title}),el('div',{className:'price',textContent:yen(p.price_jpy)})));card.dataset.productId=p.id;card.addEventListener('click',event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.button)return;event.preventDefault();openDetail(p,true);});return card;}));
   }
   function showImage(p,index){
     const src=(p.images||[])[index];if(IMG.test(src||''))$('mainImage').src=src;$('mainImage').alt=`${p.title}（画像 ${index+1}）`;
     for(const [i,b] of [...$('thumbs').children].entries())b.setAttribute('aria-current',String(i===index));
   }
-  function openDetail(p){
+  function routeId(){const m=location.pathname.match(/^\/products\/([^/]+)\/?$/);const id=m?m[1]:new URLSearchParams(location.search).get('id');return id&&ID_RE.test(id)?id:null;}
+  function closeDetail(push=true){
+    if($('detail').open){if(typeof $('detail').close==='function')$('detail').close();else $('detail').removeAttribute('open');}
+    shop.current=null;document.title=TITLE;if(push&&routeId())history.pushState({},'','/shop');
+  }
+  async function route(){
+    const id=routeId();if(!id){closeDetail(false);return;}
+    let p=shop.products.find(item=>item.id===id);
+    if(!p){try{const response=await fetch(`/api/shop/products/${id}`,{cache:'no-store'});if(response.ok)p=(await response.json()).product;}catch(_){}}
+    if(!p){closeDetail(false);history.replaceState({},'','/shop');$('notice').textContent='この商品は見つかりませんでした（掲載を終えた可能性があります）。';return;}
+    openDetail(p,false);
+  }
+  function openDetail(p,push=false){
+    $('notice').textContent='';if(push)history.pushState({id:p.id},'',`/products/${p.id}`);document.title=`${p.title}｜KERRY ショップ`;
     shop.current=p;$('detailTitle').textContent=p.title;$('detailPrice').textContent=`${yen(p.price_jpy)}（税込・送料込）`;$('detailDescription').textContent=p.description||'';
     $('thumbs').replaceChildren(...(p.images||[]).filter(s=>IMG.test(s)).map((src,i)=>{const b=el('button',{type:'button'},image(src,`サムネイル ${i+1}`));b.addEventListener('click',()=>showImage(p,i));return b;}));
     showImage(p,0);
     const rows=[...(p.specs||[]).map(s=>[s.name,s.value]),...((p.variants||[]).length?[['バリエーション',p.variants.join(' / ')]]:[])];
     $('specs').replaceChildren(...rows.map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v}))));
-    $('orderStatus').textContent='';if(typeof $('detail').showModal==='function')$('detail').showModal();else $('detail').setAttribute('open','');
+    $('orderStatus').textContent='';if(!$('detail').open){if(typeof $('detail').showModal==='function')$('detail').showModal();else $('detail').setAttribute('open','');}
   }
   async function submitOrder(event){
     event.preventDefault();const p=shop.current;if(!p)return;$('orderSubmit').disabled=true;$('orderStatus').textContent='送信しています…';
@@ -82,8 +96,9 @@
     try{const response=await fetch('/api/shop/products',{cache:'no-store'});const data=await response.json();shop.products=Array.isArray(data.products)?data.products:[];renderTabs(Array.isArray(data.categories)?data.categories:[]);renderGrid();}
     catch(_){$('grid').replaceChildren(el('p',{className:'empty',textContent:'商品を読み込めませんでした。時間をおいて再読み込みしてください。'}));}
   }
-  $('orderForm').addEventListener('submit',submitOrder);$('closeDetail').addEventListener('click',()=>{if(typeof $('detail').close==='function')$('detail').close();else $('detail').removeAttribute('open');});
-  loadProducts();setInterval(()=>{if(!$('detail').open)loadProducts();},30000);
+  $('orderForm').addEventListener('submit',submitOrder);$('closeDetail').addEventListener('click',()=>closeDetail());
+  $('detail').addEventListener('close',()=>{if(shop.current)closeDetail();});window.addEventListener('popstate',route);
+  loadProducts().then(route);setInterval(()=>{if(!$('detail').open)loadProducts();},30000);
 </script>
 </body>
 </html>

@@ -579,7 +579,7 @@
     if(!item){status.textContent='この商品は掲載を終えたか削除済みです。';return;}
     status.textContent=`✅ 掲載中｜${item.title||''}｜${Number(item.price_jpy).toLocaleString('ja-JP')} 円`;
     for(const src of (item.images||[]).filter(src=>SHOP_IMAGE_RE.test(src)).slice(0,MAX_IMAGES)){const img=document.createElement('img');img.alt='掲載中の商品写真';img.loading='lazy';img.src=src;card.append(img);}
-    const link=document.createElement('a');link.href='/shop';link.className='image-link';link.textContent='ショップで見る';card.append(document.createElement('br'),link);
+    const link=document.createElement('a');link.href=`/products/${item.id}`;link.className='image-link';link.textContent='ショップで見る';card.append(document.createElement('br'),link);
   }
   function isCurrentSend(owner,mode,secretId,version){return (mode?version===viewVersion:!busy)&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
   async function sendMessage(event){

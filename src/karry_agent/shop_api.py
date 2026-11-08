@@ -33,6 +33,13 @@ def build_routers(auth: Callable[..., Any], store_factory: Callable[[], Any] | N
         items = [shop_store.public_product(p) for p in stores().products() if p.get("status") == "published"]
         return _json({"products": items, "categories": sorted({p["category"] for p in items})})
 
+    @public.get("/products/{product_id}")
+    def product(product_id: str):
+        item = shop_store.published_product(stores(), product_id)
+        if item is None:
+            return _json({"detail": "この商品は現在販売していません。", "code": "product_unavailable"}, 404)
+        return _json({"product": shop_store.public_product(item)})
+
     @public.get("/images/{image_id}.jpg")
     def image(image_id: str):
         data = stores().image(image_id) if len(image_id) == 32 and all(c in "0123456789abcdef" for c in image_id) else None

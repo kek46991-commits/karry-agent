@@ -5,6 +5,7 @@ import threading
 import uuid
 import json
 import os
+import html
 import re
 import logging
 import secrets
@@ -21,7 +22,7 @@ from fastapi import Path as Path_
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
@@ -36,6 +37,7 @@ from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import self_correction
+from karry_agent import shop_store
 from karry_agent import instant_website
 from karry_agent import website_artifacts
 from karry_agent import website_storage
@@ -1331,6 +1333,16 @@ def admin_page():
 @app.get("/shop", include_in_schema=False)
 def shop_page():
     return FileResponse(STATIC_DIR / "shop.html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/products/{product_id}", include_in_schema=False)
+def shop_product_page(product_id: str):
+    """Shareable product URL: the shop page opens this listing's detail from the catalog (404 when not on sale)."""
+    item = shop_store.published_product(shop_store.ShopStore(), product_id)
+    page = (STATIC_DIR / "shop.html").read_text(encoding="utf-8")
+    if item:
+        page = page.replace("<title>KERRY ショップ</title>", f"<title>{html.escape(item['title'])}｜KERRY ショップ</title>", 1)
+    return HTMLResponse(page, status_code=200 if item else 404, headers={"Cache-Control": "no-store"})
 
 
 def _media_json(value: Any, status_code: int = 200):
