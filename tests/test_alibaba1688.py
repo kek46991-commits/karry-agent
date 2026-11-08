@@ -192,7 +192,8 @@ def test_gemini_and_rules_are_combined_fail_safe():
 def test_pricing_formula_and_validation(monkeypatch):
     for name in ali._PRICING_ENV.values():
         monkeypatch.delenv(name, raising=False)
-    assert ali.pricing_defaults() == {'cny_jpy_rate': 22.0, 'agent_fee_rate': 0.05, 'shipping_jpy': 1200.0, 'markup': 1.4}
+    assert ali.pricing_defaults() == {'cny_jpy_rate': 22.0, 'agent_fee_rate': 0.05, 'shipping_jpy': 1200.0, 'markup': 1.4,
+                                      'duty_rate': 0.0, 'domestic_shipping_jpy': 0.0, 'mall_fee_rate': 0.0}
     result = ali.price_product(100)
     # 100 RMB × 22 = 2,200 + 5 % (110) + 1,200 = 3,510 → × 1.4 = 4,914
     assert (result['goods_jpy'], result['agent_fee_jpy'], result['shipping_jpy'], result['landed_cost_jpy']) == (2200, 110, 1200, 3510)
@@ -269,7 +270,8 @@ def test_evaluate_without_price_still_returns_review(api):
 def test_blocked_page_with_manual_cost_makes_a_draft_without_error_then_registers_it(api):
     http, state, _ = api
     state['blocked'] = True
-    assert http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH).json()['code'] == 'page_blocked'
+    unpriced = http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH).json()
+    assert unpriced['pricing'] is None and unpriced['draft']['id'] and any('原価（元）が未入力' in n for n in unpriced['product']['notes'])
     untitled = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'cost_cny': 100}, headers=AUTH).json()
     assert untitled['pricing']['selling_price_jpy'] == 4914 and untitled['product']['title_missing']
     response = http.post('/api/alibaba/publish', json={'draft_id': untitled['draft']['id']}, headers=AUTH)
@@ -324,11 +326,11 @@ def test_legal_dashboard_logs_errors_and_verdicts_without_secrets(api):
     assert http.get('/api/alibaba/logs').status_code == 401
     http.post('/api/alibaba/evaluate', json={'product': '573741401425'}, headers=AUTH)
     state['blocked'] = True
-    assert http.post('/api/alibaba/evaluate', json={'product': '573741401426'}, headers=AUTH).status_code == 422
+    assert http.post('/api/alibaba/evaluate', json={'product': '573741401426'}, headers=AUTH).json()['pricing'] is None
     http.post('/api/alibaba/fetch', json={'product': 'https://evil.example/'}, headers=AUTH)
     entries = http.get('/api/alibaba/logs', headers=AUTH).json()['entries']
     assert [(e['action'], e['status'], e.get('code'), e.get('verdict')) for e in entries] == [
-        ('fetch', 'error', 'invalid_product', None), ('evaluate', 'error', 'page_blocked', None), ('evaluate', 'ok', None, 'REJECT')]
+        ('fetch', 'error', 'invalid_product', None), ('evaluate', 'ok', None, 'SAFE'), ('evaluate', 'ok', None, 'REJECT')]
     assert entries[2]['checks']['pse']['status'] == 'REJECT' and entries[2]['images'] == 3 and entries[1]['product_id'] == '573741401426'
     assert OWNER not in str(entries)
     for _ in range(alibaba_api.MAX_LOG_ENTRIES + 5):
@@ -373,6 +375,42 @@ def test_bookmarklet_image_urls_are_used_only_from_alicdn_when_the_page_is_block
         'image_urls': ['//cbu01.alicdn.com/img/a.jpg', 'https://evil.example/x.jpg', 'http://127.0.0.1/y.jpg']}, headers=AUTH).json()
     assert seen == [] and data['product']['images'] == ['https://cbu01.alicdn.com/img/a.jpg']
     assert data['product']['url'] == 'https://detail.1688.com/offer/573741401425.html' and data['pricing']['cost_cny'] == 12.8
-    too_many = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'image_urls': ['https://cbu01.alicdn.com/a.jpg'] * 5},
+    too_many = http.post('/api/alibaba/evaluate', json={'product': '573741401425', 'image_urls': ['https://cbu01.alicdn.com/a.jpg'] * 6},
                          headers=AUTH)
     assert too_many.status_code == 422
+
+
+def test_price_adds_duty_domestic_shipping_and_mall_fee_and_reports_gross_profit(monkeypatch):
+    base = ali.price_product(100)
+    assert base['selling_price_jpy'] == 4914 and base['gross_profit_jpy'] == base['profit_jpy'] == 1404 and base['mall_fee_jpy'] == 0
+    monkeypatch.setenv('KARRY_1688_DUTY_RATE', '0.1')
+    monkeypatch.setenv('KARRY_DOMESTIC_SHIPPING_JPY', '500')
+    monkeypatch.setenv('KARRY_SHOP_MALL_FEE_RATE', '0.1')
+    result = ali.price_product(100)
+    landed = 2200 + 110 + 220 + 1200 + 500
+    assert result['duty_jpy'] == 220 and result['domestic_shipping_jpy'] == 500 and result['landed_cost_jpy'] == landed
+    assert result['selling_price_jpy'] == math.ceil(landed * 1.4 / 0.9)
+    assert result['mall_fee_jpy'] == round(result['selling_price_jpy'] * 0.1)
+    assert result['gross_profit_jpy'] == round(result['selling_price_jpy'] * 0.9 - landed)
+    with pytest.raises(ali.AlibabaError):
+        ali.price_product(10, {'mall_fee_rate': 0.9})
+
+
+def test_admin_evaluate_auto_publishes_only_safe_items_with_a_manual_cost(api):
+    http, state, router = api
+    url = 'https://detail.1688.com/offer/573741401425.html'
+    try:
+        auto = http.post('/api/alibaba/evaluate', json={'product': url, 'cost_cny': 100, 'auto_publish': True}, headers=AUTH).json()
+        assert auto['publish']['published'] and auto['publish']['listing']['price_jpy'] == 4914
+        assert [p['id'] for p in http.get('/api/shop/products').json()['products']] == [auto['publish']['listing']['id']]
+        assert http.get('/api/alibaba/drafts', headers=AUTH).json()['drafts'] == []
+        assert router.audit.list()[0]['message'] == 'SAFE（自動掲載完了）'
+        state['blocked'] = True
+        unpriced = http.post('/api/alibaba/evaluate', json={'product': url, 'auto_publish': True}, headers=AUTH)
+        assert unpriced.status_code == 200 and 'publish' not in unpriced.json() and unpriced.json()['pricing'] is None
+        assert unpriced.json()['product']['product_id'] == '573741401425'
+    finally:
+        for product in http.get('/api/shop/products').json()['products']:
+            http.delete(f"/api/shop/admin/products/{product['id']}", headers=AUTH)
+        for draft in http.get('/api/alibaba/drafts', headers=AUTH).json()['drafts']:
+            http.delete(f"/api/alibaba/drafts/{draft['id']}", headers=AUTH)

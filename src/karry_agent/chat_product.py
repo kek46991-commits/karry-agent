@@ -2,9 +2,9 @@
 
 Triggered by the chat's 「商品写真として登録」 switch (``product_draft``) or, with photos attached, by wording such as
 「出品」「下書き」「商品写真」. A Rakumart / 1688 URL, 原価（元） and 商品名 in the message are used when present; a missing
-title and category come from Gemini Vision. When the legal review is SAFE and a price could be set, the draft is
-published right away (``KARRY_CHAT_AUTO_PUBLISH=0`` keeps it as a private /admin draft). ``KARRY_DEFAULT_COST_CNY``
-is the cost used when neither the message nor the 1688 page gives one.
+title and category come from Gemini Vision. When the message states a cost (「原価 25元」) and the legal review is
+SAFE, the item is published right away (``KARRY_CHAT_AUTO_PUBLISH=0`` keeps it as a private /admin draft). Without a
+stated cost no cost is ever assumed: the item stays an unpriced draft that waits for a cost in /admin.
 """
 from __future__ import annotations
 
@@ -25,20 +25,12 @@ _COST = re.compile(r"(?:原価|仕入れ値|仕入値|価格)\s*[:：は]?\s*(\d
 _TITLE = re.compile(r"(?:商品名|タイトル)\s*[:：は]?\s*([^\n]+)")
 _CATEGORY = re.compile(r"カテゴリー?\s*[:：は]?\s*([^\n\s、,]+)")
 
-CreateDraft = Callable[..., dict[str, Any]]  # (EvaluateRequest, photo_bytes, default_cost=) -> evaluate result
+CreateDraft = Callable[..., dict[str, Any]]  # (EvaluateRequest, photo_bytes) -> evaluate result
 Publish = Callable[..., dict[str, Any]]  # (draft_id, via=) -> publish result
 
 
 def auto_publish_enabled() -> bool:
     return os.getenv("KARRY_CHAT_AUTO_PUBLISH", "1").strip().lower() not in ("0", "false", "no", "off")
-
-
-def default_cost() -> float | None:
-    try:
-        value = float(os.getenv("KARRY_DEFAULT_COST_CNY", "") or "nan")
-    except ValueError:
-        return None
-    return value if 0 < value <= 100_000 else None
 
 
 def is_product_request(text: str) -> bool:
@@ -86,7 +78,7 @@ def _summary(result: dict[str, Any], published: dict[str, Any] | None = None) ->
         lines.append(f"🖼 写真 {sources} 枚を保存しました（1 枚目がメイン画像）。")
     lines.append(f"⚖ 法的審査: {review['verdict']}" + ("（自動掲載完了）" if listing else ""))
     if pricing:
-        lines.append(f"💴 販売価格: {int(pricing['selling_price_jpy']):,} 円" + ("（デフォルト原価で計算）" if product.get("default_cost") else ""))
+        lines.append(f"💴 販売価格: {int(pricing['selling_price_jpy']):,} 円（粗利益 {int(pricing['profit_jpy']):,} 円）")
     else:
         lines.append("💴 販売価格: 未計算（「原価 25元」のように原価を書いて送ると計算します）")
     if product.get("title_missing"):
@@ -99,6 +91,7 @@ def _summary(result: dict[str, Any], published: dict[str, Any] | None = None) ->
 
 
 LISTING_MARKER = "掲載商品ID: "
+NO_COST_REASON = "原価（元）が書かれていないため、下書きに保存しました。「原価 25元」のように書いて送るか、管理画面で原価を入れてください。"
 
 
 def run(create: CreateDraft, prompt: str, images: list[dict[str, Any]] | None, publish: Publish | None = None) -> AgentResult:
@@ -114,8 +107,11 @@ def run(create: CreateDraft, prompt: str, images: list[dict[str, Any]] | None, p
         text, status, errors = "商品写真を添付して送ってください。写真を Gemini で整えてショップに登録します。", "failed", 1
     else:
         try:
-            result = create(EvaluateRequest(**fields), photos, default_cost=default_cost())
-            published = publish(result["draft"]["id"], via="chat") if publish else None
+            result = create(EvaluateRequest(**fields), photos)
+            if publish and fields["cost_cny"] is None:
+                published = {"published": False, "listing": None, "reason": NO_COST_REASON}
+            else:
+                published = publish(result["draft"]["id"], via="chat") if publish else None
             listing = (published or {}).get("listing")
             observation = {"status": "completed", "draft_id": None if listing else result["draft"]["id"],
                            "listing_id": (listing or {}).get("id"), "published": bool(listing),

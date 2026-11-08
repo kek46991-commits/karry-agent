@@ -120,9 +120,13 @@ def review_product(product: dict[str, Any], generator: Callable[[dict[str, Any]]
 
 # ---------------------------------------------------------------- pricing
 PRICING_FIELDS = {"cny_jpy_rate": (22.0, 1.0, 100.0), "agent_fee_rate": (0.05, 0.0, 1.0),
-                  "shipping_jpy": (1200.0, 0.0, 100000.0), "markup": (1.4, 1.0, 5.0)}
+                  "shipping_jpy": (1200.0, 0.0, 100000.0), "markup": (1.4, 1.0, 5.0),
+                  "duty_rate": (0.0, 0.0, 1.0), "domestic_shipping_jpy": (0.0, 0.0, 100000.0),
+                  "mall_fee_rate": (0.0, 0.0, 0.5)}
 _PRICING_ENV = {"cny_jpy_rate": "KARRY_CNY_JPY_RATE", "agent_fee_rate": "KARRY_1688_AGENT_FEE_RATE",
-                "shipping_jpy": "KARRY_1688_SHIPPING_JPY", "markup": "KARRY_SHOP_MARKUP"}
+                "shipping_jpy": "KARRY_1688_SHIPPING_JPY", "markup": "KARRY_SHOP_MARKUP",
+                "duty_rate": "KARRY_1688_DUTY_RATE", "domestic_shipping_jpy": "KARRY_DOMESTIC_SHIPPING_JPY",
+                "mall_fee_rate": "KARRY_SHOP_MALL_FEE_RATE"}
 
 
 def pricing_defaults() -> dict[str, float]:
@@ -134,9 +138,10 @@ def pricing_defaults() -> dict[str, float]:
 
 
 def price_product(cost_cny: float, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """KERRY shop price: (cost×rate + agent fee + fixed shipping/duty) × markup, rounded up to whole yen.
+    """KERRY shop price: (cost×rate + agent fee + duty + international + domestic shipping) × markup ÷ (1 − mall fee).
 
-    Defaults: 1 RMB = 22 JPY, agent fee 5 % of the goods, +1,200 JPY international shipping & duty, ×1.4 (≈30 % margin).
+    Rounded up to whole yen. Defaults: 1 RMB = 22 JPY, agent fee 5 % of the goods, +1,200 JPY international shipping &
+    duty, ×1.4 (≈30 % margin); duty rate, domestic shipping and mall fee default to 0. Gross profit = price − landed − mall fee.
     """
     if _number(cost_cny) is None or cost_cny <= 0:
         raise AlibabaError("原価（人民元）が取得できないため価格を計算できません。", 422, "price_unavailable")
@@ -149,9 +154,13 @@ def price_product(cost_cny: float, overrides: dict[str, Any] | None = None) -> d
             config[key] = number
     goods_jpy = cost_cny * config["cny_jpy_rate"]
     agent_fee_jpy = goods_jpy * config["agent_fee_rate"]
-    landed = goods_jpy + agent_fee_jpy + config["shipping_jpy"]
-    price = math.ceil(round(landed * config["markup"], 6))
-    profit = price - landed
+    duty_jpy = goods_jpy * config["duty_rate"]
+    landed = goods_jpy + agent_fee_jpy + duty_jpy + config["shipping_jpy"] + config["domestic_shipping_jpy"]
+    price = math.ceil(round(landed * config["markup"] / (1 - config["mall_fee_rate"]), 6))
+    mall_fee_jpy = price * config["mall_fee_rate"]
+    profit = price - landed - mall_fee_jpy
     return {"cost_cny": round(cost_cny, 2), "config": config, "goods_jpy": round(goods_jpy), "agent_fee_jpy": round(agent_fee_jpy),
-            "shipping_jpy": round(config["shipping_jpy"]), "landed_cost_jpy": round(landed), "selling_price_jpy": int(price),
-            "profit_jpy": round(profit), "margin_rate": round(profit / price, 4)}
+            "duty_jpy": round(duty_jpy), "shipping_jpy": round(config["shipping_jpy"]),
+            "domestic_shipping_jpy": round(config["domestic_shipping_jpy"]), "landed_cost_jpy": round(landed),
+            "selling_price_jpy": int(price), "mall_fee_jpy": round(mall_fee_jpy), "profit_jpy": round(profit),
+            "gross_profit_jpy": round(profit), "margin_rate": round(profit / price, 4)}

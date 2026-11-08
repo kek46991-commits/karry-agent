@@ -23,6 +23,9 @@ class PricingOverrides(BaseModel):
     agent_fee_rate: float | None = None
     shipping_jpy: float | None = None
     markup: float | None = None
+    duty_rate: float | None = None
+    domestic_shipping_jpy: float | None = None
+    mall_fee_rate: float | None = None
 
 
 class FetchRequest(BaseModel):
@@ -40,6 +43,7 @@ class EvaluateRequest(FetchRequest):
     image_urls: list[Annotated[str, Field(max_length=1000)]] = Field(
         default_factory=list, max_length=product_images.MAX_PHOTOS,
         description="ブラウザ（ラクマートのブックマーク）で読んだ商品写真の URL。alicdn のみ")
+    auto_publish: bool = Field(default=False, description="原価（元）を入力済みで SAFE なら、そのままショップに掲載")
 
 
 class PublishRequest(BaseModel):
@@ -141,27 +145,21 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
             product["category"] = named["category"]
         product["notes"] = [n for n in product.get("notes") or [] if "仮の名前" not in n] + ["商品名とカテゴリーは Gemini が写真から付けました。"]
 
-    def intake_product(request: EvaluateRequest, default_cost: float | None) -> dict[str, Any]:
+    def intake_product(request: EvaluateRequest) -> dict[str, Any]:
+        """Never invents a cost: an unreadable 1688 page without a manual cost becomes an unpriced draft."""
         if not request.product.strip():
             return alibaba_scrape.photo_product(request.cost_cny, request.title, request.category)
         try:
             return fetch(request)
         except ali.AlibabaError as exc:
-            if default_cost is None or request.cost_cny is not None or exc.code not in ("page_blocked", "page_unavailable",
-                                                                                         "product_not_found"):
+            if request.cost_cny is not None or exc.code not in ("page_blocked", "page_unavailable", "product_not_found"):
                 raise
-            product = fetch(request.model_copy(update={"cost_cny": default_cost}))
-            product["default_cost"] = True
-            product["notes"] = [*product.get("notes", []), "原価が分からないため、設定のデフォルト原価を使いました。"]
+            product = alibaba_scrape.intake(request.product, None, request.title, request.category, read_page=False)
+            product["notes"].append("原価（元）が未入力のため下書きに保存しました。管理画面で原価を入れて計算し直してください。")
             return product
 
-    def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None,
-                   default_cost: float | None = None) -> dict[str, Any]:
-        product = intake_product(request, default_cost)
-        if product.get("min_price_cny") is None and default_cost is not None:
-            product["min_price_cny"] = product["max_price_cny"] = round(float(default_cost), 2)
-            product["default_cost"] = True
-            product["notes"] = [*product.get("notes", []), "原価が分からないため、設定のデフォルト原価を使いました。"]
+    def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
+        product = intake_product(request)
         if request.image_urls and not product.get("images"):
             product["images"] = [u for u in map(ali.image_url, request.image_urls) if u][:product_images.MAX_PHOTOS]
         sources = [*(photo_bytes or []), *request.photos][:product_images.MAX_PHOTOS]
@@ -179,11 +177,10 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
         draft = stores().save_draft({"product": product, "review": review_result, "pricing": pricing})
         return {"draft": draft, "product": product, "review": review_result, "pricing": pricing, "pricing_error": pricing_error}
 
-    def create_draft(request: EvaluateRequest, photo_bytes: list[bytes] | None = None,
-                     default_cost: float | None = None) -> dict[str, Any]:
+    def create_draft(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
         """Shared by /evaluate and chat photo intake. Raises AlibabaError (logged) on bad input."""
         try:
-            result = draft_work(request, photo_bytes, default_cost)
+            result = draft_work(request, photo_bytes)
         except ali.AlibabaError as exc:
             log.add(action="evaluate", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             raise
@@ -201,9 +198,15 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
         if not request.product.strip():
             return _error(ali.AlibabaError("1688 の商品 URL（/offer/<数字>.html）か商品 ID を入れてください。", 422, "invalid_product"))
         try:
-            return _json(await run_in_threadpool(create_draft, request))
+            result = await run_in_threadpool(create_draft, request)
         except ali.AlibabaError as exc:
             return _error(exc)
+        if request.auto_publish and request.cost_cny is not None:
+            try:
+                result["publish"] = await run_in_threadpool(publish_draft, result["draft"]["id"], "admin-auto")
+            except ali.AlibabaError as exc:
+                result["publish"] = {"published": False, "listing": None, "reason": exc.message}
+        return _json(result)
 
     @router.get("/drafts")
     def drafts():
@@ -239,7 +242,7 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
         entry = log.add(action="publish", status="ok" if listing else "rejected", **summary(draft["product"]),
                         verdict=review_result["verdict"], engine=review_result["engine"], checks=checks(review_result),
                         selling_price_jpy=(draft["pricing"] or {}).get("selling_price_jpy"), shop_id=(listing or {}).get("id"),
-                        message=reason or ("SAFE（自動掲載完了）" if via == "chat" else None), via=via)
+                        message=reason or ("SAFE（自動掲載完了）" if via != "admin" else None), via=via)
         return {"published": bool(listing), "listing": shop_store.public_product(listing) if listing else None,
                 "reason": reason, "draft": draft, "log": entry}
 

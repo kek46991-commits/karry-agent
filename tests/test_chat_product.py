@@ -62,10 +62,10 @@ def chat(monkeypatch):
         monkeypatch.setattr(web, name, {})
     agent, drafts = EchoAgent(), []
 
-    def create(request, photos, default_cost=None):
+    def create(request, photos):
         drafts.append((request.title, request.cost_cny, photos))
         return {"draft": {"id": "d" * 32}, "product": {"image_processing": {"sources": 1, "enhanced": 1}},
-                "review": {"verdict": "SAFE"}, "pricing": {"selling_price_jpy": 2489}}
+                "review": {"verdict": "SAFE"}, "pricing": {"selling_price_jpy": 2489, "profit_jpy": 700}}
 
     monkeypatch.setattr(web._ALIBABA_ROUTER, "create_draft", create)
     monkeypatch.setattr(web._ALIBABA_ROUTER, "publish_draft",
@@ -141,7 +141,6 @@ def test_rakumart_2c_url_is_recognised_in_chat():
 
 
 def test_photos_and_rakumart_url_are_named_by_gemini_and_published_when_safe(monkeypatch):
-    monkeypatch.setenv("KARRY_DEFAULT_COST_CNY", "30")
     seen = {}
 
     def intake(url, cost, title, category):
@@ -157,7 +156,7 @@ def test_photos_and_rakumart_url_are_named_by_gemini_and_published_when_safe(mon
 
     router = _router(namer=namer, intake=intake)
     photos = [{"data": _jpeg_bytes(), "mime_type": "image/jpeg"} for _ in range(5)]
-    result = chat_product.run(router.create_draft, "https://www.rakumart-2c.com/#/details1688?iid=573741401425",
+    result = chat_product.run(router.create_draft, "https://www.rakumart-2c.com/#/details1688?iid=573741401425 原価 30元",
                               photos, publish=router.publish_draft)
     store = shop_store.ShopStore()
     try:
@@ -168,7 +167,7 @@ def test_photos_and_rakumart_url_are_named_by_gemini_and_published_when_safe(mon
         assert listing["title"] == "折りたたみシリコンカップ 携帯用" and listing["category"] == "キッチン用品"
         assert len(listing["images"]) == 5 and listing["status"] == "published"
         assert listing["price_jpy"] == int(ali.price_product(30.0)["selling_price_jpy"])
-        assert "ショップに掲載しました" in result.text and "自動掲載完了" in result.text and "デフォルト原価" in result.text
+        assert "ショップに掲載しました" in result.text and "自動掲載完了" in result.text and "粗利益" in result.text
         assert f"{chat_product.LISTING_MARKER}{listing['id']}" in result.text
         log = router.audit.list()[0]
         assert log["action"] == "publish" and log["status"] == "ok" and log["via"] == "chat"
@@ -176,8 +175,7 @@ def test_photos_and_rakumart_url_are_named_by_gemini_and_published_when_safe(mon
         _cleanup(store, result)
 
 
-def test_reject_or_unpriced_items_stay_as_private_drafts(monkeypatch):
-    monkeypatch.delenv("KARRY_DEFAULT_COST_CNY", raising=False)
+def test_reject_or_unpriced_items_stay_as_private_drafts():
     store = shop_store.ShopStore()
     photo = [{"data": b"jpeg", "mime_type": "image/jpeg"}]
     rejected_router = _router("REJECT")
@@ -201,9 +199,9 @@ def test_auto_publish_can_be_turned_off(chat, monkeypatch):
     published = []
     monkeypatch.setattr(web._ALIBABA_ROUTER, "publish_draft", lambda draft_id, via="admin": published.append(draft_id) or
                         {"published": False, "listing": None, "reason": "x"})
-    client.post("/api/chat", json={"prompt": "出品", "session_id": sid, "image_ids": ["a" * 32], "product_draft": True}, headers=AUTH)
+    client.post("/api/chat", json={"prompt": "出品 原価 25元", "session_id": sid, "image_ids": ["a" * 32], "product_draft": True}, headers=AUTH)
     monkeypatch.setenv("KARRY_CHAT_AUTO_PUBLISH", "0")
-    client.post("/api/chat", json={"prompt": "出品", "session_id": sid, "image_ids": ["b" * 32], "product_draft": True}, headers=AUTH)
+    client.post("/api/chat", json={"prompt": "出品 原価 25元", "session_id": sid, "image_ids": ["b" * 32], "product_draft": True}, headers=AUTH)
     assert published == ["d" * 32] and len(drafts) == 2
 
 
@@ -215,3 +213,27 @@ def test_chat_accepts_five_photos(chat):
     too_many = client.post("/api/chat", json={"prompt": "出品", "session_id": sid, "image_ids": [c * 32 for c in "abcdef"]},
                            headers=AUTH)
     assert too_many.status_code == 422
+
+
+def test_url_without_a_cost_is_saved_as_an_unpriced_draft_not_an_error():
+    calls = []
+
+    def blocked(url, cost, title, category):
+        calls.append(cost)
+        raise ali.AlibabaError("1688 がページの読み取りを止めました", 502, "page_blocked")
+
+    published = []
+    router = _router(namer=lambda photos: {"title": "青いマグカップ", "category": "キッチン用品"}, intake=blocked)
+    result = chat_product.run(router.create_draft, "https://www.rakumart-2c.com/#/details1688?iid=573741401425",
+                              [{"data": _jpeg_bytes(), "mime_type": "image/jpeg"}],
+                              publish=lambda draft_id, via="admin": published.append(draft_id))
+    store = shop_store.ShopStore()
+    try:
+        obs = result.trace[0].observation
+        assert result.status == "completed" and not obs["published"] and obs["draft_id"] and published == [] and calls == [None]
+        draft = store.draft(obs["draft_id"])
+        assert draft["pricing"] is None and draft["product"]["product_id"] == "573741401425"
+        assert draft["product"]["min_price_cny"] is None and draft["product"]["title"] == "青いマグカップ"
+        assert "原価（元）が書かれていない" in result.text and "下書き" in result.text
+    finally:
+        _cleanup(store, result)
