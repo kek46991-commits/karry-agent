@@ -26,6 +26,9 @@ test('catalog cards link to /products/:id and open the detail with a shareable U
   assert.deepEqual(cards.map(c=>c.getAttribute('href')),[`/products/${A}`,`/products/${B}`]);
   cards[1].dispatchEvent(new s.win.MouseEvent('click',{bubbles:true,cancelable:true,button:0}));await tick();
   assert.equal(s.win.location.pathname,`/products/${B}`);assert.ok(s.$('detail').open);
+  assert.equal(cards[1].querySelector('img'),null);assert.equal(cards[1].querySelector('.noimg').textContent,'写真準備中');
+  assert.ok(cards[0].querySelector('img'));
+  assert.ok(s.$('mainImage').hidden);assert.equal(s.doc.activeElement,s.$('detailTitle'));
   assert.equal(s.$('detailTitle').textContent,'木製ブックスタンド');assert.match(s.doc.title,/木製ブックスタンド｜KERRY ショップ/);
   s.$('closeDetail').click();await tick();
   assert.equal(s.win.location.pathname,'/shop');assert.ok(!s.$('detail').open);s.dom.window.close();
