@@ -44,10 +44,14 @@
           <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
           <label class="wide">商品写真（任意・最大5枚まとめて選べます。1 枚目がメイン画像）<input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
           <label class="wide check"><span><input id="enhance" type="checkbox" checked> 🎨 Gemini で写真の光と背景を整える（商品そのものは変えません）</span></label>
+          <label class="wide check"><span><input id="autoPublish" type="checkbox" checked> ✅ 原価を入れて審査が SAFE なら、そのままショップに掲載する</span></label>
         </div>
         <div class="grid" style="margin-top:10px">
           <label>為替（円/元）<input id="rate" type="number" min="1" max="100" step="0.01"></label>
           <label>国際送料・関税（円）<input id="shipping" type="number" min="0" step="10"></label>
+          <label>関税率（追加）<input id="duty" type="number" min="0" max="1" step="0.01"></label>
+          <label>国内送料（円）<input id="domestic" type="number" min="0" step="10"></label>
+          <label>モール手数料率<input id="mallFee" type="number" min="0" max="0.5" step="0.01"></label>
           <label>代行手数料率<input id="agentFee" type="number" min="0" max="1" step="0.01"></label>
           <label>販売倍率（×）<input id="markup" type="number" min="1" max="5" step="0.05"></label>
         </div>
@@ -69,7 +73,7 @@
 <script>
   const $=id=>document.getElementById(id),KEY='karry-admin-token',IMG=/^(https:\/\/(cbu01|img)\.alicdn\.com\/|\/api\/shop\/images\/[a-f0-9]{32}\.jpg$)/;
   function readPhoto(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('写真を読めませんでした。'));reader.readAsDataURL(file);});}
-  const PRICING={rate:'cny_jpy_rate',agentFee:'agent_fee_rate',shipping:'shipping_jpy',markup:'markup'};
+  const PRICING={rate:'cny_jpy_rate',agentFee:'agent_fee_rate',shipping:'shipping_jpy',markup:'markup',duty:'duty_rate',domestic:'domestic_shipping_jpy',mallFee:'mall_fee_rate'};
   const state={token:'',draft:null};
   const yen=v=>`${Math.round(Number(v)||0).toLocaleString('ja-JP')}円`;
   function el(tag,props={},...children){const e=document.createElement(tag);Object.assign(e,props);e.append(...children);return e;}
@@ -95,10 +99,10 @@
   }
   function pricing(){const out={};for(const [id,key] of Object.entries(PRICING)){const v=$(id).value;if(v!==''&&Number.isFinite(Number(v)))out[key]=Number(v);}return out;}
   function preview(){
-    const cost=Number($('costCny').value),p={cny_jpy_rate:22,agent_fee_rate:0.05,shipping_jpy:1200,markup:1.4,...pricing()};
+    const cost=Number($('costCny').value),p={cny_jpy_rate:22,agent_fee_rate:0.05,shipping_jpy:1200,markup:1.4,duty_rate:0,domestic_shipping_jpy:0,mall_fee_rate:0,...pricing()};
     if(!(cost>0)){$('pricePreview').textContent='原価（元）を入れると販売価格を計算します。';return;}
-    const goods=cost*p.cny_jpy_rate,fee=goods*p.agent_fee_rate,landed=goods+fee+p.shipping_jpy,price=Math.ceil(Number((landed*p.markup).toFixed(6)));
-    $('pricePreview').textContent=`販売価格（目安） ${yen(price)} ＝（${yen(goods)} ＋ 代行手数料 ${yen(fee)} ＋ 送料・関税 ${yen(p.shipping_jpy)}）× ${p.markup}`;
+    const goods=cost*p.cny_jpy_rate,fee=goods*p.agent_fee_rate,duty=goods*p.duty_rate,landed=goods+fee+duty+p.shipping_jpy+p.domestic_shipping_jpy,price=Math.ceil(Number((landed*p.markup/(1-p.mall_fee_rate)).toFixed(6))),profit=price-landed-price*p.mall_fee_rate;
+    $('pricePreview').textContent=`販売価格（目安） ${yen(price)} ＝（${yen(goods)} ＋ 代行手数料 ${yen(fee)} ＋ 送料・関税 ${yen(p.shipping_jpy+duty)} ＋ 国内送料 ${yen(p.domestic_shipping_jpy)}）× ${p.markup}${p.mall_fee_rate?` ÷（1 − モール手数料 ${p.mall_fee_rate}）`:''}｜粗利益 ${yen(profit)}`;
   }
   function canRegister(d){return !!(d&&d.review?.verdict==='SAFE'&&d.pricing&&!d.product?.title_missing);}
   function renderResult(d){
@@ -106,7 +110,7 @@
     const r=d.review||{},p=d.product||{},pr=d.pricing;
     const verdict=el('div',{className:'verdict',textContent:`法的審査: ${r.verdict||'—'}`});verdict.dataset.verdict=r.verdict||'';
     const checks=el('ul',{className:'checks'},...Object.values(r.checks||{}).map(c=>{const li=el('li',{textContent:`${c.label}: ${c.status} — ${c.reason}`});li.dataset.status=c.status;return li;}));
-    const price=pr?el('table',{className:'price'},...[['原価',`${pr.cost_cny} 元`],['商品代金',yen(pr.goods_jpy)],['代行手数料',yen(pr.agent_fee_jpy)],['送料・関税',yen(pr.shipping_jpy)],['仕入れ総額',yen(pr.landed_cost_jpy)],['販売価格',yen(pr.selling_price_jpy)],['利益',`${yen(pr.profit_jpy)}（${Math.round((pr.margin_rate||0)*100)}%）`]].map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v})))):empty(d.pricing_error||'原価（元）を入力すると販売価格を計算できます。');
+    const price=pr?el('table',{className:'price'},...[['原価',`${pr.cost_cny} 元`],['商品代金',yen(pr.goods_jpy)],['代行手数料',yen(pr.agent_fee_jpy)],['送料・関税',yen(pr.shipping_jpy)],...(pr.duty_jpy?[['関税（追加）',yen(pr.duty_jpy)]]:[]),...(pr.domestic_shipping_jpy?[['国内送料',yen(pr.domestic_shipping_jpy)]]:[]),['仕入れ総額',yen(pr.landed_cost_jpy)],['販売価格',yen(pr.selling_price_jpy)],...(pr.mall_fee_jpy?[['モール手数料',yen(pr.mall_fee_jpy)]]:[]),['粗利益',`${yen(pr.profit_jpy)}（${Math.round((pr.margin_rate||0)*100)}%）`]].map(([k,v])=>el('tr',{},el('td',{textContent:k}),el('td',{textContent:v})))):empty(d.pricing_error||'原価（元）を入力すると販売価格を計算できます。');
     const pics=el('div',{className:'photos'},...(p.images||[]).filter(src=>IMG.test(src)).slice(0,12).map(src=>{const i=el('img',{alt:p.title||'商品写真',loading:'lazy'});i.referrerPolicy='no-referrer';i.src=src;return i;}));
     const ip=p.image_processing,art=!ip?'':ip.engine!=='gemini'?`写真 ${ip.sources} 枚をそのまま使います。`:ip.sources===0?'🎨 使える写真がありませんでした。商品写真を追加してください。':ip.enhanced===ip.sources?`🎨 Gemini で写真 ${ip.enhanced} 枚の光と背景を整えました。`:`🎨 Gemini で ${ip.enhanced}/${ip.sources} 枚を整えました（残りは元の写真）。`;
     $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),pics,empty(art),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
@@ -149,13 +153,14 @@
     const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
     if(!product){$('entryStatus').textContent='1688 かラクマートの商品 URL を入れてください。';return;}
     const files=[...($('photos').files||[])];if(files.length>5||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 5 枚まで、1 枚 8MB までです。';return;}
-    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;if(!files.length&&product===state.importUrl&&state.importImages?.length)body.image_urls=state.importImages;
+    const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked,auto_publish:$('autoPublish').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;if(!files.length&&product===state.importUrl&&state.importImages?.length)body.image_urls=state.importImages;
     $('evaluate').disabled=true;$('entryStatus').textContent=$('enhance').checked?'写真を Gemini で整えて、審査・計算しています（1 分ほどかかります）…':'審査・計算しています…';
     try{body.photos=await Promise.all(files.map(readPhoto));}catch(error){$('entryStatus').textContent=error.message;$('evaluate').disabled=false;return;}
     try{const {response,data}=await api('/api/alibaba/evaluate',{method:'POST',body:JSON.stringify(body)});
       if(!response.ok){$('entryStatus').textContent=typeof data.detail==='string'?data.detail:'入力を確認してください。';return;}
+      if(data.publish?.published){renderResult(null);$('entryStatus').textContent=`✅ 審査 SAFE のため、ショップに掲載しました（${yen(data.publish.listing?.price_jpy)}）。`;refresh();return;}
       const draft={...data.draft,pricing_error:data.pricing_error};renderResult(draft);
-      $('entryStatus').textContent=canRegister(draft)?'✅ 下書きに保存しました。「ショップに登録」で掲載できます。':`📝 下書きに保存しました。${draft.review?.verdict==='REJECT'?'REJECT のため登録できません。':draft.product?.title_missing?'登録するには商品名を入れて計算し直してください。':'登録するには原価（元）を入れて計算し直してください。'}`;
+      $('entryStatus').textContent=data.publish?.reason?`📝 下書きに保存しました。自動掲載しなかった理由: ${data.publish.reason}`:canRegister(draft)?'✅ 下書きに保存しました。「ショップに登録」で掲載できます。':`📝 下書きに保存しました。${draft.review?.verdict==='REJECT'?'REJECT のため登録できません。':draft.product?.title_missing?'登録するには商品名を入れて計算し直してください。':'登録するには原価（元）を入れて計算し直してください。'}`;
       refresh();}
     catch(error){if(error.message!=='unauthorized')$('entryStatus').textContent='通信に失敗しました。';}
     finally{$('evaluate').disabled=false;}

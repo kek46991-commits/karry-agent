@@ -169,19 +169,27 @@ def photo_product(cost_cny: float | None = None, title: str = "", category: str 
     return product
 
 
-def intake(url: str, cost_cny: float | None = None, title: str = "", category: str = "", session: Any = None) -> dict[str, Any]:
-    """URL (+ manual cost / title / category) → product dict used by the reviewer, pricing and shop listing."""
+def intake(url: str, cost_cny: float | None = None, title: str = "", category: str = "", session: Any = None,
+           read_page: bool = True) -> dict[str, Any]:
+    """URL (+ manual cost / title / category) → product dict used by the reviewer, pricing and shop listing.
+
+    ``read_page=False`` skips the 1688 page and keeps only the offer ID (an unpriced draft that waits for a cost).
+    """
     target = normalize_url(url)
     notes: list[str] = ["ラクマートの URL から 1688 の商品を開きました。"] if rakumart_offer_id(url) else []
-    try:
-        final, page = fetch_page(target, session=session)
-        product = parse_page(page, final)
-        notes.append("商品ページを読み取りました。")
-    except AlibabaError as exc:
-        if cost_cny is None or exc.code not in ("page_blocked", "page_unavailable", "product_not_found"):
-            raise
+    if not read_page:
         product = parse_page("", target)
-        notes.append("1688 のページは読めなかったため、入力した値で計算しました。")
+        notes.append("1688 のページは読めなかったため、商品 ID だけで下書きにしました。")
+    else:
+        try:
+            final, page = fetch_page(target, session=session)
+            product = parse_page(page, final)
+            notes.append("商品ページを読み取りました。")
+        except AlibabaError as exc:
+            if cost_cny is None or exc.code not in ("page_blocked", "page_unavailable", "product_not_found"):
+                raise
+            product = parse_page("", target)
+            notes.append("1688 のページは読めなかったため、入力した値で計算しました。")
     if not product["product_id"]:
         try:
             product["product_id"] = parse_product_id(target)

@@ -28,6 +28,7 @@ function setup(options={}){
         const draft={id:'d'.repeat(32),product:{product_id:'573741401425',title:body.title||'1688 商品 573741401425',title_missing:!body.title,notes:['入力した値で計算しました。'],images:body.photos?.length?['/api/shop/images/'+'a'.repeat(32)+'.jpg','https://evil.example/x.jpg']:[],image_processing:body.photos?.length?{engine:body.enhance_images?'gemini':null,sources:body.photos.length,enhanced:body.enhance_images?body.photos.length:0}:undefined},
           review:{verdict:state.verdict,checks:{pse:{label:'PSE（電気用品安全法）',status:state.verdict,reason:'r'}},disclaimer:'参考'},
           pricing:cost?{cost_cny:cost,goods_jpy:2200,agent_fee_jpy:110,shipping_jpy:1200,landed_cost_jpy:3510,selling_price_jpy:4914,profit_jpy:1404,margin_rate:0.2857}:null};
+        if(options.autoPublish&&body.auto_publish&&cost&&state.verdict==='SAFE'){state.products=[{id:'p'.repeat(32),title:draft.product.title,category:'杯子',price_jpy:4914}];return json({draft,publish:{published:true,listing:{id:'p'.repeat(32),price_jpy:4914}}});}
         state.drafts=[draft];return json({draft,pricing_error:cost?null:'原価（元）を入力すると販売価格を計算できます。'});
       }
       if(url==='/api/alibaba/publish'){const d=state.drafts[0];if(d.review.verdict!=='SAFE')return json({published:false,reason:'法的審査で REJECT のため登録できません。'},409);
@@ -134,4 +135,16 @@ test('the Rakumart bookmarklet reads the product page and /admin fills the form 
   assert.equal(t.calls.filter(c=>c.url==='/api/alibaba/fetch').length,0);t.dom.window.close();
   const bad=setup({saved:'good-token',url:'https://example.onrender.com/admin#rakumart='+encodeURIComponent(JSON.stringify({goods_id:'573741401425',platform:'taobao'}))});await tick(30);
   assert.match(bad.$('autofillStatus').textContent,/タオバオ/);assert.equal(bad.$('productUrl').value,'');bad.dom.window.close();
+});
+
+test('with a manual cost and SAFE, 取得して審査・価格計算 publishes straight to the shop; extra fees show in the preview',async()=>{
+  const s=setup({saved:'good-token',autoPublish:true});const {$}=s;await tick(30);
+  assert.equal($('autoPublish').checked,true);
+  $('productUrl').value='573741401425';$('costCny').value='100';$('title').value='陶瓷杯';
+  $('domestic').value='500';$('mallFee').value='0.1';$('costCny').dispatchEvent(new s.win.Event('input'));
+  assert.match($('pricePreview').textContent,/国内送料 .*500.*モール手数料 0.1.*粗利益/);
+  $('evaluate').click();await tick(40);
+  assert.equal(s.state.lastBody.auto_publish,true);
+  assert.equal(s.state.lastBody.pricing.domestic_shipping_jpy,500);assert.equal(s.state.lastBody.pricing.mall_fee_rate,0.1);
+  assert.match($('entryStatus').textContent,/SAFE のため、ショップに掲載しました/);s.dom.window.close();
 });
