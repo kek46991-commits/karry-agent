@@ -28,22 +28,31 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 BLOCKED_MESSAGE = "1688 がページの読み取りを止めました（ログイン・ボット確認の画面になりました）。原価（元）を入力すると計算できます。"
 
 
-_RAKUMART_HOST = re.compile(r"^(?:[a-z0-9-]+\.)*rakumart\.(?:com|cn)$")
+_RAKUMART_HOST = re.compile(r"^(?:[a-z0-9-]+\.)*rakumart(?:-[a-z0-9]+)?\.(?:com|cn)$")
+_RAKUMART_HELP = "ラクマートの商品ページ（ProductDetails?goods_id=… か #/details1688?iid=…）の URL を入れてください。"
 
 
 def rakumart_offer_id(value: str) -> str | None:
-    """Rakumart (ラクマート) product URL → 1688 offer ID; None for other URLs. Rakumart's ``goods_id`` is the 1688 offer ID."""
+    """Rakumart (ラクマート) product URL → 1688 offer ID; None for other URLs.
+
+    ``www.rakumart.com/ProductDetails?goods_id=<id>&fromPlatform=1688`` and the hash-routed
+    ``www.rakumart-2c.com/#/details1688?iid=<id>`` both carry the 1688 offer ID.
+    """
     value = (value or "").strip()
     parts = urlsplit(value if "://" in value else "https://" + value)
     if parts.scheme not in ("http", "https") or not _RAKUMART_HOST.match((parts.hostname or "").lower()):
         return None
+    route, _, route_query = parts.fragment.partition("?")
     query = {k.lower(): v[0].strip() for k, v in parse_qs(parts.query).items() if v}
-    platform = (query.get("fromplatform") or query.get("type") or "1688").lower()
-    goods_id = query.get("goods_id", "")
+    query.update({k.lower(): v[0].strip() for k, v in parse_qs(route_query).items() if v})
+    page = (route.strip("/").rsplit("/", 1)[-1] or parts.path.strip("/").rsplit("/", 1)[-1]).lower()
+    route_platform = page[len("details"):] if page.startswith("details") else ""
+    platform = (query.get("fromplatform") or query.get("type") or route_platform or "1688").lower()
+    goods_id = query.get("goods_id") or query.get("iid") or query.get("offerid") or ""
     if platform != "1688":
         raise AlibabaError("ラクマートの 1688 商品の URL を入れてください（タオバオ・天猫の商品はまだ使えません）。", 422, "unsupported_platform")
     if not re.fullmatch(r"\d{6,20}", goods_id):
-        raise AlibabaError("ラクマートの商品ページ（ProductDetails?goods_id=…）の URL を入れてください。", 422, "invalid_product")
+        raise AlibabaError(_RAKUMART_HELP, 422, "invalid_product")
     return goods_id
 
 

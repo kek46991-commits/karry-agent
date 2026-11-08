@@ -81,13 +81,15 @@ def _error(exc: ali.AlibabaError) -> JSONResponse:
 def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]] | None = None,
                  reviewer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
                  audit: AuditLog | None = None, store_factory: Callable[[], Any] | None = None,
-                 image_pipeline: Callable[..., dict[str, Any]] | None = None) -> APIRouter:
+                 image_pipeline: Callable[..., dict[str, Any]] | None = None,
+                 namer: Callable[[list[bytes]], dict[str, str] | None] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/alibaba", tags=["alibaba"], dependencies=[Depends(auth)])
     read = intake or alibaba_scrape.intake
     review = reviewer or ali.review_product
     log = audit or AuditLog()
     stores = store_factory or shop_store.ShopStore
     photos = image_pipeline or product_images.prepare
+    describe = namer or product_images.gemini_describe
     router.audit = log
 
     def safe_id(product: str) -> str | None:
@@ -123,12 +125,49 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
             log.add(action="fetch", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             return _error(exc)
 
-    def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
-        product = fetch(request) if request.product.strip() else alibaba_scrape.photo_product(
-            request.cost_cny, request.title, request.category)
+    def name_from_photos(product: dict[str, Any], sources: list[str | bytes]) -> None:
+        """Gemini Vision fills a missing title (and category) from the photos."""
+        decoded = []
+        for item in sources[:3]:
+            try:
+                decoded.append(product_images.decode_photo(item) if isinstance(item, str) else product_images.decode_bytes(item))
+            except ali.AlibabaError:
+                continue
+        named = describe(decoded) if decoded else None
+        if not named:
+            return
+        product["title"], product["title_missing"] = named["title"], False
+        if named.get("category") and not product.get("category"):
+            product["category"] = named["category"]
+        product["notes"] = [n for n in product.get("notes") or [] if "仮の名前" not in n] + ["商品名とカテゴリーは Gemini が写真から付けました。"]
+
+    def intake_product(request: EvaluateRequest, default_cost: float | None) -> dict[str, Any]:
+        if not request.product.strip():
+            return alibaba_scrape.photo_product(request.cost_cny, request.title, request.category)
+        try:
+            return fetch(request)
+        except ali.AlibabaError as exc:
+            if default_cost is None or request.cost_cny is not None or exc.code not in ("page_blocked", "page_unavailable",
+                                                                                         "product_not_found"):
+                raise
+            product = fetch(request.model_copy(update={"cost_cny": default_cost}))
+            product["default_cost"] = True
+            product["notes"] = [*product.get("notes", []), "原価が分からないため、設定のデフォルト原価を使いました。"]
+            return product
+
+    def draft_work(request: EvaluateRequest, photo_bytes: list[bytes] | None = None,
+                   default_cost: float | None = None) -> dict[str, Any]:
+        product = intake_product(request, default_cost)
+        if product.get("min_price_cny") is None and default_cost is not None:
+            product["min_price_cny"] = product["max_price_cny"] = round(float(default_cost), 2)
+            product["default_cost"] = True
+            product["notes"] = [*product.get("notes", []), "原価が分からないため、設定のデフォルト原価を使いました。"]
         if request.image_urls and not product.get("images"):
             product["images"] = [u for u in map(ali.image_url, request.image_urls) if u][:product_images.MAX_PHOTOS]
-        photos(product, [*(photo_bytes or []), *request.photos][:product_images.MAX_PHOTOS], request.enhance_images, stores())
+        sources = [*(photo_bytes or []), *request.photos][:product_images.MAX_PHOTOS]
+        if product.get("title_missing") and sources:
+            name_from_photos(product, sources)
+        photos(product, sources, request.enhance_images, stores())
         review_result = review(product)
         pricing, pricing_error = None, None
         try:
@@ -140,10 +179,11 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
         draft = stores().save_draft({"product": product, "review": review_result, "pricing": pricing})
         return {"draft": draft, "product": product, "review": review_result, "pricing": pricing, "pricing_error": pricing_error}
 
-    def create_draft(request: EvaluateRequest, photo_bytes: list[bytes] | None = None) -> dict[str, Any]:
+    def create_draft(request: EvaluateRequest, photo_bytes: list[bytes] | None = None,
+                     default_cost: float | None = None) -> dict[str, Any]:
         """Shared by /evaluate and chat photo intake. Raises AlibabaError (logged) on bad input."""
         try:
-            result = draft_work(request, photo_bytes)
+            result = draft_work(request, photo_bytes, default_cost)
         except ali.AlibabaError as exc:
             log.add(action="evaluate", status="error", product_id=safe_id(request.product), code=exc.code, message=exc.message)
             raise
@@ -173,12 +213,11 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
     def delete_draft(draft_id: str):
         return _json({"removed": stores().delete_draft(draft_id)})
 
-    @router.post("/publish")
-    async def publish(request: PublishRequest):
-        """ショップに登録: publish a saved draft, only when SAFE, priced and titled."""
+    def publish_draft(draft_id: str, via: str = "admin") -> dict[str, Any]:
+        """Publish a saved draft, only when SAFE, priced and titled. Shared by /publish and chat auto-publish."""
         def work():
             store = stores()
-            draft = store.draft(request.draft_id)
+            draft = store.draft(draft_id)
             if draft is None:
                 raise ali.AlibabaError("下書きが見つかりません。もう一度「取得して審査・価格計算」をしてください。", 404, "draft_not_found")
             product, review_result, pricing = draft["product"], draft["review"], draft["pricing"]
@@ -189,20 +228,30 @@ def build_router(auth: Callable[..., Any], intake: Callable[..., dict[str, Any]]
             if product.get("title_missing"):
                 return draft, None, "商品名を入力して計算し直してください。"
             listing = store.publish(shop_store.listing_from(product, review_result, pricing))
-            store.delete_draft(request.draft_id)
+            store.delete_draft(draft_id)
             return draft, listing, None
         try:
-            draft, listing, reason = await run_in_threadpool(work)
+            draft, listing, reason = work()
         except ali.AlibabaError as exc:
-            log.add(action="publish", status="error", code=exc.code, message=exc.message)
-            return _error(exc)
+            log.add(action="publish", status="error", code=exc.code, message=exc.message, via=via)
+            raise
         review_result = draft["review"]
         entry = log.add(action="publish", status="ok" if listing else "rejected", **summary(draft["product"]),
                         verdict=review_result["verdict"], engine=review_result["engine"], checks=checks(review_result),
                         selling_price_jpy=(draft["pricing"] or {}).get("selling_price_jpy"), shop_id=(listing or {}).get("id"),
-                        message=reason)
-        body = {"published": bool(listing), "listing": shop_store.public_product(listing) if listing else None,
+                        message=reason or ("SAFE（自動掲載完了）" if via == "chat" else None), via=via)
+        return {"published": bool(listing), "listing": shop_store.public_product(listing) if listing else None,
                 "reason": reason, "draft": draft, "log": entry}
-        return _json(body, 201 if listing else 409)
+
+    router.publish_draft = publish_draft
+
+    @router.post("/publish")
+    async def publish(request: PublishRequest):
+        """ショップに登録: publish a saved draft, only when SAFE, priced and titled."""
+        try:
+            body = await run_in_threadpool(publish_draft, request.draft_id)
+        except ali.AlibabaError as exc:
+            return _error(exc)
+        return _json(body, 201 if body["published"] else 409)
 
     return router

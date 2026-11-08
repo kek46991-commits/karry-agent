@@ -58,7 +58,9 @@ def test_only_1688_urls_are_accepted(value, expected):
 
 @pytest.mark.parametrize('value', ['https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=1688',
                                    'rakumart.com/ProductDetails?fromPlatform=1688&goods_id=573741401425&mid=x',
-                                   'https://www.rakumart.cn/ProductDetails?goods_id=573741401425'])
+                                   'https://www.rakumart.cn/ProductDetails?goods_id=573741401425',
+                                   'https://www.rakumart-2c.com/#/details1688?iid=573741401425',
+                                   'rakumart-2c.com/#/details1688?iid=573741401425&lang=ja'])
 def test_rakumart_urls_open_the_1688_offer(value):
     assert alibaba_scrape.normalize_url(value) == 'https://detail.1688.com/offer/573741401425.html'
     assert alibaba_scrape.rakumart_offer_id(value) == '573741401425'
@@ -67,6 +69,8 @@ def test_rakumart_urls_open_the_1688_offer(value):
 @pytest.mark.parametrize('value,code', [('https://www.rakumart.com/ProductDetails?goods_id=573741401425&fromPlatform=taobao', 'unsupported_platform'),
                                         ('https://www.rakumart.com/ProductDetails?goods_id=abc', 'invalid_product'),
                                         ('https://www.rakumart.com/', 'invalid_product'),
+                                        ('https://www.rakumart-2c.com/#/detailsTaobao?iid=573741401425', 'unsupported_platform'),
+                                        ('https://www.rakumart-2c.com/#/details1688?iid=12ab', 'invalid_product'),
                                         ('https://rakumart.com.evil.example/ProductDetails?goods_id=573741401425', 'invalid_product')])
 def test_bad_rakumart_urls_are_rejected(value, code):
     with pytest.raises(ali.AlibabaError) as exc:

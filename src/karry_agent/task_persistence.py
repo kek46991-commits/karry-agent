@@ -162,7 +162,7 @@ class S3TaskRepository:
         images = value.get("images", {})
         pending = value.get("pending_images", [])
         uploads = value.get("image_uploads", {})
-        if not isinstance(images, dict) or not isinstance(uploads, dict) or len(images) + len(uploads) > 100 or not isinstance(pending, list) or len(pending) + len(uploads) > 4 or any(not isinstance(key, str) for key in pending) or len(set(pending)) != len(pending) or set(images).intersection(uploads):
+        if not isinstance(images, dict) or not isinstance(uploads, dict) or len(images) + len(uploads) > 100 or not isinstance(pending, list) or len(pending) + len(uploads) > 5 or any(not isinstance(key, str) for key in pending) or len(set(pending)) != len(pending) or set(images).intersection(uploads):
             raise TaskStorageError("画像添付の構造が不正です。", "storage_integrity")
         for key, meta in {**images, **uploads}.items():
             if not re.fullmatch(r"[a-f0-9]{32}", key) or not isinstance(meta, dict) or meta.get("id") != key or meta.get("mime_type") not in {"image/jpeg", "image/png", "image/webp"} or not isinstance(meta.get("filename"), str) or len(meta["filename"]) > 120 or not isinstance(meta.get("size_bytes"), int) or not 0 < meta["size_bytes"] <= 2 * 1024 * 1024 or not isinstance(meta.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", meta["sha256"]):
@@ -173,7 +173,7 @@ class S3TaskRepository:
             raise TaskStorageError("次回添付画像の参照が不正です。", "storage_integrity")
         for row in messages:
             ids = row.get("images", [])
-            if not isinstance(ids, list) or len(ids) > 4 or any(not isinstance(key, str) or key not in images for key in ids):
+            if not isinstance(ids, list) or len(ids) > 5 or any(not isinstance(key, str) or key not in images for key in ids):
                 raise TaskStorageError("会話画像の参照が不正です。", "storage_integrity")
         if not isinstance(value.get("latest_url"), str) or len(value["latest_url"]) > 2048 or value.get("last_run") is not None and not isinstance(value["last_run"], dict):
             raise TaskStorageError("保存済みメタ情報の構造が不正です。", "storage_integrity")

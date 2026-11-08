@@ -857,11 +857,24 @@ test('product-photo switch sends product_draft and the reply shows the polished 
   const toggle=s.doc.getElementById('productDraft');toggle.checked=true;toggle.dispatchEvent(new s.win.Event('change'));
   await s.win.sendMessage({preventDefault(){}});
   const body=JSON.parse(s.calls.find(c=>c.url==='/api/chat').request.body);
-  assert.equal(body.product_draft,true);assert.equal(body.prompt,'商品写真を下書きに保存して');assert.deepEqual(body.image_ids,[IMAGE_ID]);
+  assert.equal(body.product_draft,true);assert.equal(body.prompt,'商品写真を登録して');assert.deepEqual(body.image_ids,[IMAGE_ID]);
   assert.equal(s.win.localStorage.getItem('karry-product-draft'),'1');
   s.win.addMessage('agent',`🛍 商品写真を下書きに保存しました。\n商品下書きID: ${draft}`);await new Promise(r=>setTimeout(r,5));
   const card=[...s.doc.querySelectorAll('.chat-product')].at(-1);
   assert.match(card.querySelector('.chat-product-status').textContent,/SAFE｜マグカップ｜2,489 円/);
   assert.deepEqual([...card.querySelectorAll('img')].map(i=>i.getAttribute('src')),[img]);
   assert.equal(card.querySelector('a').getAttribute('href'),'/admin');s.dom.window.close();
+});
+
+test('a chat reply with a listing marker shows the published shop item',async()=>{
+  const listing='e'.repeat(32),img=`/api/shop/images/${'b'.repeat(32)}.jpg`;
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url)=>{
+    if(url==='/api/shop/products')return json({products:[{id:listing,title:'折りたたみシリコンカップ',price_jpy:1980,images:[img,'https://evil.example/x.jpg']}]});
+    return null;}});
+  s.authenticate();await s.win.connectSessions();
+  s.win.addMessage('agent',`✅ ショップに掲載しました。\n掲載商品ID: ${listing}`);await new Promise(r=>setTimeout(r,5));
+  const card=[...s.doc.querySelectorAll('.chat-product')].at(-1);
+  assert.match(card.querySelector('.chat-product-status').textContent,/掲載中｜折りたたみシリコンカップ｜1,980 円/);
+  assert.deepEqual([...card.querySelectorAll('img')].map(i=>i.getAttribute('src')),[img]);
+  assert.equal(card.querySelector('a').getAttribute('href'),'/shop');s.dom.window.close();
 });

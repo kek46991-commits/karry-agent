@@ -98,8 +98,8 @@ test('product photos are posted as data URLs with the Gemini enhance flag and sh
   assert.match($('result').textContent,/Gemini で写真 1 枚の光と背景を整えました/);
   $('enhance').checked=false;$('evaluate').click();await tick(40);
   assert.equal(s.state.lastBody.enhance_images,false);assert.match($('result').textContent,/写真 1 枚をそのまま使います/);
-  Object.defineProperty($('photos'),'files',{configurable:true,value:Array.from({length:5},()=>new s.win.File(['x'],'a.jpg',{type:'image/jpeg'}))});
-  $('evaluate').click();await tick(10);assert.match($('entryStatus').textContent,/4 枚まで/);s.dom.window.close();
+  Object.defineProperty($('photos'),'files',{configurable:true,value:Array.from({length:6},()=>new s.win.File(['x'],'a.jpg',{type:'image/jpeg'}))});
+  $('evaluate').click();await tick(10);assert.match($('entryStatus').textContent,/5 枚まで/);s.dom.window.close();
 });
 
 test('pasting a Rakumart URL auto-fills title, cost and category without overwriting typed values',async()=>{

@@ -42,7 +42,7 @@
           <label>原価（元）<input id="costCny" type="number" min="0.01" max="100000" step="0.01" placeholder="例: 100"></label>
           <label>商品名（ページが読めないとき）<input id="title" type="text" maxlength="200"></label>
           <label>カテゴリー（任意）<input id="category" type="text" maxlength="80"></label>
-          <label class="wide">商品写真（任意・最大4枚。1688 のページが読めないとき）<input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+          <label class="wide">商品写真（任意・最大5枚まとめて選べます。1 枚目がメイン画像）<input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
           <label class="wide check"><span><input id="enhance" type="checkbox" checked> 🎨 Gemini で写真の光と背景を整える（商品そのものは変えません）</span></label>
         </div>
         <div class="grid" style="margin-top:10px">
@@ -111,7 +111,7 @@
     const ip=p.image_processing,art=!ip?'':ip.engine!=='gemini'?`写真 ${ip.sources} 枚をそのまま使います。`:ip.sources===0?'🎨 使える写真がありませんでした。商品写真を追加してください。':ip.enhanced===ip.sources?`🎨 Gemini で写真 ${ip.enhanced} 枚の光と背景を整えました。`:`🎨 Gemini で ${ip.enhanced}/${ip.sources} 枚を整えました（残りは元の写真）。`;
     $('result').replaceChildren(el('p',{textContent:`${p.title||''}（${p.product_id||'—'}）`}),pics,empty(art),verdict,checks,price,empty((p.notes||[]).join(' ')),empty(r.disclaimer||''));
   }
-  const BOOKMARKLET="(()=>{const A='ORIGIN',find=v=>{const q=[v];while(q.length){const c=q.shift();if(c&&c.details&&c.details.goodsId&&Array.isArray(c.details.images))return c.details;q.push(...(c&&c.$children||[]));}},r=document.querySelector('#app'),d=r&&r.__vue__&&find(r.__vue__);if(!d){alert('ラクマートの商品ページが開き終わってから押してください。');return;}const p=((d.goodsInfo||{}).priceRanges||[]).map(x=>Number(x.priceMin)).filter(n=>n>0),o={v:1,goods_id:String(d.goodsId),platform:String(d.fromPlatform||''),title:String(d.titleT||d.titleC||'').slice(0,200),cost_cny:p.length?Math.min(...p):null,images:d.images.filter(u=>typeof u==='string').slice(0,4)};window.open(A+'/admin#rakumart='+encodeURIComponent(JSON.stringify(o)),'_blank');})()";
+  const BOOKMARKLET="(()=>{const A='ORIGIN',find=v=>{const q=[v];while(q.length){const c=q.shift();if(c&&c.details&&c.details.goodsId&&Array.isArray(c.details.images))return c.details;q.push(...(c&&c.$children||[]));}},r=document.querySelector('#app'),d=r&&r.__vue__&&find(r.__vue__);if(!d){alert('ラクマートの商品ページが開き終わってから押してください。');return;}const p=((d.goodsInfo||{}).priceRanges||[]).map(x=>Number(x.priceMin)).filter(n=>n>0),o={v:1,goods_id:String(d.goodsId),platform:String(d.fromPlatform||''),title:String(d.titleT||d.titleC||'').slice(0,200),cost_cny:p.length?Math.min(...p):null,images:d.images.filter(u=>typeof u==='string').slice(0,5)};window.open(A+'/admin#rakumart='+encodeURIComponent(JSON.stringify(o)),'_blank');})()";
   function bookmarkletHref(){return 'javascript:'+encodeURIComponent(BOOKMARKLET.replace('ORIGIN',location.origin));}
   function readImport(){
     const m=location.hash.match(/^#rakumart=(.+)$/);if(!m)return;
@@ -124,7 +124,7 @@
     $('productUrl').value=url;state.autofilled=url;state.importUrl=url;
     const title=typeof d.title==='string'?d.title.trim().slice(0,200):'';if(title){$('title').value=title;filled.push('商品名');}
     const cost=Number(d.cost_cny);if(cost>0&&cost<=100000){$('costCny').value=String(Math.round(cost*100)/100);filled.push('原価');preview();}
-    state.importImages=(Array.isArray(d.images)?d.images:[]).filter(u=>typeof u==='string').map(u=>u.startsWith('//')?'https:'+u:u).filter(u=>/^https:\/\/(cbu01|img)\.alicdn\.com\//.test(u)).slice(0,4);
+    state.importImages=(Array.isArray(d.images)?d.images:[]).filter(u=>typeof u==='string').map(u=>u.startsWith('//')?'https:'+u:u).filter(u=>/^https:\/\/(cbu01|img)\.alicdn\.com\//.test(u)).slice(0,5);
     if(state.importImages.length)filled.push(`写真 ${state.importImages.length} 枚`);
     status.textContent=filled.length?`✅ ラクマートから取り込みました（${filled.join('・')}）。商品 ID: ${id}`:`商品 ID ${id} を取り込みました。商品名と原価（元）を入れてください。`;
   }
@@ -148,7 +148,7 @@
   async function evaluate(){
     const product=$('productUrl').value.trim(),cost=Number($('costCny').value);
     if(!product){$('entryStatus').textContent='1688 かラクマートの商品 URL を入れてください。';return;}
-    const files=[...($('photos').files||[])];if(files.length>4||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 4 枚まで、1 枚 8MB までです。';return;}
+    const files=[...($('photos').files||[])];if(files.length>5||files.some(f=>f.size>8*1024*1024)){$('entryStatus').textContent='商品写真は 5 枚まで、1 枚 8MB までです。';return;}
     const body={product,pricing:pricing(),title:$('title').value.trim(),category:$('category').value.trim(),enhance_images:$('enhance').checked};if($('costCny').value!==''&&cost>0)body.cost_cny=cost;if(!files.length&&product===state.importUrl&&state.importImages?.length)body.image_urls=state.importImages;
     $('evaluate').disabled=true;$('entryStatus').textContent=$('enhance').checked?'写真を Gemini で整えて、審査・計算しています（1 分ほどかかります）…':'審査・計算しています…';
     try{body.photos=await Promise.all(files.map(readPhoto));}catch(error){$('entryStatus').textContent=error.message;$('evaluate').disabled=false;return;}

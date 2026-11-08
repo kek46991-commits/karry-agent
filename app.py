@@ -326,10 +326,10 @@ class RunRequest(SecretRequest):
     session_id: str | None = Field(default=None, max_length=100, validation_alias=AliasChoices("session_id", "taskId"))
     stream: bool = Field(default=False, description="SSE 形式で実行イベントを返す")
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
-    image_ids: list[ImageId] | None = Field(default=None, max_length=4)
+    image_ids: list[ImageId] | None = Field(default=None, max_length=image_attachments.MAX_PENDING)
     video_talking: bool = Field(default=False, description="チャット動画で写真の人物を SadTalker で喋らせる")
     video_seconds: int | None = Field(default=None, ge=3, le=120, description="チャット動画の長さ（秒）。未指定は脚本に合わせる")
-    product_draft: bool = Field(default=False, description="添付写真を Gemini で整えて商品の下書き（/admin）に保存する")
+    product_draft: bool = Field(default=False, description="添付写真を Gemini で整えて商品登録（SAFE ならショップに自動掲載）")
 
 
 class AgentTaskRequest(SecretRequest):
@@ -356,7 +356,7 @@ class MessageRequest(SecretRequest):
     prompt: str = Field(min_length=1, max_length=20_000, validation_alias=AliasChoices("prompt", "message"))
     stream: bool = False
     request_id: str | None = Field(default=None, min_length=1, max_length=100)
-    image_ids: list[ImageId] | None = Field(default=None, max_length=4)
+    image_ids: list[ImageId] | None = Field(default=None, max_length=image_attachments.MAX_PENDING)
     video_talking: bool = False
     video_seconds: int | None = Field(default=None, ge=3, le=120)
     product_draft: bool = False
@@ -968,7 +968,8 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         if result is None and not private_mode and _chat_webtoon_request(request.prompt):
             result = chat_webtoon.run(_WEBTOON_ROUTER.start_job, request.prompt)
         if result is None and not private_mode and _chat_product_request(request, bool(images)):
-            result = chat_product.run(_ALIBABA_ROUTER.create_draft, request.prompt, images)
+            result = chat_product.run(_ALIBABA_ROUTER.create_draft, request.prompt, images,
+                                      publish=_ALIBABA_ROUTER.publish_draft if chat_product.auto_publish_enabled() else None)
         if result is None and not private_mode and _chat_video_request(request.prompt):
             result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id,
                                     talking=request.video_talking, duration_seconds=request.video_seconds)
