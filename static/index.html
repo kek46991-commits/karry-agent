@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="karry-ui-version" content="product-chat-20261107">
+  <meta name="karry-ui-version" content="auto-publish-20261107">
   <title>karry-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
@@ -56,7 +56,7 @@
         <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
-        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品写真として下書き保存（Gemini で光と背景を整える）</label><div id="productDraftHint" class="hint">オンで写真を送るだけで、加工した写真を管理画面の下書きに保存します。「商品名: ○○ 原価 25元」と書くと価格も計算します。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
+        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" multiple disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品として登録（SAFE ならショップに自動掲載）</label><div id="productDraftHint" class="hint">オンで写真（最大5枚）とラクマート / 1688 の URL を送るだけで、Gemini が商品名・カテゴリーを付けて写真を整え、法的審査が SAFE ならショップに掲載します。「原価 25元」と書くとその原価で計算します。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
@@ -73,6 +73,7 @@
   const inFlight=new Set();
   function currentSending(){return !!sessionId&&inFlight.has(sessionId);}
   let selectedImages=[], imageVersion=0;
+  const MAX_IMAGES=5;
   let isSecret=false;
   const secretConversations=new Map();
   const imageUrls=new Map();
@@ -267,8 +268,8 @@
     $('secretToggle').checked=isSecret;$('secretNotice').hidden=!isSecret;$('latestBox').hidden=isSecret||!$('latestUrl').getAttribute('href');
     $('secretToggle').setAttribute('aria-checked',String(isSecret));$('secretModeStatus').textContent=isSecret?'ON・保存しない':'OFF・通常保存';$('secretSetupHint').hidden=connected&&!!sessionId;
     $('clearHistory').textContent=isSecret?'🗑 秘密の履歴を消去':'🗑 履歴をクリア';$('clearHistory').title=isSecret?'このタブだけの秘密会話を消去':'このタスクの会話履歴を消去';$('clearHistory').setAttribute('aria-label',isSecret?'秘密の会話履歴をクリア':'会話履歴をクリア');
-    $('imageStatus').textContent=isSecret?'シークレット会話では画像添付を使えません。テキストのみで会話します。':'JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
-    $('imageFile').disabled=busy||currentSending()||!connected||!sessionId||isSecret||selectedImages.length>=4;
+    $('imageStatus').textContent=isSecret?'シークレット会話では画像添付を使えません。テキストのみで会話します。':'JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です。';
+    $('imageFile').disabled=busy||currentSending()||!connected||!sessionId||isSecret||selectedImages.length>=MAX_IMAGES;
     for(const button of $('taskList').querySelectorAll('.task-delete'))button.disabled=busy||isSecret||inFlight.has(button.dataset.deleteId);
   }
   function renderSecretConversation(){
@@ -329,7 +330,7 @@
   }
   function clearView(){if(typeof resetVideoSuite==='function')resetVideoSuite();
     selectedImages=[];imageUrls.clear();imageVersion++;$('imagePreviews').replaceChildren();$('imageFile').value='';$('prompt').required=true;
-    $('imageStatus').textContent='JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は4枚まで。画像は非公開です。';
+    $('imageStatus').textContent='JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です。';
     $('messages').replaceChildren();const empty=document.createElement('div');empty.id='empty';empty.className='empty';empty.textContent='このタスクへの指示を入力してください。';$('messages').appendChild(empty);
     $('trace').replaceChildren();metrics({});showLatest('');$('prompt').value='';
   }
@@ -345,7 +346,7 @@
   function renderSession(data){
     clearView();$('currentTask').textContent=data.title;$('session').textContent=data.session_id;
     $('storageHint').textContent=data.persistence==='durable'?'タスクと履歴は非公開R2/S3へ永続保存されています。':data.persistence==='ephemeral'?'一時メモリモードです。タスクと履歴は再起動で消えます。':'保存方式は接続後に確認できます。';
-    selectedImages=Array.isArray(data.pending_images)?data.pending_images.slice(0,4):[];
+    selectedImages=Array.isArray(data.pending_images)?data.pending_images.slice(0,MAX_IMAGES):[];
     renderAttachments();
     if(data.image_uploads_pending)$('imageStatus').textContent=`未完了の画像アップロードが${data.image_uploads_pending}件あります。接続・タスク読み込みで復旧を確認してください。`;
     for(const message of data.messages||[]){const el=addMessage(message.role==='user'?'user':'agent',message.content);if(message.role==='user')renderHistoryImages(el,message.images||[],data.image_assets||{});else renderGeneratedImages(el,message.images||[],data.image_assets||{});}
@@ -431,7 +432,7 @@
       card.append(img,label,remove);$('imagePreviews').appendChild(card);
       privateImageUrl(meta.id,owner).then(url=>{if(version===imageVersion&&owner===sessionId&&card.isConnected)img.src=url;}).catch(error=>{if(version===imageVersion&&card.isConnected)label.textContent=meta.filename+'（プレビュー失敗）';});
     }
-    $('imageFile').disabled=busy||currentSending()||!connected||!sessionId||isSecret||selectedImages.length>=4;
+    $('imageFile').disabled=busy||currentSending()||!connected||!sessionId||isSecret||selectedImages.length>=MAX_IMAGES;
   }
   function renderHistoryImages(element,ids,assets){
     const owner=sessionId,version=imageVersion;
@@ -446,12 +447,21 @@
     }
   }
   async function uploadSelectedImage(event){
-    const file=event.target.files?.[0];if(!file||busy||currentSending()||!connected||!sessionId)return;
+    const files=[...(event.target.files||[])];if(!files.length||busy||currentSending()||!connected||!sessionId)return;
     if(isSecret){$('imageFile').value='';$('imageStatus').textContent='シークレット会話では画像添付を使えません。テキストのみで会話します。';return;}
-    if(file.size>4*1024*1024||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){$('imageStatus').textContent='JPG/PNG/WEBP/GIFの4 MiB以内の画像を選んでください。';$('imageFile').value='';return;}
-    const owner=sessionId;setBusy(true);$('imageStatus').textContent='アップロード中…';const form=new FormData();form.append('session_id',owner);form.append('file',file);
-    try{const response=await fetch('/api/upload_image',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'画像をアップロードできませんでした');if(!safeImageUrl(data.image_url)||!data.image||!/^([a-f0-9]{32})$/.test(data.image.id))throw new Error('画像の応答形式が不正です');if(sessionId===owner){imageUrls.set(data.image.id,data.image_url);selectedImages.push(data.image);renderAttachments();$('imageStatus').textContent=data.warning||'添付しました。送信するまではLLMを呼びません。';}}
-    catch(error){$('imageStatus').textContent='画像アップロード: '+error.message;}
+    if(files.some(file=>file.size>4*1024*1024||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type))){$('imageStatus').textContent='JPG/PNG/WEBP/GIFの4 MiB以内の画像を選んでください。';$('imageFile').value='';return;}
+    const room=MAX_IMAGES-selectedImages.length,chosen=files.slice(0,Math.max(0,room)),skipped=files.length-chosen.length;
+    const owner=sessionId;setBusy(true);let added=0,warning='';
+    try{
+      for(const file of chosen){
+        $('imageStatus').textContent=chosen.length>1?`アップロード中… (${added+1}/${chosen.length})`:'アップロード中…';
+        const form=new FormData();form.append('session_id',owner);form.append('file',file);
+        const response=await fetch('/api/upload_image',{method:'POST',headers:authHeaders(),body:form,cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'画像をアップロードできませんでした');if(!safeImageUrl(data.image_url)||!data.image||!/^([a-f0-9]{32})$/.test(data.image.id))throw new Error('画像の応答形式が不正です');
+        if(sessionId!==owner)return;imageUrls.set(data.image.id,data.image_url);selectedImages.push(data.image);added++;warning=data.warning||warning;renderAttachments();
+      }
+      $('imageStatus').textContent=warning||(added>1?`${added}枚を添付しました。`:'添付しました。')+(skipped?`（${MAX_IMAGES}枚までのため ${skipped}枚は外しました）`:'')+'送信するまではLLMを呼びません。';
+    }
+    catch(error){$('imageStatus').textContent='画像アップロード: '+error.message+(added?`（${added}枚は添付済み）`:'');}
     finally{$('imageFile').value='';setBusy(false);}
   }
   async function removeImage(id){
@@ -545,8 +555,9 @@
   $('manualModeOff').addEventListener('click',disableManualInput);
   $('productDraft').checked=readSetting('karry-product-draft')==='1';
   $('productDraft').addEventListener('change',()=>{try{localStorage.setItem('karry-product-draft',$('productDraft').checked?'1':'0');}catch(_){}});
-  const CHAT_PRODUCT_RE=/商品下書きID: ([a-f0-9]{32})/,SHOP_IMAGE_RE=/^\/api\/shop\/images\/[a-f0-9]{32}\.jpg$/;
+  const CHAT_PRODUCT_RE=/商品下書きID: ([a-f0-9]{32})/,CHAT_LISTING_RE=/掲載商品ID: ([a-f0-9]{32})/,SHOP_IMAGE_RE=/^\/api\/shop\/images\/[a-f0-9]{32}\.jpg$/;
   async function attachChatProduct(element,text){
+    const listed=CHAT_LISTING_RE.exec(String(text||''));if(listed&&sessionId&&!isSecret){attachChatListing(element,listed[1]);return;}
     const match=CHAT_PRODUCT_RE.exec(String(text||''));if(!match||!sessionId||isSecret)return;
     const owner=sessionId,card=document.createElement('div');card.className='chat-product';card.dataset.draftId=match[1];
     const status=document.createElement('div');status.className='hint chat-product-status';status.textContent='🛍 下書きを読み込み中…';card.append(status);element.appendChild(card);
@@ -556,14 +567,25 @@
     if(!draft){status.textContent='この下書きは登録済みか削除済みです。';return;}
     const price=draft.pricing?`${Number(draft.pricing.selling_price_jpy).toLocaleString('ja-JP')} 円`:'価格未計算';
     status.textContent=`${draft.review?.verdict||'—'}｜${draft.product?.title||''}｜${price}`;
-    for(const src of (draft.product?.images||[]).filter(src=>SHOP_IMAGE_RE.test(src)).slice(0,4)){const img=document.createElement('img');img.alt='加工した商品写真';img.loading='lazy';img.src=src;card.append(img);}
+    for(const src of (draft.product?.images||[]).filter(src=>SHOP_IMAGE_RE.test(src)).slice(0,MAX_IMAGES)){const img=document.createElement('img');img.alt='加工した商品写真';img.loading='lazy';img.src=src;card.append(img);}
     const link=document.createElement('a');link.href='/admin';link.className='image-link';link.textContent='管理画面で確認・登録';card.append(document.createElement('br'),link);
+  }
+  async function attachChatListing(element,listingId){
+    const card=document.createElement('div');card.className='chat-product';card.dataset.listingId=listingId;
+    const status=document.createElement('div');status.className='hint chat-product-status';status.textContent='✅ 掲載中の商品を読み込み中…';card.append(status);element.appendChild(card);
+    let item;try{const data=await requestJson('/api/shop/products');item=(data.products||[]).find(p=>p.id===listingId);}
+    catch(error){if(card.isConnected)status.textContent=`掲載中の商品を読み込めませんでした: ${error.message}`;return;}
+    if(!card.isConnected)return;
+    if(!item){status.textContent='この商品は掲載を終えたか削除済みです。';return;}
+    status.textContent=`✅ 掲載中｜${item.title||''}｜${Number(item.price_jpy).toLocaleString('ja-JP')} 円`;
+    for(const src of (item.images||[]).filter(src=>SHOP_IMAGE_RE.test(src)).slice(0,MAX_IMAGES)){const img=document.createElement('img');img.alt='掲載中の商品写真';img.loading='lazy';img.src=src;card.append(img);}
+    const link=document.createElement('a');link.href='/shop';link.className='image-link';link.textContent='ショップで見る';card.append(document.createElement('br'),link);
   }
   function isCurrentSend(owner,mode,secretId,version){return (mode?version===viewVersion:!busy)&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
   async function sendMessage(event){
     event.preventDefault();const mode=isSecret;
     const productDraft=!mode&&!manualInput&&$('productDraft').checked&&selectedImages.length>0;
-    const prompt=$('prompt').value.trim()||(mode?'':productDraft?'商品写真を下書きに保存して':selectedImages.length?'添付画像を確認してください。':'');
+    const prompt=$('prompt').value.trim()||(mode?'':productDraft?'商品写真を登録して':selectedImages.length?'添付画像を確認してください。':'');
     if(!prompt||busy||!connected||!sessionId||inFlight.has(sessionId))return;
     const owner=sessionId,version=viewVersion,secretState=mode?secretStateFor(owner,true):null,secretId=secretState?.secretSessionId||null;
     const imageIds=mode||manualInput?[]:selectedImages.map(meta=>meta.id),imageSignature=JSON.stringify(imageIds),usedImages=imageIds.length>0;

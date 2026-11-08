@@ -361,7 +361,7 @@ class AgentCore:
     def _image_parts(images: list[dict[str, Any]] | None) -> list[Any]:
         if not images:
             return []
-        if len(images) > 4 or any(not isinstance(image.get("data"), bytes) or not 0 < len(image["data"]) <= 2 * 1024 * 1024 or image.get("mime_type") not in {"image/jpeg", "image/png", "image/webp"} for image in images):
+        if len(images) > 5 or any(not isinstance(image.get("data"), bytes) or not 0 < len(image["data"]) <= 2 * 1024 * 1024 or image.get("mime_type") not in {"image/jpeg", "image/png", "image/webp"} for image in images):
             raise ValueError("画像入力の形式・容量が不正です。")
         return [types.Part.from_bytes(data=image["data"], mime_type=image["mime_type"]) for image in images]
 

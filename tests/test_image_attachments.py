@@ -137,7 +137,7 @@ def test_cross_task_image_read_is_rejected():
 
 def test_pending_image_count_is_bounded():
     client=TestClient(web.app);sid=create(client)
-    for _ in range(4):assert upload(client,sid).status_code==200
+    for _ in range(images.MAX_PENDING):assert upload(client,sid).status_code==200
     assert upload(client,sid).status_code==409
 
 
@@ -361,14 +361,14 @@ def test_failed_binary_puts_keep_bounded_reachable_reservations(durable,monkeypa
             count.append(1);raise OSError('image storage unavailable')
         return original(**kwargs)
     monkeypatch.setattr(durable,'put_object',fail)
-    for color in ['blue','red','green','black']:
+    for color in ['blue','red','green','black','yellow']:
         assert upload(client,sid,body=picture(color=color)).status_code==503
     assert upload(client,sid,body=picture(color='white')).status_code==409
     document=tasks.repository().load(sid)
-    assert len(document['image_uploads'])==4 and len(count)==4
+    assert len(document['image_uploads'])==5 and len(count)==5
     assert not document.get('pending_images')
     details=client.get('/api/sessions/'+sid,headers=HEADERS).json()
-    assert details['image_uploads_pending']==4 and details['pending_images']==[]
+    assert details['image_uploads_pending']==5 and details['pending_images']==[]
 
 
 def test_retry_same_image_reuses_reservation_after_put_failure(durable,monkeypatch):
