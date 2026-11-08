@@ -112,7 +112,7 @@ def test_orders_are_public_to_create_and_owner_only_to_read(shop):
 def test_shop_page_is_served_publicly(monkeypatch):
     monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
     response = TestClient(web.app).get('/shop')
-    assert response.status_code == 200 and 'shop-routes-20261107' in response.text and 'KERRY ショップ' in response.text
+    assert response.status_code == 200 and 'shop-photo-20261108' in response.text and 'KERRY ショップ' in response.text
 
 
 def test_product_detail_api_and_shareable_page_route(monkeypatch):
