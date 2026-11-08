@@ -2,7 +2,7 @@
   "name": "karry-agent-ui-tests",
   "private": true,
   "scripts": {
-    "test:ui": "node --test tests/task_chat_ui.test.cjs tests/admin_ui.test.cjs",
+    "test:ui": "node --test tests/task_chat_ui.test.cjs tests/admin_ui.test.cjs tests/shop_ui.test.cjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:typecheck": "tsc --noEmit -p tsconfig.media.json"

@@ -136,6 +136,12 @@ def listing_from(product: dict[str, Any], review: dict[str, Any], pricing: dict[
             "review": {"verdict": review["verdict"], "engine": review["engine"]}}
 
 
+def published_product(store: Any, product_id: str) -> dict[str, Any] | None:
+    if len(product_id) != 32 or any(c not in "0123456789abcdef" for c in product_id):
+        return None
+    return next((p for p in store.products() if p["id"] == product_id and p.get("status") == "published"), None)
+
+
 def public_product(item: dict[str, Any]) -> dict[str, Any]:
     keys = ("id", "title", "category", "images", "specs", "description", "price_jpy", "variants", "created_at")
     return {k: item.get(k) for k in keys}

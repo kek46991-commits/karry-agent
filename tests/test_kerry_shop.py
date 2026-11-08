@@ -112,4 +112,22 @@ def test_orders_are_public_to_create_and_owner_only_to_read(shop):
 def test_shop_page_is_served_publicly(monkeypatch):
     monkeypatch.setenv('KARRY_API_TOKEN', OWNER)
     response = TestClient(web.app).get('/shop')
-    assert response.status_code == 200 and 'kerry-admin-20261026' in response.text and 'KERRY ショップ' in response.text
+    assert response.status_code == 200 and 'shop-routes-20261107' in response.text and 'KERRY ショップ' in response.text
+
+
+def test_product_detail_api_and_shareable_page_route(monkeypatch):
+    monkeypatch.setattr(shop_store.task_persistence, 'mode', lambda: 'memory')
+    shop_store._MEMORY.clear()
+    store = shop_store.ShopStore()
+    item = store.publish({'source': '1688', 'source_product_id': '573741401425', 'title': '<b>青いマグ</b>', 'category': 'キッチン用品',
+                          'images': [], 'specs': [], 'description': '', 'price_jpy': 2489, 'variants': [], 'source_url': None,
+                          'review': {'verdict': 'SAFE', 'engine': 'test'}})
+    http = TestClient(web.app)
+    detail = http.get(f"/api/shop/products/{item['id']}")
+    assert detail.status_code == 200 and detail.json()['product']['title'] == '<b>青いマグ</b>' and 'review' not in detail.json()['product']
+    page_ = http.get(f"/products/{item['id']}")
+    assert page_.status_code == 200 and '<title>&lt;b&gt;青いマグ&lt;/b&gt;｜KERRY ショップ</title>' in page_.text and 'id="grid"' in page_.text
+    for missing in ('f' * 32, 'not-an-id'):
+        assert http.get(f'/api/shop/products/{missing}').status_code == 404 and http.get(f'/products/{missing}').status_code == 404
+    store.unpublish(item['id'])
+    assert http.get(f"/api/shop/products/{item['id']}").status_code == 404 and http.get(f"/products/{item['id']}").status_code == 404

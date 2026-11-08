@@ -876,5 +876,5 @@ test('a chat reply with a listing marker shows the published shop item',async()=
   const card=[...s.doc.querySelectorAll('.chat-product')].at(-1);
   assert.match(card.querySelector('.chat-product-status').textContent,/掲載中｜折りたたみシリコンカップ｜1,980 円/);
   assert.deepEqual([...card.querySelectorAll('img')].map(i=>i.getAttribute('src')),[img]);
-  assert.equal(card.querySelector('a').getAttribute('href'),'/shop');s.dom.window.close();
+  assert.equal(card.querySelector('a').getAttribute('href'),`/products/${listing}`);s.dom.window.close();
 });
