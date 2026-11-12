@@ -22,6 +22,7 @@
   <style>
     .auth{margin:0 0 18px;padding:16px 18px;gap:10px;background:#121a2d;border:1px solid var(--line);border-radius:14px}
     .auth label{margin-top:0;color:var(--text);font-weight:700}.auth input{flex:1;min-width:0}.auth button{min-height:42px}
+    .email-login{display:flex;flex-wrap:wrap;gap:10px;align-items:center;width:100%}.email-login label{flex-basis:100%;font-weight:700}
     .connection-notice{width:100%;margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
     .connection-notice[data-level="error"]{color:#ffc2c2}.dot{background:var(--muted)}
     .lamp{display:inline-block;flex:none;width:9px;height:9px;border-radius:50%;background:#7b8597;vertical-align:middle;margin-right:6px}.status .lamp{margin:0}
@@ -43,7 +44,7 @@
 <body>
   <main class="shell">
     <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a> <a href="/admin">⚖ 法務・AIダッシュボード（管理者）</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
-    <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
+    <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><div class="email-login" id="emailLogin"><label for="loginEmail">またはメールアドレスでログイン</label><input id="loginEmail" type="email" autocomplete="username" placeholder="メールアドレス" maxlength="254"><input id="loginPassword" type="password" autocomplete="current-password" placeholder="パスワード" maxlength="1024"><button id="loginButton" type="button">ログイン</button><button id="logoutButton" type="button" hidden>ログアウト</button></div><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
         <h2>タスク</h2><label class="hint" for="taskTitle">新しいタスクの名前</label>
@@ -651,6 +652,26 @@
     }finally{clearTimeout(stall);inFlight.delete(owner);refreshControls();updateMicButton();if(sessionId===owner&&!busy)$('prompt').focus();}
   }
   $('loadTasks').addEventListener('click',connectSessions);
+  const LOGIN_KEY='karry-login';
+  function savedLogin(){try{return localStorage.getItem(LOGIN_KEY)||'';}catch(_){return '';}}
+  function showLoggedIn(on){$('logoutButton').hidden=!on;$('loginButton').hidden=on;$('loginEmail').hidden=on;$('loginPassword').hidden=on;}
+  async function loginWithEmail(){
+    const email=$('loginEmail').value.trim(),password=$('loginPassword').value;
+    if(!email||!password){connectionNotice('メールアドレスとパスワードを入力してください。',true);return;}
+    $('loginButton').disabled=true;connectionNotice('ログインしています…');
+    try{
+      const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password}),cache:'no-store'});let data={};try{data=await response.json();}catch(_){}
+      if(!response.ok||typeof data.token!=='string')throw new Error(typeof data.detail==='string'?data.detail:'ログインできませんでした');
+      try{localStorage.setItem(LOGIN_KEY,data.token);}catch(_){}
+      $('loginPassword').value='';$('apiToken').value=data.token;showLoggedIn(true);await connectSessions();
+    }catch(error){connectionNotice(error.message,true);}
+    finally{$('loginButton').disabled=false;}
+  }
+  function logoutEmail(){try{localStorage.removeItem(LOGIN_KEY);}catch(_){}$('apiToken').value='';$('apiToken').dispatchEvent(new Event('input'));showLoggedIn(false);connectionNotice('ログアウトしました。');}
+  $('loginButton').addEventListener('click',loginWithEmail);
+  $('loginPassword').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();loginWithEmail();}});
+  $('logoutButton').addEventListener('click',logoutEmail);
+  if(savedLogin()){$('apiToken').value=savedLogin();showLoggedIn(true);setTimeout(()=>connectSessions().then(()=>{if(!connected&&document.body.dataset.connection==='error'){try{localStorage.removeItem(LOGIN_KEY);}catch(_){}showLoggedIn(false);}}),0);}
   $('newTask').addEventListener('click',createNewSession);
 	  $('clearHistory').addEventListener('click',clearHistory);
 	  $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});

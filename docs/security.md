@@ -34,6 +34,7 @@
 ## 認証
 
 - 所有者 API は `KARRY_API_TOKEN` 必須。未設定なら 503 で拒否（fail-closed）、比較は `secrets.compare_digest`。
+- メール＋パスワードでのログイン（`POST /api/login`、`src/karry_agent/user_login.py`）: アカウントは Render の `KARRY_LOGIN_ACCOUNTS` に `email|pbkdf2_sha256$600000$salt$hash` で置き、平文パスワードはどこにも保存しません（`python scripts/hash_login_password.py <email>` で生成）。成功すると HMAC 署名付き・期限付き（既定30日）のセッショントークンを返し、所有者トークンの代わりに `Authorization: Bearer` で使えます。`KARRY_API_TOKEN`（または `KARRY_LOGIN_SECRET`）を変えるか、アカウントを消すと即無効。失敗は IP・メールごとに15分10回で 429。
 - `/health/calendar` などの公開ヘルスチェックは値を返さず、有無と形式だけを返します。
 
 ## 自動検証

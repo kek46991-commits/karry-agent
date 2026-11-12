@@ -69,7 +69,7 @@ render.yaml, Dockerfile    デプロイ定義（秘密値はキー名のみ）
 ## Security
 
 - 秘密値は Render の環境変数またはローカル `.env`（Git 管理外）だけに置きます。コミットするのはダミー値の `.env.example` のみです。
-- 所有者 API は `KARRY_API_TOKEN` 未設定時に 503 で拒否します。Knowledge Sync API は `X-Owner-Token` / `Bearer` の両方に対応します。
+- 所有者 API は `KARRY_API_TOKEN` 未設定時に 503 で拒否します。`KARRY_LOGIN_ACCOUNTS` を設定するとチャット画面・`/admin` からメール＋パスワードでもログインできます（[docs/security.md](docs/security.md)）。Knowledge Sync API は `X-Owner-Token` / `Bearer` の両方に対応します。
 - 応答本文・実行トレース・SSE・ツール結果は API キー、トークン、DB 接続文字列をマスクしてから返します。
 - 詳細と自動テストは [docs/security.md](docs/security.md) を参照してください。
 
