@@ -89,6 +89,7 @@
   const MAX_IMAGES=5;
   let isSecret=false;
   let activeDomainAuthorization=null;
+  const domainAuthorizations=new Map();
   const secretConversations=new Map();
   const imageUrls=new Map();
   try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
@@ -292,18 +293,35 @@
     const visible=connected&&!!sessionId&&selectedTaskTitle()==='ハック';
     $('domainAuth').hidden=!visible;
     for(const id of ['domainTarget','domainAuthCreate','domainAuthRefresh','domainVerifyDns','domainVerifyFile'])$(id).disabled=busy||!visible;
-    if(!visible){activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;}
+    if(!visible){activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;return;}
+    const cached=domainAuthorizations.get(sessionId);
+    if(cached)renderDomainAuthorization(cached);
   }
   function renderDomainAuthorization(record,approvalUrl=''){
     activeDomainAuthorization=record;
+    if(sessionId)domainAuthorizations.set(sessionId,record);
     const lines=[`対象: ${record.origin}`,`所有者の承認: ${record.consented?'済み':'待機中'}`,`ドメイン確認: ${record.verified?'済み':'未確認'}`];
-    if(approvalUrl)lines.push(`所有者へ送る承認リンク: ${approvalUrl}`);
+    if(record.expires_at)lines.push(`有効期限: ${new Date(Number(record.expires_at)*1000).toLocaleString()}`);
+    const shareUrl=approvalUrl||record.approval_url||'';
+    if(shareUrl)lines.push(`所有者へ送る承認リンク: ${shareUrl}`);
     if(!record.verified){
       lines.push(`DNS TXT: ${record.dns_name} = ${record.challenge}`);
       lines.push(`確認ファイル: ${record.file_url} に ${record.challenge} を配置`);
     }
     $('domainAuthResult').textContent=lines.join('\n');
     $('domainAuthResult').hidden=false;$('domainAuthActions').hidden=false;
+  }
+  async function loadDomainAuthorizationState(){
+    const owner=sessionId;if(!connected||!owner||selectedTaskTitle()!=='ハック')return;
+    try{
+      const data=await requestJson('/api/hack/domain-authorizations?session_id='+encodeURIComponent(owner));
+      if(sessionId!==owner||selectedTaskTitle()!=='ハック')return;
+      const record=(data.authorizations||[])[0];
+      if(record)renderDomainAuthorization(record);
+      else{domainAuthorizations.delete(owner);activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;}
+    }catch(error){
+      if(sessionId===owner){$('domainAuthResult').textContent=`承認状態の読み込みエラー: ${error.message}`;$('domainAuthResult').hidden=false;}
+    }
   }
   async function createDomainAuthorization(){
     const target=$('domainTarget').value.trim();if(!target||busy||!sessionId)return;
@@ -336,7 +354,7 @@
     clearView();const state=secretStateFor(sessionId,true);const title=sessions.find(item=>item.session_id===sessionId)?.title||$('currentTask').textContent;
     $('currentTask').textContent=title;$('session').textContent='秘密の会話（タブ内のみ）';$('storageHint').textContent='シークレット会話はこのタブのメモリだけにあり、保存されません。';
     for(const message of state.messages)addMessage(message.role==='user'?'user':'agent',message.content);
-    $('trace').replaceChildren();metrics({});showLatest('');updateSecretUi();
+    $('trace').replaceChildren();metrics({});showLatest('');updateSecretUi();loadDomainAuthorizationState();
   }
   async function toggleSecretMode(){
     const requested=$('secretToggle').checked;
@@ -415,7 +433,7 @@
     const artifacts=data.artifacts||run?.artifacts||[];
     if(artifacts.length)renderWebsiteArtifacts(artifacts);else if(run)websiteApproval(run,data.latest_url);
     if(inFlight.has(data.session_id)&&!isSecret)addMessage('agent','前の指示を処理中です。完了するとこのタスクに表示します。');
-    refreshControls();
+    refreshControls();loadDomainAuthorizationState();
   }
 	  async function connectSessions(){
 	    if(busy||inFlight.size)return;
