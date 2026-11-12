@@ -12,6 +12,11 @@ PENTEST_TOOL_NAME = "run_authorized_pentest"
 
 _URL_RE = re.compile(r"https?://[^\s<>{}\[\]\"']+")
 _TRAILING_PUNCTUATION = ".,;:!?、。）」』】"
+_PENTEST_INTENT_RE = re.compile(
+    r"ペンテスト|ペネトレーション|脆弱性|攻撃テスト|セキュリティ(?:検査|診断)|"
+    r"\bpentest\b|\bvulnerability\b|\bsecurity scan\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,18 @@ def explicit_targets(prompt: str) -> frozenset[str]:
         except ValueError:
             continue
     return frozenset(targets)
+
+
+def requested_target(prompt: str) -> str | None:
+    """Return the single explicit target for a pentest request, or no request."""
+    if not _PENTEST_INTENT_RE.search(prompt):
+        return None
+    targets = explicit_targets(prompt)
+    if not targets:
+        raise ValueError("検証対象のURLを今回のメッセージ本文に明記してください。")
+    if len(targets) != 1:
+        raise ValueError("1回の検証で指定できる対象URLは1つです。")
+    return next(iter(targets))
 
 
 @contextlib.contextmanager

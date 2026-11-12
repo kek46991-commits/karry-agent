@@ -10,6 +10,7 @@ from karry_agent.hack_task_mode import (
     authorize_target,
     explicit_targets,
     is_hack_task,
+    requested_target,
     scope,
 )
 
@@ -31,6 +32,25 @@ def test_explicit_targets_extracts_http_urls_without_sentence_punctuation():
     assert explicit_targets("対象は https://sandbox.example.com/api/ です。") == {
         "https://sandbox.example.com/api"
     }
+
+
+def test_requested_target_requires_one_explicit_url():
+    assert requested_target("普通の相談です") is None
+    try:
+        requested_target("脆弱性を検証して")
+    except ValueError as exc:
+        assert "URL" in str(exc)
+    else:
+        raise AssertionError("pentest request without a URL unexpectedly succeeded")
+    try:
+        requested_target("https://a.example と https://b.example のペンテスト")
+    except ValueError as exc:
+        assert "1つ" in str(exc)
+    else:
+        raise AssertionError("multiple targets unexpectedly succeeded")
+    assert requested_target("https://sandbox.example.com の脆弱性を検証") == (
+        "https://sandbox.example.com"
+    )
 
 
 def test_target_authorization_is_request_scoped():
@@ -145,3 +165,91 @@ def test_chat_request_binds_tool_visibility_to_selected_task_title(monkeypatch):
 
     assert PENTEST_TOOL_NAME not in observed[0]
     assert PENTEST_TOOL_NAME in observed[1]
+
+
+def test_secret_hack_task_runs_fixed_pentest_without_model_or_persistence(monkeypatch):
+    monkeypatch.setenv("KARRY_TASK_STORAGE", "memory")
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner")
+    for name in (
+        "_RUNS", "_SESSIONS", "_PRIVATE_SESSIONS", "_PENDING_CALENDAR",
+        "_SESSION_META", "_SESSION_LOCKS", "_SESSION_APPROVALS",
+    ):
+        monkeypatch.setattr(app_module, name, {})
+    monkeypatch.setattr(app_module.secret_chat, "store", app_module.secret_chat.SecretChatStore())
+    seen = []
+
+    def fake_pentest(target):
+        seen.append(target)
+        return {
+            "status": "completed",
+            "report_markdown": "# 固定検査\n\n問題なし",
+        }
+
+    monkeypatch.setattr(app_module, "run_authorized_pentest", fake_pentest)
+
+    class ModelMustNotStart:
+        def __init__(self):
+            raise AssertionError("secret hack pentest must not initialize Gemini")
+
+    previous = dict(app_module.app.dependency_overrides)
+    app_module.app.dependency_overrides[app_module.get_agent] = ModelMustNotStart
+    client = TestClient(app_module.app)
+    headers = {"Authorization": "Bearer synthetic-owner"}
+    try:
+        hack = client.post("/api/sessions", headers=headers, json={"title": "ハック"}).json()
+        response = client.post("/api/chat", headers=headers, json={
+            "session_id": hack["session_id"],
+            "prompt": "https://sandbox.example.com の脆弱性を検証して",
+            "isSecret": True,
+            "request_id": "secret-hack-1",
+        })
+    finally:
+        app_module.app.dependency_overrides.clear()
+        app_module.app.dependency_overrides.update(previous)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert seen == ["https://sandbox.example.com"]
+    assert payload["status"] == "completed"
+    assert payload["isSecret"] is True
+    assert payload["persistence"] == "none"
+    assert payload["trace"] == []
+    assert payload["tool_calls"] == 1
+    assert app_module._SESSIONS[hack["session_id"]].get_history() == []
+
+
+def test_secret_hack_task_requires_url_without_starting_model(monkeypatch):
+    monkeypatch.setenv("KARRY_TASK_STORAGE", "memory")
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner")
+    for name in (
+        "_RUNS", "_SESSIONS", "_PRIVATE_SESSIONS", "_PENDING_CALENDAR",
+        "_SESSION_META", "_SESSION_LOCKS", "_SESSION_APPROVALS",
+    ):
+        monkeypatch.setattr(app_module, name, {})
+    monkeypatch.setattr(app_module.secret_chat, "store", app_module.secret_chat.SecretChatStore())
+
+    class ModelMustNotStart:
+        def __init__(self):
+            raise AssertionError("missing target must be handled before Gemini")
+
+    previous = dict(app_module.app.dependency_overrides)
+    app_module.app.dependency_overrides[app_module.get_agent] = ModelMustNotStart
+    client = TestClient(app_module.app)
+    headers = {"Authorization": "Bearer synthetic-owner"}
+    try:
+        hack = client.post("/api/sessions", headers=headers, json={"title": "ハック"}).json()
+        response = client.post("/api/chat", headers=headers, json={
+            "session_id": hack["session_id"],
+            "prompt": "脆弱性を検証して",
+            "isSecret": True,
+            "request_id": "secret-hack-no-url",
+        })
+    finally:
+        app_module.app.dependency_overrides.clear()
+        app_module.app.dependency_overrides.update(previous)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "needs_user_action"
+    assert "URL" in payload["response"]
+    assert payload["tool_calls"] == 0

@@ -30,10 +30,14 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult, gemini_status as _gemini_status
-from karry_agent.hack_task_mode import scope as hack_task_scope
+from karry_agent.hack_task_mode import (
+    is_hack_task,
+    requested_target as requested_hack_target,
+    scope as hack_task_scope,
+)
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
-from karry_agent.tools import add_calendar_event, build_default_registry
+from karry_agent.tools import add_calendar_event, build_default_registry, run_authorized_pentest
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
@@ -820,23 +824,88 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
     return agent.run(prompt)
 
 
-def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
+def _selected_task_title(session_id: str) -> str | None:
+    with _STATE_LOCK:
+        return _SESSION_META.get(session_id, {}).get("title")
+
+
+def _remember_task_title(session_id: str, title: str) -> None:
+    with _STATE_LOCK:
+        meta = _SESSION_META.setdefault(
+            session_id, {"title": title, "latest_url": "", "latest_run_id": ""}
+        )
+        meta["title"] = title
+
+
+def _secret_hack_result(title: str | None, prompt: str) -> dict[str, Any] | None:
+    if not is_hack_task(title):
+        return None
+    try:
+        target = requested_hack_target(prompt)
+    except ValueError as exc:
+        return {"status": "needs_user_action", "text": str(exc), "tool_calls": 0}
+    if target is None:
+        return None
+    with hack_task_scope(title, prompt):
+        result = run_authorized_pentest(target)
+    if result.get("status") != "completed":
+        return {
+            "status": "needs_user_action",
+            "text": str(result.get("error") or "脆弱性検証を実行できませんでした。"),
+            "tool_calls": 0,
+        }
+    return {
+        "status": "completed",
+        "text": result["report_markdown"],
+        "tool_calls": 1,
+    }
+
+
+def _execute_secret(request: RunRequest, agent: AgentCore | None, *, task_mode: bool = False):
     if not configured_token():
         raise HTTPException(status_code=503, detail="シークレットには所有者認証の設定が必要です。")
     if request.image_ids:
         raise HTTPException(status_code=400, detail="シークレットでは画像保存を行わないため、テキストだけを送信してください。")
     request.session_id = request.session_id or uuid.uuid4().hex
+    task_title = _selected_task_title(request.session_id) if task_mode else None
     with secret_runtime.scope():
         try:
             with secret_chat.store.claim(request.session_id, request.secret_session_id) as (sid, entry):
                 cached = entry.replay(request.request_id, request.prompt)
                 if cached is not None:
                     return {**cached, "replayed": True} if task_mode else RunResponse.model_validate(cached)
+                hack_result = _secret_hack_result(task_title, request.prompt)
+                if hack_result is not None:
+                    response = RunResponse(
+                        run_id=uuid.uuid4().hex,
+                        session_id=request.session_id,
+                        status=hack_result["status"],
+                        text=mask_text(hack_result["text"]),
+                        steps=1,
+                        tool_calls=hack_result["tool_calls"],
+                        private_mode=False,
+                        metrics=asdict(AgentMetrics(tool_calls=hack_result["tool_calls"])),
+                        is_secret=True,
+                        isSecret=True,
+                        secret_session_id=sid,
+                    )
+                    payload = entry.complete(request.request_id, request.prompt, {
+                        **response.model_dump(),
+                        "response": response.text,
+                        "title": "シークレットチャット",
+                        "persistence": "none",
+                        "latest_url": "",
+                        "pending_images": [],
+                        "image_assets": {},
+                    })
+                    return payload if task_mode else response
                 prompt = request.prompt
                 if entry.history:
                     context = "\n".join(f"{row['role']}: {row['content']}" for row in entry.history[-6:])
                     prompt = f"シークレット内の会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
                 private_mode = entry.private.authenticate(request.prompt)
+                if agent is None:
+                    agent = app.dependency_overrides.get(get_agent, get_agent)()
                 run = getattr(agent, "run_secret", None)
                 if not callable(run):
                     raise HTTPException(status_code=503, detail="シークレット生成に対応するモデル実装が必要です。")
@@ -1026,7 +1095,7 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
+def _stream_chat(request: RunRequest, agent: AgentCore | None, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
         yield _sse("started", {"isSecret": True} if request.is_secret else {"prompt": mask_text(request.prompt)})
@@ -1208,6 +1277,7 @@ def create_session(data: SessionCreate):
     if task_persistence.mode() == "s3":
         sid = uuid.uuid4().hex
         document = task_persistence.repository().create(sid, data.title)
+        _remember_task_title(sid, document["title"])
         return JSONResponse({"session_id": sid, "title": document["title"], "persistence": "durable"}, headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         if len(_SESSIONS) >= _MAX_SESSIONS:
@@ -1287,7 +1357,10 @@ app.include_router(cloning_api.router)
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
 def list_sessions():
     if task_persistence.mode() == "s3":
-        return JSONResponse(task_persistence.repository().list(), headers={"Cache-Control": "no-store"})
+        rows = task_persistence.repository().list()
+        for row in rows:
+            _remember_task_title(row["session_id"], row["title"])
+        return JSONResponse(rows, headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         rows = [{"session_id": sid, "title": _SESSION_META.get(sid, {}).get("title", "新しいタスク")} for sid in _SESSIONS]
     return JSONResponse(rows, headers={"Cache-Control": "no-store"})
@@ -1298,6 +1371,7 @@ def task_session(session_id: str):
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().reconcile(session_id, _verify_publication)
         document = _image_service(session_id).reconcile(document)
+        _remember_task_title(session_id, document["title"])
         return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         details = _session_detail_locked(session_id)
@@ -1566,13 +1640,11 @@ def detach_image(image_id: str, session_id: Annotated[str, Query(min_length=1, m
 @app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
 def task_chat(request: MessageRequest):
     if request.is_secret:
-        agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-        agent = agent_factory()
         run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream,
             request_id=request.request_id, image_ids=request.image_ids, is_secret=True, secret_session_id=request.secret_session_id)
         if request.stream:
-            return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
-        return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "private, no-store"})
+            return StreamingResponse(_stream_chat(run_request, None, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
+        return JSONResponse(_execute(run_request, None, task_mode=True), headers={"Cache-Control": "private, no-store"})
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().load(request.session_id)
         if document.get("image_uploads"):
