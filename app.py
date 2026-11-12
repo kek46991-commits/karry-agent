@@ -38,6 +38,10 @@ from karry_agent.hack_task_mode import (
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
 from karry_agent.tools import add_calendar_event, build_default_registry, run_authorized_pentest
+from karry_agent.two_factor_simulation import (
+    render_markdown as render_two_factor_simulation,
+    requested as two_factor_simulation_requested,
+)
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
@@ -840,6 +844,12 @@ def _remember_task_title(session_id: str, title: str) -> None:
 def _secret_hack_result(title: str | None, prompt: str) -> dict[str, Any] | None:
     if not is_hack_task(title):
         return None
+    if two_factor_simulation_requested(prompt):
+        return {
+            "status": "completed",
+            "text": render_two_factor_simulation(),
+            "tool_calls": 1,
+        }
     try:
         target = requested_hack_target(prompt)
     except ValueError as exc:

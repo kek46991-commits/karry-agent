@@ -13,6 +13,7 @@ from karry_agent.hack_task_mode import (
     requested_target,
     scope,
 )
+from karry_agent import two_factor_simulation
 
 
 def _tool_names(agent: AgentCore) -> set[str]:
@@ -51,6 +52,18 @@ def test_requested_target_requires_one_explicit_url():
     assert requested_target("https://sandbox.example.com の脆弱性を検証") == (
         "https://sandbox.example.com"
     )
+
+
+def test_two_factor_simulation_is_fixed_and_uses_no_external_inputs():
+    assert two_factor_simulation.requested("二段階認証の攻撃デモを見せて")
+    assert not two_factor_simulation.requested("二段階認証を設定する方法")
+    report = two_factor_simulation.render_markdown()
+    assert "ワンタイムコード" in report
+    assert two_factor_simulation.SYNTHETIC_OTP in report
+    assert "実サービスでは使用できません" in report
+    assert "レート制限" in report
+    assert "実アカウント" in report
+    assert "突破方法" in report
 
 
 def test_target_authorization_is_request_scoped():
@@ -253,3 +266,45 @@ def test_secret_hack_task_requires_url_without_starting_model(monkeypatch):
     assert payload["status"] == "needs_user_action"
     assert "URL" in payload["response"]
     assert payload["tool_calls"] == 0
+
+
+def test_secret_hack_task_runs_synthetic_2fa_demo_without_model_or_network(monkeypatch):
+    monkeypatch.setenv("KARRY_TASK_STORAGE", "memory")
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner")
+    for name in (
+        "_RUNS", "_SESSIONS", "_PRIVATE_SESSIONS", "_PENDING_CALENDAR",
+        "_SESSION_META", "_SESSION_LOCKS", "_SESSION_APPROVALS",
+    ):
+        monkeypatch.setattr(app_module, name, {})
+    monkeypatch.setattr(app_module.secret_chat, "store", app_module.secret_chat.SecretChatStore())
+
+    class ModelMustNotStart:
+        def __init__(self):
+            raise AssertionError("synthetic 2FA demo must not initialize Gemini")
+
+    previous = dict(app_module.app.dependency_overrides)
+    app_module.app.dependency_overrides[app_module.get_agent] = ModelMustNotStart
+    client = TestClient(app_module.app)
+    headers = {"Authorization": "Bearer synthetic-owner"}
+    try:
+        hack = client.post("/api/sessions", headers=headers, json={"title": "ハック"}).json()
+        response = client.post("/api/chat", headers=headers, json={
+            "session_id": hack["session_id"],
+            "prompt": "二段階認証の攻撃デモを合成データで見せて。入力値: test@example.invalid",
+            "isSecret": True,
+            "request_id": "secret-hack-2fa-demo",
+        })
+    finally:
+        app_module.app.dependency_overrides.clear()
+        app_module.app.dependency_overrides.update(previous)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["isSecret"] is True
+    assert payload["persistence"] == "none"
+    assert payload["trace"] == []
+    assert payload["tool_calls"] == 1
+    assert "合成2FA攻撃・防御デモ" in payload["response"]
+    assert "test@example.invalid" not in payload["response"]
+    assert app_module._SESSIONS[hack["session_id"]].get_history() == []
