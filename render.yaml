@@ -27,6 +27,14 @@ services:
         sync: false
       - key: KARRY_LOGIN_ACCOUNTS
         sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: KARRY_GOOGLE_TOKEN_KEY
+        sync: false
       - key: KARRY_ALLOW_SHELL
         value: "0"
       - key: KARRY_OPTIMUS_GITHUB_TOKEN

@@ -164,3 +164,38 @@ test('paid Stripe orders show phone and shipping address; 通常価格 sets a li
   assert.match(s.$('entryStatus').textContent,/通常価格を 4,150円 にしました（40% OFF）/);assert.match(s.$('products').textContent,/通常 4,150円（40% OFF）/);
   s.dom.window.close();
 });
+
+test('Google account-link section: status, one-click connect opens consent, disconnect',async()=>{
+  const opened=[];let connected=false;
+  const dom=new JSDOM(html,{url:'https://karry-agent-1.onrender.com/admin',runScripts:'dangerously',beforeParse(window){
+    window.sessionStorage.setItem('karry-admin-token','good-token');
+    window.open=(url)=>{opened.push(url);return {closed:false};};
+    window.fetch=async(url,request={})=>{
+      const auth=request.headers?.Authorization;
+      if(auth!=='Bearer good-token')return json({detail:'unauthorized'},401);
+      if(url==='/api/admin/me')return json({admin:true});
+      if(url==='/api/alibaba/config')return json({pricing:{}});
+      if(['/api/alibaba/drafts','/api/shop/admin/products','/api/shop/admin/orders','/api/alibaba/logs?limit=50'].includes(url))
+        return json(url.includes('drafts')?{drafts:[]}:url.includes('products')?{products:[]}:url.includes('orders')?{orders:[]}:{entries:[]});
+      if(url==='/api/google/status')return json({configured:true,connected,email:connected?'owner@example.com':'',scopes:[]});
+      if(url==='/api/google/oauth/start')return json({authorize_url:'https://accounts.google.com/o/oauth2/v2/auth?x=1'});
+      if(url==='/api/google/disconnect'){connected=false;return json({disconnected:true});}
+      return json({},404);
+    };
+  }});
+  const win=dom.window,$=id=>win.document.getElementById(id);
+  await tick(40);
+  assert.equal($('googleLink').hidden,false);
+  assert.match($('googleStatus').textContent,/未連携/);
+  assert.equal($('googleDisconnect').hidden,true);
+  $('googleConnect').click();await tick(20);
+  assert.deepEqual(opened,['https://accounts.google.com/o/oauth2/v2/auth?x=1']);
+  // Google redirects back; the popup posts a completion message.
+  connected=true;
+  win.dispatchEvent(new win.MessageEvent('message',{data:{type:'google-oauth',ok:true}}));await tick(20);
+  assert.match($('googleStatus').textContent,/連携済み：owner@example.com/);
+  assert.equal($('googleDisconnect').hidden,false);
+  $('googleDisconnect').click();await tick(20);
+  assert.match($('googleStatus').textContent,/未連携/);
+  win.close();
+});

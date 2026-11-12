@@ -1071,6 +1071,68 @@ def calendar_health() -> dict[str, Any]:
     return {"ready": all(entry["valid"] for entry in status.values()), "env": status}
 
 
+def _google_redirect_uri(request: Request) -> str:
+    configured = (os.getenv("GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/google/oauth/callback"
+
+
+@app.get("/api/google/status", dependencies=[Depends(require_api_auth)])
+def google_oauth_status() -> dict[str, Any]:
+    from karry_agent import google_oauth
+
+    return google_oauth.status()
+
+
+@app.get("/api/google/oauth/start", dependencies=[Depends(require_api_auth)])
+def google_oauth_start(request: Request) -> dict[str, Any]:
+    from karry_agent import google_oauth
+
+    if not google_oauth.configured():
+        raise HTTPException(status_code=503, detail="Google OAuth クライアント (GOOGLE_OAUTH_CLIENT_ID/SECRET) が未設定です。")
+    state = google_oauth.sign_state()
+    return {"authorize_url": google_oauth.authorize_url(_google_redirect_uri(request), state)}
+
+
+@app.get("/api/google/oauth/callback", include_in_schema=False)
+def google_oauth_callback(request: Request, code: str | None = None, state: str | None = None,
+                          error: str | None = None) -> Response:
+    from karry_agent import google_oauth
+
+    def done(ok: bool, message: str) -> Response:
+        safe = html.escape(message)
+        body = ("<!doctype html><meta charset=utf-8><title>Google連携</title>"
+                "<body style='font-family:sans-serif;max-width:32rem;margin:3rem auto;text-align:center'>"
+                f"<h2>{'✅ 連携が完了しました' if ok else '⚠️ 連携できませんでした'}</h2>"
+                f"<p>{safe}</p><p><a href='/admin'>管理画面に戻る</a></p>"
+                "<script>try{if(window.opener){window.opener.postMessage({type:'google-oauth',ok:" +
+                ("true" if ok else "false") + "},'*');}}catch(e){}</script></body>")
+        return HTMLResponse(body, status_code=200 if ok else 400, headers={"Cache-Control": "no-store"})
+
+    if error:
+        return done(False, f"Googleでの許可がキャンセルされました ({error})。")
+    if not google_oauth.verify_state(state):
+        return done(False, "認証リクエストの有効期限が切れたか不正です。もう一度お試しください。")
+    if not code:
+        return done(False, "認可コードが受け取れませんでした。")
+    try:
+        info = google_oauth.exchange_code(code, _google_redirect_uri(request))
+        google_oauth.save_token(info)
+    except Exception as exc:  # noqa: BLE001 - surface a safe message to the browser
+        return done(False, str(exc) or "トークンの取得に失敗しました。")
+    who = info.get("email") or "アカウント"
+    return done(True, f"{who} を連携しました。この画面は閉じてかまいません。")
+
+
+@app.post("/api/google/disconnect", dependencies=[Depends(require_api_auth)])
+def google_oauth_disconnect() -> dict[str, bool]:
+    from karry_agent import google_oauth
+
+    return {"disconnected": google_oauth.disconnect()}
+
+
 @app.get("/", include_in_schema=False)
 def index():
     from fastapi.responses import FileResponse

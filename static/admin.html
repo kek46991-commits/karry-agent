@@ -35,6 +35,11 @@
       <p class="hint">サイト管理者だけが使えます。トークンはこのタブを閉じると消えます。</p>
     </section>
     <div id="dashboard" hidden>
+      <section id="googleLink" aria-labelledby="googleTitle">
+        <h2 id="googleTitle">🔗 Googleアカウント連携</h2>
+        <p id="googleStatus" class="hint" aria-live="polite">連携状況を確認しています…</p>
+        <div class="actions"><button id="googleConnect" type="button">Googleアカウント連携</button><button id="googleDisconnect" type="button" class="danger" hidden>連携を解除</button></div>
+      </section>
       <section aria-labelledby="entryTitle">
         <h2 id="entryTitle">🛒 商品登録（1688 商品 URL ＋ 原価）</h2>
         <div class="grid">
@@ -197,7 +202,38 @@
       const os=orders.orders||[];$('orders').replaceChildren(...(os.length?os.slice(0,50).map(o=>{const r=row(orderText(o));r.dataset.level=o.status==='paid'?'SAFE':'';return r;}):[empty('まだ注文はありません。')]));
       const es=log.entries||[];$('log').replaceChildren(...(es.length?es.map(e=>{const r=row(`${new Date(Number(e.at||e.created_at||0)*1000).toLocaleTimeString('ja-JP')}｜${e.action}｜${e.verdict||e.status}｜${e.product_id||'—'} ${e.title||''}${e.message?`｜${e.message}`:''}`);r.dataset.level=e.status==='error'?'error':e.verdict||e.status;return r;}):[empty('まだ記録はありません。')]));
     }catch(_){}
+    loadGoogle();
   }
+  async function loadGoogle(){
+    try{
+      const {response,data}=await api('/api/google/status');
+      if(!response.ok)return;
+      const connect=$('googleConnect'),disconnect=$('googleDisconnect');
+      if(data.connected){
+        $('googleStatus').textContent=`連携済み${data.email?`：${data.email}`:''}。`;
+        connect.textContent='連携し直す';disconnect.hidden=false;
+      }else if(data.configured){
+        $('googleStatus').textContent='未連携です。ボタンを押すとGoogleの公式同意画面が開きます。';
+        connect.textContent='Googleアカウント連携';connect.disabled=false;disconnect.hidden=true;
+      }else{
+        $('googleStatus').textContent='サーバーにGoogle OAuthクライアント（GOOGLE_OAUTH_CLIENT_ID/SECRET）が未設定です。';
+        connect.disabled=true;disconnect.hidden=true;
+      }
+    }catch(_){}
+  }
+  async function connectGoogle(){
+    $('googleStatus').textContent='Googleの同意画面を開いています…';
+    try{
+      const {response,data}=await api('/api/google/oauth/start');
+      if(!response.ok||!data.authorize_url){$('googleStatus').textContent=typeof data.detail==='string'?data.detail:'連携を開始できませんでした。';return;}
+      window.open(data.authorize_url,'googleOAuth','width=520,height=680');
+    }catch(_){$('googleStatus').textContent='連携を開始できませんでした。';}
+  }
+  async function disconnectGoogle(){
+    try{await api('/api/google/disconnect',{method:'POST',body:'{}'});}catch(_){}
+    loadGoogle();
+  }
+  window.addEventListener('message',event=>{if(event.data&&event.data.type==='google-oauth')loadGoogle();});
   async function loginWithEmail(email,password){
     $('loginSubmit').disabled=true;$('loginStatus').textContent='確認しています…';
     try{const response=await fetch('/api/login',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});const data=await response.json().catch(()=>({}));
@@ -207,6 +243,8 @@
   }
   $('loginForm').addEventListener('submit',event=>{event.preventDefault();const email=$('adminEmail').value.trim();if(email)loginWithEmail(email,$('adminToken').value);else login($('adminToken').value);});
   $('logout').addEventListener('click',()=>logout('ログアウトしました。'));
+  $('googleConnect').addEventListener('click',connectGoogle);
+  $('googleDisconnect').addEventListener('click',disconnectGoogle);
   $('evaluate').addEventListener('click',evaluate);
   $('productUrl').addEventListener('change',autofill);
   $('productUrl').addEventListener('paste',()=>setTimeout(autofill,0));

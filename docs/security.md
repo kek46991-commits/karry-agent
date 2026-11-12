@@ -36,6 +36,7 @@
 - 所有者 API は `KARRY_API_TOKEN` 必須。未設定なら 503 で拒否（fail-closed）、比較は `secrets.compare_digest`。
 - メール＋パスワードでのログイン（`POST /api/login`、`src/karry_agent/user_login.py`）: アカウントは Render の `KARRY_LOGIN_ACCOUNTS` に `email|pbkdf2_sha256$600000$salt$hash` で置き、平文パスワードはどこにも保存しません（`python scripts/hash_login_password.py <email>` で生成）。成功すると HMAC 署名付き・期限付き（既定30日）のセッショントークンを返し、所有者トークンの代わりに `Authorization: Bearer` で使えます。`KARRY_API_TOKEN`（または `KARRY_LOGIN_SECRET`）を変えるか、アカウントを消すと即無効。失敗は IP・メールごとに15分10回で 429。
 - `/health/calendar` などの公開ヘルスチェックは値を返さず、有無と形式だけを返します。
+- Googleアカウント連携（ワンクリックOAuth、`src/karry_agent/google_oauth.py`）: `/api/google/oauth/start`・`/api/google/status`・`/api/google/disconnect` は所有者認証必須。`/api/google/oauth/callback` はブラウザのリダイレクト先なのでBearerではなくHMAC署名付き・10分期限の `state`（`KARRY_LOGIN_SECRET`/`KARRY_API_TOKEN` で署名）で検証します。認可コードは `GOOGLE_OAUTH_CLIENT_ID/SECRET` でトークン交換し、refresh_token は Fernet 暗号化して非公開バケット（`secure/google-oauth-token.enc`）に保存（鍵は `KARRY_GOOGLE_TOKEN_KEY`、未設定なら `KARRY_API_TOKEN` から導出）。アクセストークンは期限切れ時に自動更新。2段階認証や同意画面はGoogle側で本人が通すもので、バイパスはしません。
 
 ## 自動検証
 
