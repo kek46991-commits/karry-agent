@@ -671,6 +671,7 @@ test('returning to a hack task restores its existing authorization state',async(
     file_url:'https://authorized.example/.well-known/karry-agent-verification.txt',expires_at:Date.now()/1000+1800};
   const s=setup({saved:'hack',sessions:[['normal',record('normal','通常')],['hack',record('hack','ハック')]],fetch:async url=>{
     if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[authorization]});
+    if(url.endsWith('/verify'))return json({detail:'先にドメイン所有者の承認が必要です。'},400);
   }});
   s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,0));
   assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者の承認: 済み/);
@@ -678,6 +679,8 @@ test('returning to a hack task restores its existing authorization state',async(
   await s.win.selectSession('hack');await new Promise(resolve=>setTimeout(resolve,0));
   assert.equal(s.doc.getElementById('domainAuthActions').hidden,false);
   assert.match(s.doc.getElementById('domainAuthResult').textContent,/DNS TXT/);
+  authorization.consented=false;await s.win.verifyDomainAuthorization('dns');
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/先にドメイン所有者の承認が必要/);
   s.dom.window.close();
 });
 

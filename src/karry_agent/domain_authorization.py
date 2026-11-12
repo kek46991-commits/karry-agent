@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
-TTL_SECONDS = 30 * 60
+TTL_SECONDS = 24 * 60 * 60
 WELL_KNOWN_PATH = "/.well-known/karry-agent-verification.txt"
 DNS_PREFIX = "_karry-agent-verification"
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "testserver"})

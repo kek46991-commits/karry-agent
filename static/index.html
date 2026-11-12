@@ -343,12 +343,15 @@
     finally{setBusy(false);}
   }
   async function verifyDomainAuthorization(method){
-    if(!activeDomainAuthorization||!sessionId||busy)return;setBusy(true);
+    if(!activeDomainAuthorization||!sessionId||busy)return;setBusy(true);let failure='';
     try{
       const record=await requestJson(`/api/hack/domain-authorizations/${encodeURIComponent(activeDomainAuthorization.id)}/verify`,{method:'POST',body:JSON.stringify({session_id:sessionId,method})});
       renderDomainAuthorization(record);setConnectionStatus('検査対象を確認済み');
-    }catch(error){$('domainAuthResult').textContent=`ドメイン確認エラー: ${error.message}`;$('domainAuthResult').hidden=false;setConnectionStatus('エラー');}
-    finally{setBusy(false);}
+    }catch(error){failure=`ドメイン確認エラー: ${error.message}`;setConnectionStatus('エラー');}
+    finally{
+      setBusy(false);
+      if(failure){$('domainAuthResult').textContent=failure;$('domainAuthResult').hidden=false;}
+    }
   }
   function renderSecretConversation(){
     clearView();const state=secretStateFor(sessionId,true);const title=sessions.find(item=>item.session_id===sessionId)?.title||$('currentTask').textContent;
