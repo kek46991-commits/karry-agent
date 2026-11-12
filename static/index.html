@@ -60,7 +60,7 @@
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
         <section id="domainAuth" class="domain-auth" hidden aria-labelledby="domainAuthTitle">
           <h3 id="domainAuthTitle">検査対象の所有者承認</h3>
-          <p class="hint">最初に所有者へ承認リンクを送り、その後DNSか確認ファイルでドメイン管理権限を確認します。</p>
+          <p class="hint">最初に所有者へ承認リンクを送ります。相手がYesを押した後、DNSか確認ファイルを5分間自動確認します。</p>
           <div class="domain-auth-row"><input id="domainTarget" type="url" placeholder="https://authorized.example.com" maxlength="2048"><button id="domainAuthCreate" type="button">承認リンクを作る</button></div>
           <div id="domainAuthResult" class="domain-auth-result" hidden role="status" aria-live="polite"></div>
           <div id="domainAuthActions" class="domain-auth-actions" hidden>
@@ -89,6 +89,7 @@
   const MAX_IMAGES=5;
   let isSecret=false;
   let activeDomainAuthorization=null;
+  let domainAuthorizationTimer=null,domainAuthorizationPolling=false,domainAuthorizationPolls=0,domainAuthorizationPollingId='';
   const domainAuthorizations=new Map();
   const secretConversations=new Map();
   const imageUrls=new Map();
@@ -293,9 +294,43 @@
     const visible=connected&&!!sessionId&&selectedTaskTitle()==='ハック';
     $('domainAuth').hidden=!visible;
     for(const id of ['domainTarget','domainAuthCreate','domainAuthRefresh','domainVerifyDns','domainVerifyFile'])$(id).disabled=busy||!visible;
-    if(!visible){activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;return;}
+    if(!visible){stopDomainAuthorizationAutomation();activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;return;}
     const cached=domainAuthorizations.get(sessionId);
     if(cached)renderDomainAuthorization(cached);
+  }
+  function stopDomainAuthorizationAutomation(){
+    if(domainAuthorizationTimer)clearTimeout(domainAuthorizationTimer);
+    domainAuthorizationTimer=null;domainAuthorizationPolling=false;domainAuthorizationPolls=0;domainAuthorizationPollingId='';
+  }
+  function scheduleDomainAuthorizationAutomation(record){
+    if(!record||record.verified||selectedTaskTitle()!=='ハック'||!sessionId){stopDomainAuthorizationAutomation();return;}
+    if(domainAuthorizationPollingId!==record.id){stopDomainAuthorizationAutomation();domainAuthorizationPollingId=record.id;}
+    if(domainAuthorizationTimer||domainAuthorizationPolling||domainAuthorizationPolls>=60)return;
+    domainAuthorizationTimer=setTimeout(()=>{domainAuthorizationTimer=null;autoAdvanceDomainAuthorization();},5000);
+  }
+  async function autoAdvanceDomainAuthorization(){
+    const owner=sessionId,authorizationId=activeDomainAuthorization?.id;
+    if(domainAuthorizationPolling||!owner||!authorizationId||selectedTaskTitle()!=='ハック')return;
+    domainAuthorizationPolling=true;domainAuthorizationPolls++;
+    try{
+      const data=await requestJson('/api/hack/domain-authorizations?session_id='+encodeURIComponent(owner));
+      if(sessionId!==owner||selectedTaskTitle()!=='ハック')return;
+      let record=(data.authorizations||[]).find(item=>item.id===authorizationId);
+      if(!record)return;
+      renderDomainAuthorization(record);
+      if(record.consented&&!record.verified){
+        for(const method of ['dns','file']){
+          try{
+            record=await requestJson(`/api/hack/domain-authorizations/${encodeURIComponent(record.id)}/verify`,{method:'POST',body:JSON.stringify({session_id:owner,method})});
+            renderDomainAuthorization(record);setConnectionStatus('検査対象を確認済み');break;
+          }catch(_){}
+        }
+      }
+    }catch(_){}
+    finally{
+      domainAuthorizationPolling=false;
+      if(activeDomainAuthorization&&!activeDomainAuthorization.verified) scheduleDomainAuthorizationAutomation(activeDomainAuthorization);
+    }
   }
   function renderDomainAuthorization(record,approvalUrl=''){
     activeDomainAuthorization=record;
@@ -307,9 +342,11 @@
     if(!record.verified){
       lines.push(`DNS TXT: ${record.dns_name} = ${record.challenge}`);
       lines.push(`確認ファイル: ${record.file_url} に ${record.challenge} を配置`);
+      lines.push('自動確認: 承認後5分間（5秒間隔）');
     }
     $('domainAuthResult').textContent=lines.join('\n');
     $('domainAuthResult').hidden=false;$('domainAuthActions').hidden=false;
+    scheduleDomainAuthorizationAutomation(record);
   }
   async function loadDomainAuthorizationState(){
     const owner=sessionId;if(!connected||!owner||selectedTaskTitle()!=='ハック')return;

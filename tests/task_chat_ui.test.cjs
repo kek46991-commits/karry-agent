@@ -684,6 +684,28 @@ test('returning to a hack task restores its existing authorization state',async(
   s.dom.window.close();
 });
 
+test('owner consent automatically checks DNS then the confirmation file',async()=>{
+  const authorization={id:'c'.repeat(32),origin:'https://authorized.example',consented:false,verified:false,
+    dns_name:'_karry-agent-verification.authorized.example',challenge:'karry-agent=challenge',
+    file_url:'https://authorized.example/.well-known/karry-agent-verification.txt',expires_at:Date.now()/1000+1800};
+  const verified={...authorization,consented:true,verified:true,method:'file'};
+  const s=setup({saved:'hack',sessions:[['hack',record('hack','ハック')]],fetch:async(url,request)=>{
+    if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[authorization]});
+    if(url.endsWith('/verify')){
+      const body=JSON.parse(request.body);
+      if(body.method==='dns')return json({detail:'DNS確認コードを確認できませんでした。'},400);
+      return json(verified);
+    }
+  }});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,0));
+  authorization.consented=true;await s.win.autoAdvanceDomainAuthorization();
+  const verificationMethods=s.calls.filter(call=>call.url.endsWith('/verify')).map(call=>JSON.parse(call.request.body).method);
+  assert.deepEqual(verificationMethods,['dns','file']);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/ドメイン確認: 済み/);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者の承認: 済み/);
+  s.dom.window.close();
+});
+
 test('stored microphone denial shows permission steps and retries only after user changes permission',async()=>{
   let mediaCalls=0;const permission={state:'denied'};const microphone={getUserMedia:async()=>{mediaCalls++;return {getTracks:()=>microphone.tracks};}};
   const s=setup({permission,microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
