@@ -24,6 +24,8 @@ class HackTaskContext:
     enabled: bool = False
     prompt: str = ""
     authorized_targets: frozenset[str] = frozenset()
+    verified_targets: frozenset[str] = frozenset()
+    require_verification: bool = False
 
 
 _CONTEXT: contextvars.ContextVar[HackTaskContext] = contextvars.ContextVar(
@@ -70,12 +72,20 @@ def requested_target(prompt: str) -> str | None:
 
 
 @contextlib.contextmanager
-def scope(title: str | None, prompt: str):
+def scope(
+    title: str | None,
+    prompt: str,
+    *,
+    verified_targets: frozenset[str] = frozenset(),
+    require_verification: bool = False,
+):
     enabled = is_hack_task(title)
     token = _CONTEXT.set(HackTaskContext(
         enabled=enabled,
         prompt=prompt if enabled else "",
         authorized_targets=explicit_targets(prompt) if enabled else frozenset(),
+        verified_targets=verified_targets if enabled else frozenset(),
+        require_verification=require_verification if enabled else False,
     ))
     try:
         yield _CONTEXT.get()
@@ -94,4 +104,6 @@ def authorize_target(target_url: str) -> str:
     normalized = normalize_target_url(target_url)
     if normalized not in context.authorized_targets:
         raise PermissionError("検証対象のURLを今回のメッセージ本文に明記してください。")
+    if context.require_verification and normalized not in context.verified_targets:
+        raise PermissionError("対象ドメインの所有者承認とDNSまたは確認ファイルによる検証が必要です。")
     return normalized

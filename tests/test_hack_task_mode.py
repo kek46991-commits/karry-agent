@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import app as app_module
-from karry_agent import pentest_orchestra, tools
+from karry_agent import pentest_orchestra, tools, two_factor_simulation
 from karry_agent.core import AgentCore, AgentResult
 from karry_agent.hack_task_mode import (
     PENTEST_TOOL_NAME,
@@ -13,7 +13,6 @@ from karry_agent.hack_task_mode import (
     requested_target,
     scope,
 )
-from karry_agent import two_factor_simulation
 
 
 def _tool_names(agent: AgentCore) -> set[str]:
@@ -189,6 +188,11 @@ def test_secret_hack_task_runs_fixed_pentest_without_model_or_persistence(monkey
     ):
         monkeypatch.setattr(app_module, name, {})
     monkeypatch.setattr(app_module.secret_chat, "store", app_module.secret_chat.SecretChatStore())
+    monkeypatch.setattr(
+        app_module.domain_authorization,
+        "target_is_authorized",
+        lambda target, *, session_id=None: target == "https://sandbox.example.com",
+    )
     seen = []
 
     def fake_pentest(target):
@@ -229,6 +233,31 @@ def test_secret_hack_task_runs_fixed_pentest_without_model_or_persistence(monkey
     assert payload["trace"] == []
     assert payload["tool_calls"] == 1
     assert app_module._SESSIONS[hack["session_id"]].get_history() == []
+
+
+def test_secret_hack_task_rejects_unverified_remote_target_before_network(monkeypatch):
+    called = False
+
+    def fail_if_called(target):
+        nonlocal called
+        called = True
+        raise AssertionError("unverified target must not reach pentest transport")
+
+    monkeypatch.setattr(app_module, "run_authorized_pentest", fail_if_called)
+    monkeypatch.setattr(
+        app_module.domain_authorization,
+        "target_is_authorized",
+        lambda target, *, session_id=None: False,
+    )
+    result = app_module._secret_hack_result(
+        "ハック",
+        "https://remote.example の脆弱性を検証して",
+        session_id="hack-session",
+    )
+    assert result["status"] == "needs_user_action"
+    assert "所有者承認" in result["text"]
+    assert result["tool_calls"] == 0
+    assert called is False
 
 
 def test_secret_hack_task_requires_url_without_starting_model(monkeypatch):

@@ -33,6 +33,7 @@
     .task-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.task-heading-row h2{min-width:0;overflow-wrap:anywhere}
     .clear-history{flex:none;min-height:34px;padding:0 12px;background:#3a2232;border:1px solid #7a3d55;color:#ffd3df;font-size:13px;font-weight:700}
     .composer-tools{padding:12px 15px;border-top:1px solid var(--line);background:#172239;scroll-margin-top:16px}.secret-controls{margin:0;flex-wrap:wrap;font-size:14px}.secret-controls input{appearance:none;position:relative;width:44px;height:26px;margin:0;background:#536078;border-radius:20px;cursor:pointer;flex:none}.secret-controls input::after{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:white;border-radius:50%;transition:transform .15s}.secret-controls input:checked{background:#bd416a}.secret-controls input:checked::after{transform:translateX(18px)}.secret-controls input:disabled{cursor:not-allowed;opacity:.7}.mode-status{padding:1px 8px;border-radius:20px;background:#263451;font-size:12px}.feature-jump{font-size:12px;margin-top:7px}.voice-options{flex-wrap:wrap}#voiceStatus{flex-basis:100%;overflow-wrap:anywhere}.mic-help{padding:0 15px 14px;color:var(--muted);font-size:13px}.mic-help summary{cursor:pointer;color:#a5cdff;font-weight:700}.mic-help ol{padding-left:20px}.mic-help button{padding:7px 12px;margin-top:5px}.mic-help a{display:inline-block;margin:8px 0}.ui-version{font-size:11px;color:var(--muted)}
+    .domain-auth{padding:12px 15px;border-top:1px solid var(--line);background:#14283a}.domain-auth[hidden]{display:none}.domain-auth h3{margin:0 0 7px;font-size:15px}.domain-auth-row{display:flex;gap:8px;flex-wrap:wrap}.domain-auth input{flex:1;min-width:220px}.domain-auth-result{margin-top:9px;padding:9px;border-radius:8px;background:#0f1d2c;white-space:pre-wrap;overflow-wrap:anywhere}.domain-auth-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.domain-auth a{color:#9dd1ff}
     .video-suite{margin:0 15px 15px;border:1px solid var(--line);border-radius:12px;background:#10192c}.video-suite>summary{padding:10px 14px;cursor:pointer;font-weight:700;color:#a5cdff}.video-body{padding:0 14px 14px;display:grid;gap:9px}.video-body textarea{min-height:60px}.video-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.video-row input[type="number"]{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-row input[type="range"]{flex:1;min-width:140px}.video-jobs{display:grid;gap:8px}.video-job{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-job button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.chat-video{display:grid;gap:6px;margin-top:8px}.video-player{width:100%;max-height:420px;background:#000;border-radius:10px}.video-player[data-aspect="9:16"]{max-width:260px;justify-self:center}.webtoon-strip{display:grid;gap:6px;justify-items:center}.webtoon-panel{width:100%;max-width:320px;border-radius:8px;background:#000}
     .video-projects-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}.video-projects-heading h3{margin:0;font-size:14px}.video-projects{display:grid;gap:8px}.video-project{border:1px solid #263451;border-radius:10px;padding:8px 10px;font-size:13px;background:#0d1629}.video-project button{min-height:30px;padding:0 10px;margin:4px 6px 0 0}.video-project-title{font-weight:700;overflow-wrap:anywhere}.video-project-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;color:var(--muted);font-size:12px}.video-project-duration{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:7px}.video-project-duration input{width:82px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}
     .video-script{display:grid;gap:8px;border:1px solid #344766;border-radius:11px;padding:12px;background:#0d1629}.video-script h3{margin:0;font-size:15px}.video-script textarea{width:100%;min-height:100px}.video-script-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.video-script-row input{width:72px;padding:6px;background:#0c1426;color:var(--text);border:1px solid var(--line);border-radius:8px}.video-script-row button,.video-script button{min-height:34px;padding:0 12px}.video-scripts{display:grid;gap:8px}.video-script-card{border:1px solid #263451;border-radius:10px;padding:10px;background:#10192c;overflow-wrap:anywhere}.video-script-card h4{margin:0 0 4px;font-size:14px}.video-script-card details{margin-top:7px}.video-script-scene{border-left:2px solid #4378c7;padding:6px 9px;margin:7px 0;background:#0b1425}.video-script-scene p{margin:3px 0}.video-script-meta{color:var(--muted);font-size:12px}
@@ -57,6 +58,17 @@
         <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
+        <section id="domainAuth" class="domain-auth" hidden aria-labelledby="domainAuthTitle">
+          <h3 id="domainAuthTitle">検査対象の所有者承認</h3>
+          <p class="hint">最初に所有者へ承認リンクを送り、その後DNSか確認ファイルでドメイン管理権限を確認します。</p>
+          <div class="domain-auth-row"><input id="domainTarget" type="url" placeholder="https://authorized.example.com" maxlength="2048"><button id="domainAuthCreate" type="button">承認リンクを作る</button></div>
+          <div id="domainAuthResult" class="domain-auth-result" hidden role="status" aria-live="polite"></div>
+          <div id="domainAuthActions" class="domain-auth-actions" hidden>
+            <button id="domainAuthRefresh" type="button">承認状態を更新</button>
+            <button id="domainVerifyDns" type="button">DNSを確認</button>
+            <button id="domainVerifyFile" type="button">確認ファイルを確認</button>
+          </div>
+        </section>
         <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" multiple disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品として登録（原価を書いて SAFE なら自動掲載）</label><div id="productDraftHint" class="hint">オンで写真（最大5枚）とラクマート / 1688 の URL を送るだけで、Gemini が商品名・カテゴリーを付けて写真を整え、「原価 25元」のように原価を書くと、その原価で販売価格と粗利益を計算し、法的審査が SAFE ならショップに掲載します。原価を書かないときは掲載せず、下書きに保存します（管理画面で原価を入れてください）。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
@@ -76,6 +88,7 @@
   let selectedImages=[], imageVersion=0;
   const MAX_IMAGES=5;
   let isSecret=false;
+  let activeDomainAuthorization=null;
   const secretConversations=new Map();
   const imageUrls=new Map();
   try { sessionId=localStorage.getItem('karry-session')||null; } catch (_) {}
@@ -272,6 +285,52 @@
     $('imageStatus').textContent=isSecret?'シークレット会話では画像添付を使えません。テキストのみで会話します。':'JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です。';
     $('imageFile').disabled=busy||currentSending()||!connected||!sessionId||isSecret||selectedImages.length>=MAX_IMAGES;
     for(const button of $('taskList').querySelectorAll('.task-delete'))button.disabled=busy||isSecret||inFlight.has(button.dataset.deleteId);
+    updateDomainAuthUi();
+  }
+  function selectedTaskTitle(){return sessions.find(item=>item.session_id===sessionId)?.title||'';}
+  function updateDomainAuthUi(){
+    const visible=connected&&!!sessionId&&selectedTaskTitle()==='ハック';
+    $('domainAuth').hidden=!visible;
+    for(const id of ['domainTarget','domainAuthCreate','domainAuthRefresh','domainVerifyDns','domainVerifyFile'])$(id).disabled=busy||!visible;
+    if(!visible){activeDomainAuthorization=null;$('domainAuthResult').hidden=true;$('domainAuthActions').hidden=true;}
+  }
+  function renderDomainAuthorization(record,approvalUrl=''){
+    activeDomainAuthorization=record;
+    const lines=[`対象: ${record.origin}`,`所有者の承認: ${record.consented?'済み':'待機中'}`,`ドメイン確認: ${record.verified?'済み':'未確認'}`];
+    if(approvalUrl)lines.push(`所有者へ送る承認リンク: ${approvalUrl}`);
+    if(!record.verified){
+      lines.push(`DNS TXT: ${record.dns_name} = ${record.challenge}`);
+      lines.push(`確認ファイル: ${record.file_url} に ${record.challenge} を配置`);
+    }
+    $('domainAuthResult').textContent=lines.join('\n');
+    $('domainAuthResult').hidden=false;$('domainAuthActions').hidden=false;
+  }
+  async function createDomainAuthorization(){
+    const target=$('domainTarget').value.trim();if(!target||busy||!sessionId)return;
+    setBusy(true);
+    try{
+      const record=await requestJson('/api/hack/domain-authorizations',{method:'POST',body:JSON.stringify({session_id:sessionId,target_url:target})});
+      renderDomainAuthorization(record,record.approval_url);setConnectionStatus('所有者の承認待ち');
+    }catch(error){$('domainAuthResult').textContent=`確認依頼エラー: ${error.message}`;$('domainAuthResult').hidden=false;setConnectionStatus('エラー');}
+    finally{setBusy(false);}
+  }
+  async function refreshDomainAuthorization(){
+    if(!sessionId||busy)return;setBusy(true);
+    try{
+      const data=await requestJson('/api/hack/domain-authorizations?session_id='+encodeURIComponent(sessionId));
+      const record=(data.authorizations||[]).find(item=>item.id===activeDomainAuthorization?.id)||data.authorizations?.[0];
+      if(record)renderDomainAuthorization(record);else throw new Error('有効な確認依頼がありません');
+      setConnectionStatus(record.verified?'検査対象を確認済み':record.consented?'ドメイン確認待ち':'所有者の承認待ち');
+    }catch(error){$('domainAuthResult').textContent=`状態確認エラー: ${error.message}`;$('domainAuthResult').hidden=false;setConnectionStatus('エラー');}
+    finally{setBusy(false);}
+  }
+  async function verifyDomainAuthorization(method){
+    if(!activeDomainAuthorization||!sessionId||busy)return;setBusy(true);
+    try{
+      const record=await requestJson(`/api/hack/domain-authorizations/${encodeURIComponent(activeDomainAuthorization.id)}/verify`,{method:'POST',body:JSON.stringify({session_id:sessionId,method})});
+      renderDomainAuthorization(record);setConnectionStatus('検査対象を確認済み');
+    }catch(error){$('domainAuthResult').textContent=`ドメイン確認エラー: ${error.message}`;$('domainAuthResult').hidden=false;setConnectionStatus('エラー');}
+    finally{setBusy(false);}
   }
   function renderSecretConversation(){
     clearView();const state=secretStateFor(sessionId,true);const title=sessions.find(item=>item.session_id===sessionId)?.title||$('currentTask').textContent;
@@ -677,6 +736,10 @@
 	  $('apiToken').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectSessions();}});
 	  $('apiToken').addEventListener('input',()=>{if(!busy&&!inFlight.size){stopMicrophone('音声入力を停止しました。');discardSecretConversations();if(typeof resetVideoSuite==='function')resetVideoSuite();viewVersion++;connected=false;sessionId=null;sessions=[];renderTasks();clearView();$('currentTask').textContent='タスク未接続';$('session').textContent='未選択';setConnectionStatus('タスク未接続');connectionNotice('入力したトークンで「接続・タスク読み込み」を押してください。');setBusy(false);}});
   $('secretToggle').addEventListener('change',toggleSecretMode);
+  $('domainAuthCreate').addEventListener('click',createDomainAuthorization);
+  $('domainAuthRefresh').addEventListener('click',refreshDomainAuthorization);
+  $('domainVerifyDns').addEventListener('click',()=>verifyDomainAuthorization('dns'));
+  $('domainVerifyFile').addEventListener('click',()=>verifyDomainAuthorization('file'));
   $('mic').addEventListener('click',startMicrophone);
   for(const type of ['input','keydown','pointerdown'])$('prompt').addEventListener(type,()=>{if(speaking)stopSpeaking();});
   $('micRetry').addEventListener('click',startMicrophone);
