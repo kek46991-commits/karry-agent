@@ -98,8 +98,21 @@ def test_hack_domain_authorization_api_and_public_consent_page(monkeypatch):
     page = client.get(payload["approval_url"])
     assert page.status_code == 200
     assert "Yes, authorize verification" in page.text
+    assert "Download verification file" in page.text
+    assert "/.well-known/karry-agent-verification.txt" in page.text
 
     token = payload["approval_url"].split("token=", 1)[1]
+    download = client.get(
+        f"/api/hack/domain-authorizations/{payload['id']}/verification-file",
+        params={"token": token},
+    )
+    assert download.status_code == 200
+    assert download.text == payload["challenge"]
+    assert "attachment" in download.headers["content-disposition"]
+    assert client.get(
+        f"/api/hack/domain-authorizations/{payload['id']}/verification-file",
+        params={"token": "wrong-token-value-abcdefghij"},
+    ).status_code == 400
     approved = client.post(
         f"/api/hack/domain-authorizations/{payload['id']}/approve",
         data={"token": token},

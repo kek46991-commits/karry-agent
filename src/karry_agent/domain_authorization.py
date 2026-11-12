@@ -238,13 +238,23 @@ def target_is_authorized(target_url: str, *, session_id: str | None = None) -> b
 
 def approval_page(record: Authorization, approval_token: str, *, approved: bool = False) -> str:
     target = html.escape(record.origin)
+    download = f"verification-file?token={html.escape(approval_token, quote=True)}"
+    file_hint = (
+        f'<p>Verification file: <a href="{download}" download="karry-agent-verification.txt">'
+        "Download verification file</a>. Place it on your server at "
+        f"<code>{html.escape(WELL_KNOWN_PATH)}</code> so ownership can be confirmed automatically.</p>"
+    )
     if approved:
-        body = f"<h1>Approval recorded</h1><p>{target} may proceed to domain-control verification.</p>"
+        body = (
+            f"<h1>Approval recorded</h1><p>{target} may proceed to domain-control verification.</p>"
+            + file_hint
+        )
     else:
         body = (
             f"<h1>Authorize security verification</h1><p>Target: <strong>{target}</strong></p>"
             "<p>This permits only fixed, non-destructive checks after separate DNS or file verification.</p>"
-            f'<form method="post"><input type="hidden" name="token" value="{html.escape(approval_token)}">'
+            + file_hint
+            + f'<form method="post"><input type="hidden" name="token" value="{html.escape(approval_token)}">'
             '<button type="submit">Yes, authorize verification</button></form>'
         )
     return (

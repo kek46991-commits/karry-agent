@@ -1806,6 +1806,28 @@ def domain_authorization_approval(
     )
 
 
+@app.get("/api/hack/domain-authorizations/{authorization_id}/verification-file")
+def domain_authorization_verification_file(
+    authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
+    token: Annotated[str, Query(min_length=20, max_length=100)],
+):
+    try:
+        record = domain_authorization.get(authorization_id)
+        if not secrets.compare_digest(record.approval_hash, hashlib.sha256(token.encode()).hexdigest()):
+            raise domain_authorization.AuthorizationError("承認リンクが無効です。")
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=record.challenge,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+            "Content-Disposition": 'attachment; filename="karry-agent-verification.txt"',
+        },
+    )
+
+
 @app.post("/api/hack/domain-authorizations/{authorization_id}/approve", response_class=HTMLResponse)
 def approve_domain_authorization(
     authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
