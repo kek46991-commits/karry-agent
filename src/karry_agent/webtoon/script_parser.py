@@ -25,6 +25,8 @@ _QUOTE = re.compile(r"(?P<speaker>[^\s「」『』（）()。！？!?、,]{1,10}
 _THOUGHT = re.compile(r"[（(](?P<line>[^）)]{1,200})[）)]")
 _SENTENCE = re.compile(r"[^。！？!?\n]+[。！？!?]*")
 _PARTICLE = re.compile(r"(さん|くん|ちゃん|様|先生)?(は|が|も|の|に|と)?$")
+# "<name>は小声で言った。「…」" style speech introductions (name not adjacent to the quote)
+_INTRO = re.compile(r"(?P<name>[^\s「」『』（）()。、！？!?]{1,8})(?:さん|くん|ちゃん|様|先生)?(?:は|が)")
 
 
 def _shout(text: str) -> bool:
@@ -42,9 +44,31 @@ def _speaker(raw: str | None) -> str | None:
     return name if 1 <= len(name) <= 8 and not re.search(r"[、。!?！？]", name) else None
 
 
-def _traits(name: str, text: str) -> dict[str, Any]:
-    windows = [text[max(0, m.start() - 40): m.end() + 60] for m in re.finditer(re.escape(name), text)]
-    near = " ".join(windows)
+def _describe_windows(name: str, text: str, others: tuple[str, ...] = ()) -> list[str]:
+    """Collect only the parts of each sentence that describe `name`, stopping at
+    any other character's name so a neighbour's hair/glasses never leak across."""
+    rivals = [o for o in others if o and o != name]
+    segments: list[str] = []
+    for sentence in re.split(r"[。！？!?\n]", text):
+        start = sentence.find(name)
+        if start < 0:
+            continue
+        head = 0
+        for rival in rivals:
+            pos = sentence.rfind(rival, 0, start)
+            if pos != -1:
+                head = max(head, pos + len(rival))
+        tail = len(sentence)
+        for rival in rivals:
+            pos = sentence.find(rival, start + len(name))
+            if pos != -1:
+                tail = min(tail, pos)
+        segments.append(sentence[head:tail])
+    return segments or [text]
+
+
+def _traits(name: str, text: str, others: tuple[str, ...] = ()) -> dict[str, Any]:
+    near = " ".join(_describe_windows(name, text, others))
     digest = int(hashlib.sha256(name.encode()).hexdigest(), 16)
     hair = next((en for ja, en in _HAIR if ja in near), _DEFAULT_HAIR[digest % len(_DEFAULT_HAIR)])
     clothing = next((en for ja, en in _CLOTHES if ja in near), _DEFAULT_CLOTHES[digest % len(_DEFAULT_CLOTHES)])
@@ -60,11 +84,22 @@ def fallback_parse(text: str, max_panels: int = 6) -> dict[str, Any]:
     if not source:
         raise ValueError("novel text is empty")
     names: list[str] = []
-    for match in _QUOTE.finditer(source):
-        name = _speaker(match.group("speaker"))
-        if name and name not in names:
-            names.append(name)
-    characters = [_traits(n, source) for n in names[:6]] or [_traits("主人公", source)]
+
+    def _remember(candidate: str | None) -> None:
+        if candidate and candidate not in names:
+            names.append(candidate)
+
+    for raw_line in source.splitlines():
+        stripped = raw_line.strip()
+        for match in _QUOTE.finditer(stripped):
+            _remember(_speaker(match.group("speaker")))
+            before = stripped[: match.start()]
+            intros = [_speaker(m.group("name")) for m in _INTRO.finditer(before)]
+            intros = [i for i in intros if i]
+            if intros:
+                _remember(intros[-1])
+    others = tuple(names[:6])
+    characters = [_traits(n, source, others) for n in names[:6]] or [_traits("主人公", source)]
     beats: list[dict[str, Any]] = []
     previous = characters[0]["name"]
     for line in source.splitlines():
@@ -79,6 +114,10 @@ def fallback_parse(text: str, max_panels: int = 6) -> dict[str, Any]:
                 before = sentence[:match.start("line")]
                 named = [c["name"] for c in characters if c["name"] in before]
                 speaker = _speaker(match.group("speaker"))
+                if not (speaker and speaker in names):
+                    intros = [_speaker(m.group("name")) for m in _INTRO.finditer(before)]
+                    intros = [i for i in intros if i and i in names]
+                    speaker = intros[-1] if intros else None
                 speaker = speaker if speaker in names else (named[-1] if named else previous)
                 previous = speaker
                 emotion = "whisper" if _whisper(before, text_line) else "shout" if _shout(text_line) else "normal"
@@ -99,7 +138,7 @@ def fallback_parse(text: str, max_panels: int = 6) -> dict[str, Any]:
         bubbles = [e for e in elements if e["emotion_tag"] != "narration"][:3]
         scene = " ".join(b["sentence"] for b in chunk)[:400]
         speakers = {e["speaker"] for e in bubbles}
-        present = [c["name"] for c in characters if c["name"] in scene or c["name"] in speakers] or [characters[0]["name"]]
+        present = [c["name"] for c in characters if c["name"] in scene or c["name"] in speakers]
         panels.append({"visual_description": scene, "characters_present": present,
                        "text_elements": narration + bubbles})
     return {"title": source.splitlines()[0][:40], "characters": characters, "panels": panels, "source": "fallback"}
@@ -143,7 +182,10 @@ def normalize(payload: dict[str, Any], max_panels: int) -> dict[str, Any]:
                 speaker = item.get("speaker") if item.get("speaker") in names else None
                 elements.append({"speaker": None if tag == "narration" else speaker or names[0], "text": text, "emotion_tag": tag})
         narration = [e for e in elements if e["emotion_tag"] == "narration"][:1]
-        present = [n for n in (raw.get("characters_present") or []) if n in names] or names[:1]
+        if "characters_present" in raw:
+            present = [n for n in (raw.get("characters_present") or []) if n in names]
+        else:
+            present = names[:1]
         panels.append({"visual_description": str(raw.get("visual_description") or "")[:600], "characters_present": present,
                        "text_elements": narration + [e for e in elements if e["emotion_tag"] != "narration"][:3]})
     if not panels:

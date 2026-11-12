@@ -145,3 +145,33 @@ def test_api_is_owner_only_experimental_and_serves_panels_and_zip(monkeypatch):
     web_client = TestClient(web.app)
     monkeypatch.delenv("KARRY_EXPERIMENTAL_FEATURES")
     assert web_client.post("/api/webtoon/jobs", json={"novel_text": STORY}, headers=auth).status_code == 404
+
+
+def test_intro_sentence_speaker_is_attributed_not_defaulted_to_protagonist():
+    script = fallback_parse("ミナは小声で言った。「静かに」", 2)
+    names = [c["name"] for c in script["characters"]]
+    assert "ミナ" in names and "主人公" not in names
+    speakers = [e["speaker"] for p in script["panels"] for e in p["text_elements"] if e["emotion_tag"] != "narration"]
+    assert speakers and all(s == "ミナ" for s in speakers)
+
+
+def test_neighbouring_character_traits_do_not_leak():
+    script = fallback_parse("ミナ「行こう」\nレンは金髪で眼鏡をかけていた。レン「待って」", 2)
+    cast = {c["name"]: c for c in script["characters"]}
+    assert cast["レン"]["hair"] == "blonde hair" and cast["レン"]["glasses"] is True
+    assert cast["ミナ"]["hair"] != "blonde hair" and cast["ミナ"]["glasses"] is False
+
+
+def test_empty_characters_present_is_preserved_as_scenery():
+    payload = {"title": "t", "characters": [{"name": "A", "face": "f", "hair": "h", "clothing": "c", "glasses": True}],
+               "panels": [{"visual_description": "sunset", "characters_present": [],
+                           "text_elements": [{"text": "n", "emotion_tag": "narration"}]},
+                          {"visual_description": "room", "text_elements": [{"speaker": "A", "text": "hi", "emotion_tag": "normal"}]}]}
+    out = normalize(payload, 4)
+    assert out["panels"][0]["characters_present"] == []
+    assert out["panels"][1]["characters_present"] == ["A"]
+
+
+def test_fallback_scenery_only_panel_has_no_characters():
+    script = fallback_parse("夕日が沈んでいく。\n静かな海が広がっていた。", 2)
+    assert any(p["characters_present"] == [] for p in script["panels"])
