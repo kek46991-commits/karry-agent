@@ -878,3 +878,18 @@ test('a chat reply with a listing marker shows the published shop item',async()=
   assert.deepEqual([...card.querySelectorAll('img')].map(i=>i.getAttribute('src')),[img]);
   assert.equal(card.querySelector('a').getAttribute('href'),`/products/${listing}`);s.dom.window.close();
 });
+test('email login stores a session token on this device, connects, and logout forgets it',async()=>{
+  const s=setup({sessions:[['a',record('a','A')]],fetch:async(url,request)=>{
+    if(url==='/api/login'){const body=JSON.parse(request.body);return body.password==='synthetic-password'?json({token:'karrys1.synthetic.sig',email:body.email}):json({detail:'メールアドレスまたはパスワードが違います'},401);}
+  }});
+  s.doc.getElementById('loginEmail').value='owner@example.com';s.doc.getElementById('loginPassword').value='wrong';
+  s.doc.getElementById('loginButton').click();await new Promise(r=>setTimeout(r,20));
+  assert.match(s.doc.getElementById('connectionNotice').textContent,/パスワードが違います/);assert.equal(s.win.localStorage.getItem('karry-login'),null);
+  s.doc.getElementById('loginPassword').value='synthetic-password';s.doc.getElementById('loginButton').click();await new Promise(r=>setTimeout(r,30));
+  const login=s.calls.find(c=>c.url==='/api/login'&&JSON.parse(c.request.body).password==='synthetic-password');assert.equal(login.request.headers.Authorization,undefined);
+  assert.equal(s.win.localStorage.getItem('karry-login'),'karrys1.synthetic.sig');assert.equal(s.doc.getElementById('loginPassword').value,'');
+  assert.equal(s.calls.at(-1).request.headers.Authorization,'Bearer karrys1.synthetic.sig');assert.equal(s.doc.body.dataset.connection,'online');
+  assert.equal(s.doc.getElementById('logoutButton').hidden,false);assert.equal(s.win.localStorage.getItem('apiToken'),null);
+  s.doc.getElementById('logoutButton').click();assert.equal(s.win.localStorage.getItem('karry-login'),null);assert.equal(s.doc.getElementById('apiToken').value,'');assert.notEqual(s.doc.body.dataset.connection,'online');
+  s.dom.window.close();
+});

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import task_persistence
-from .auth_token import configured_token, token_matches
+from .auth_token import configured_token, owner_credential_ok
 from .knowledge_sync_service import (
     MAX_CONTENT_CHARS,
     ContextType,
@@ -30,7 +30,7 @@ def require_owner(
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is not configured")
     scheme, _, bearer = (authorization or "").strip().partition(" ")
     supplied = x_owner_token or (bearer if scheme.lower() == "bearer" else "")
-    if not token_matches(supplied, expected):
+    if not owner_credential_ok(supplied, expected):
         raise HTTPException(status_code=401, detail="Invalid owner token", headers={"WWW-Authenticate": "Bearer"})
 
 

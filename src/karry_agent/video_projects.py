@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from karry_video import Settings, VideoGuardMiddleware, VideoService, create_router
 from karry_video.errors import VideoError
 
-from .auth_token import configured_token, token_matches
+from .auth_token import configured_token, owner_credential_ok
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class KarryVideoGuard(VideoGuardMiddleware):
         headers = dict(scope.get("headers", []))
         scheme, _, supplied = headers.get(b"authorization", b"").strip().partition(b" ")
         token = configured_token()
-        if not token or scheme.lower() != b"bearer" or not token_matches(supplied, token):
+        if not token or scheme.lower() != b"bearer" or not owner_credential_ok(supplied, token):
             code, status = ("unauthorized", 401) if token else ("api_token_not_configured", 503)
             message = "有効なKARRY_API_TOKENのBearer認証が必要です。" if token else "KARRY_API_TOKENを設定してください。"
             return await JSONResponse({"detail": {"code": code, "message": message}}, status_code=status, headers={"Cache-Control": "no-store"})(scope, receive, send)

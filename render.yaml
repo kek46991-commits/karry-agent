@@ -25,6 +25,8 @@ services:
         sync: false
       - key: KARRY_API_TOKEN
         sync: false
+      - key: KARRY_LOGIN_ACCOUNTS
+        sync: false
       - key: KARRY_ALLOW_SHELL
         value: "0"
       - key: KARRY_OPTIMUS_GITHUB_TOKEN

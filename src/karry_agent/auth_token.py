@@ -19,3 +19,12 @@ def token_matches(supplied: str | bytes | None, expected: str | None = None) -> 
     expected = configured_token() if expected is None else normalize_token(expected)
     supplied = normalize_token(supplied)
     return bool(expected) and bool(supplied) and secrets.compare_digest(supplied.encode(), expected.encode())
+
+
+def owner_credential_ok(supplied: str | bytes | None, expected: str | None = None) -> bool:
+    """The owner token itself, or a session issued by an email + password login (``/api/login``)."""
+    from karry_agent import user_login
+
+    if isinstance(supplied, bytes):
+        supplied = supplied.decode("latin1")
+    return token_matches(supplied, expected) or user_login.session_email(supplied) is not None

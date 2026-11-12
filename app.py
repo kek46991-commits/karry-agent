@@ -52,7 +52,8 @@ from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import chat_product, video_suite_api, video_projects
 from karry_agent import feature_flags, chat_video, chat_webtoon
-from karry_agent.auth_token import configured_token, token_matches
+from karry_agent.auth_token import configured_token, owner_credential_ok
+from karry_agent import user_login
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
 
@@ -162,7 +163,7 @@ class ImageUploadGuard:
         headers = dict(scope.get("headers", []))
         token = configured_token()
         scheme, _, supplied = headers.get(b"authorization", b"").strip().partition(b" ")
-        if not token or scheme.lower() != b"bearer" or not token_matches(supplied, token):
+        if not token or scheme.lower() != b"bearer" or not owner_credential_ok(supplied, token):
             status = 503 if not token else 401
             return await JSONResponse({"detail": "KARRY_API_TOKEN is not configured" if not token else "Invalid bearer token"}, status_code=status)(scope, receive, send)
         try:
@@ -445,7 +446,7 @@ def require_api_auth(credentials: Annotated[HTTPAuthorizationCredentials | None,
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for persistent task access")
     if not token and os.getenv("KARRY_ALLOW_SHELL") == "1":
         raise HTTPException(status_code=503, detail="KARRY_API_TOKEN is required for shell execution")
-    if token and (credentials is None or not token_matches(credentials.credentials, token)):
+    if token and (credentials is None or not owner_credential_ok(credentials.credentials, token)):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
@@ -1317,6 +1318,33 @@ app.include_router(_SHOP_OWNER)
 @app.get("/api/gemini/status", dependencies=[Depends(require_tool_auth)])
 def gemini_status():
     return JSONResponse(_gemini_status(), headers={"Cache-Control": "no-store"})
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+@app.get("/api/login")
+def login_status():
+    return JSONResponse({"enabled": bool(configured_token()) and user_login.login_enabled()}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/login")
+def login_with_password(request: LoginRequest, http_request: Request):
+    """Email + password → signed session token usable as the owner bearer token."""
+    if not configured_token() or not user_login.login_enabled():
+        raise HTTPException(status_code=503, detail="メールアドレスでのログインは設定されていません")
+    email = user_login.normalize_email(request.email)
+    keys = (f"ip:{http_request.client.host if http_request.client else '-'}", f"email:{email}")
+    if user_login.throttled(*keys):
+        raise HTTPException(status_code=429, detail="ログインの失敗が続いたため、しばらくしてからお試しください")
+    session = user_login.login(email, request.password)
+    if not session:
+        user_login.record_failure(*keys)
+        raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが違います")
+    user_login.clear_failures(f"email:{email}")
+    return JSONResponse({"token": session, "email": email}, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/admin/me", dependencies=[Depends(require_tool_auth)])

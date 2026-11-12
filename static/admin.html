@@ -30,7 +30,7 @@
   <main>
     <section id="login" aria-labelledby="loginTitle">
       <h2 id="loginTitle">管理者ログイン</h2>
-      <form id="loginForm"><label>管理者トークン（KARRY_API_TOKEN）<input id="adminToken" type="password" autocomplete="current-password" required maxlength="500"></label>
+      <form id="loginForm"><label>メールアドレス<input id="adminEmail" type="email" autocomplete="username" maxlength="254"></label><label>パスワード または 管理者トークン（KARRY_API_TOKEN）<input id="adminToken" type="password" autocomplete="current-password" required maxlength="1024"></label>
         <div class="actions"><button id="loginSubmit" type="submit">ログイン</button></div><p id="loginStatus" class="status" aria-live="polite"></p></form>
       <p class="hint">サイト管理者だけが使えます。トークンはこのタブを閉じると消えます。</p>
     </section>
@@ -198,7 +198,14 @@
       const es=log.entries||[];$('log').replaceChildren(...(es.length?es.map(e=>{const r=row(`${new Date(Number(e.at||e.created_at||0)*1000).toLocaleTimeString('ja-JP')}｜${e.action}｜${e.verdict||e.status}｜${e.product_id||'—'} ${e.title||''}${e.message?`｜${e.message}`:''}`);r.dataset.level=e.status==='error'?'error':e.verdict||e.status;return r;}):[empty('まだ記録はありません。')]));
     }catch(_){}
   }
-  $('loginForm').addEventListener('submit',event=>{event.preventDefault();login($('adminToken').value);});
+  async function loginWithEmail(email,password){
+    $('loginSubmit').disabled=true;$('loginStatus').textContent='確認しています…';
+    try{const response=await fetch('/api/login',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});const data=await response.json().catch(()=>({}));
+      if(!response.ok||typeof data.token!=='string'){$('loginStatus').textContent=typeof data.detail==='string'?data.detail:'ログインできませんでした。';return;}
+      $('adminToken').value='';await login(data.token);}
+    finally{$('loginSubmit').disabled=false;}
+  }
+  $('loginForm').addEventListener('submit',event=>{event.preventDefault();const email=$('adminEmail').value.trim();if(email)loginWithEmail(email,$('adminToken').value);else login($('adminToken').value);});
   $('logout').addEventListener('click',()=>logout('ログアウトしました。'));
   $('evaluate').addEventListener('click',evaluate);
   $('productUrl').addEventListener('change',autofill);
