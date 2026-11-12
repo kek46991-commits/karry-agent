@@ -58,6 +58,21 @@ def wrap(text: str, font: ImageFont.FreeTypeFont, width: int, max_lines: int = 6
     return lines
 
 
+def fit_font(font_file: str, text: str, base_size: int, width: int, max_lines: int,
+             min_size: int = 14) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+    """Largest size <= base_size whose wrapped text fits in max_lines without
+    dropping characters; shrinks the font instead of truncating the dialogue."""
+    size = base_size
+    while size > min_size:
+        font = ImageFont.truetype(font_file, size)
+        lines = wrap(text, font, width, max_lines=10_000)
+        if len(lines) <= max_lines:
+            return font, lines
+        size -= 2
+    font = ImageFont.truetype(font_file, min_size)
+    return font, wrap(text, font, width, max_lines)
+
+
 def busy_map(image: Image.Image, cols: int = 3, rows: int = 6) -> list[list[float]]:
     """Edge density per grid cell: high values mean detailed art (faces, glasses) to avoid."""
     small = image.convert("L").resize((cols * 40, rows * 40)).filter(ImageFilter.FIND_EDGES)
@@ -147,8 +162,8 @@ def render_panel(image: Image.Image, elements: list[dict[str, Any]], font_file: 
     w, h = base.size
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    size = max(18, w // 26)
-    font = ImageFont.truetype(font_file or font_path(), size)
+    base_size = max(18, w // 26)
+    resolved = font_file or font_path()
     stroke = max(3, w // 300)
     report = []
     for element, box in layout(base, elements):
@@ -156,13 +171,13 @@ def render_panel(image: Image.Image, elements: list[dict[str, Any]], font_file: 
         x0, y0, x1, y1 = box
         if tag == "narration":
             draw.rectangle(box, fill=(10, 10, 20, 170))
-            lines = wrap(element["text"], font, int((x1 - x0) * 0.9), 3)
-            color = (255, 255, 255, 255)
+            width, max_lines, color = int((x1 - x0) * 0.9), 3, (255, 255, 255, 255)
         else:
             draw_shape(draw, tag, box, (w / 2, h / 2), stroke)
-            lines = wrap(element["text"], font, int((x1 - x0) * (0.62 if tag == "shout" else 0.7)), 4)
-            color = (*INK, 255)
-        line_h = int(size * 1.25)
+            width = int((x1 - x0) * (0.62 if tag == "shout" else 0.7))
+            max_lines, color = 4, (*INK, 255)
+        font, lines = fit_font(resolved, element["text"], base_size, width, max_lines)
+        line_h = int(font.size * 1.25)
         ty = (y0 + y1) / 2 - line_h * len(lines) / 2
         for line in lines:
             tw = font.getlength(line)
