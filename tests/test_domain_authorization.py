@@ -62,14 +62,14 @@ def test_authorization_rejects_wrong_approval_link_and_session(monkeypatch):
         raise AssertionError("cross-session verification unexpectedly succeeded")
 
 
-def test_authorization_link_is_valid_for_24_hours(monkeypatch):
+def test_authorization_link_is_valid_for_30_days(monkeypatch):
     monkeypatch.setattr(domain_authorization, "_AUTHORIZATIONS", {})
     record, _ = domain_authorization.create(
         "session-1",
         "https://example.com",
         now=100,
     )
-    assert record.expires_at == 100 + (24 * 60 * 60)
+    assert record.expires_at == 100 + (30 * 24 * 60 * 60)
 
 
 def test_hack_domain_authorization_api_and_public_consent_page(monkeypatch):
