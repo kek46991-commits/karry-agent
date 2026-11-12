@@ -50,6 +50,14 @@ def get_google_credentials(scopes: list[str] | None = None, *, photos: bool = Fa
         if os.getenv(name):
             info = parse_secret_json(os.environ[name], name)
             break
+    linked = None
+    try:
+        from . import google_oauth
+        linked = google_oauth.load_token()
+    except Exception:
+        linked = None
+    if linked and linked.get("refresh_token") and (photos or info is None):
+        info = {k: linked[k] for k in ("client_id", "client_secret", "refresh_token") if linked.get(k)}
     if info is None and all(os.getenv(name) for name in (
         "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"
     )):
