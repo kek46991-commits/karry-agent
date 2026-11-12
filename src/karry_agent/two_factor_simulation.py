@@ -4,9 +4,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+_INTENT = r"(?:デモ|シミュレーション|攻撃|検証|テスト|試験|ドリル|練習)"
+_SUBJECT = r"(?:二段階認証|2段階認証|2FA|MFA|ワンタイムコード|OTP)"
 _REQUEST_RE = re.compile(
-    r"(?:二段階認証|2FA|MFA).*(?:デモ|シミュレーション|攻撃|検証)|"
-    r"(?:デモ|シミュレーション|攻撃|検証).*(?:二段階認証|2FA|MFA)",
+    rf"{_SUBJECT}.*{_INTENT}|{_INTENT}.*{_SUBJECT}",
     re.IGNORECASE,
 )
 SYNTHETIC_OTP = "482731"
