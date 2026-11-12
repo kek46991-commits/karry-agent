@@ -30,6 +30,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult, gemini_status as _gemini_status
+from karry_agent.hack_task_mode import scope as hack_task_scope
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
 from karry_agent.tools import add_calendar_event, build_default_registry
@@ -979,7 +980,10 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         if result is None:
             if agent is None:
                 agent = app.dependency_overrides.get(get_agent, get_agent)()
-            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
+            with _STATE_LOCK:
+                task_title = _SESSION_META.get(session_id or "", {}).get("title")
+            with hack_task_scope(task_title, request.prompt):
+                result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"

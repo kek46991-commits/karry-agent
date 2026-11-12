@@ -1,0 +1,147 @@
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+import app as app_module
+from karry_agent import pentest_orchestra, tools
+from karry_agent.core import AgentCore, AgentResult
+from karry_agent.hack_task_mode import (
+    PENTEST_TOOL_NAME,
+    authorize_target,
+    explicit_targets,
+    is_hack_task,
+    scope,
+)
+
+
+def _tool_names(agent: AgentCore) -> set[str]:
+    declarations = agent._config().tools[0].function_declarations
+    return {item.name if hasattr(item, "name") else item["name"] for item in declarations}
+
+
+def test_only_exact_hack_title_enables_mode():
+    assert is_hack_task("ハック")
+    assert not is_hack_task(" ハック")
+    assert not is_hack_task("ハック ")
+    assert not is_hack_task("ハック作業")
+    assert not is_hack_task("hack")
+
+
+def test_explicit_targets_extracts_http_urls_without_sentence_punctuation():
+    assert explicit_targets("対象は https://sandbox.example.com/api/ です。") == {
+        "https://sandbox.example.com/api"
+    }
+
+
+def test_target_authorization_is_request_scoped():
+    with scope("通常", "https://sandbox.example.com"):
+        try:
+            authorize_target("https://sandbox.example.com")
+        except PermissionError as exc:
+            assert "「ハック」" in str(exc)
+        else:
+            raise AssertionError("normal task unexpectedly authorized")
+
+    with scope("ハック", "https://sandbox.example.com/api を検証"):
+        assert authorize_target("https://sandbox.example.com/api/") == "https://sandbox.example.com/api"
+        try:
+            authorize_target("https://other.example.com")
+        except PermissionError as exc:
+            assert "メッセージ本文" in str(exc)
+        else:
+            raise AssertionError("unmentioned target unexpectedly authorized")
+
+
+def test_pentest_tool_is_hidden_outside_hack_task():
+    agent = AgentCore(client=SimpleNamespace(), model_id="test-model")
+    assert PENTEST_TOOL_NAME not in _tool_names(agent)
+    with scope("通常", "https://sandbox.example.com"):
+        assert PENTEST_TOOL_NAME not in _tool_names(agent)
+
+
+def test_pentest_tool_is_exposed_only_inside_hack_task():
+    agent = AgentCore(client=SimpleNamespace(), model_id="test-model")
+    with scope("ハック", "https://sandbox.example.com を検証"):
+        assert PENTEST_TOOL_NAME in _tool_names(agent)
+        assert "任意シェル" in agent._config().system_instruction
+    assert PENTEST_TOOL_NAME not in _tool_names(agent)
+
+
+def test_pentest_tool_rejects_normal_task_without_network(monkeypatch):
+    called = False
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("network must not be reached")
+
+    monkeypatch.setattr(pentest_orchestra, "run_authorized_pentest", fail_if_called)
+    with scope("通常", "https://sandbox.example.com"):
+        result = tools.run_authorized_pentest("https://sandbox.example.com")
+    assert result["status"] == "error"
+    assert not called
+
+
+def test_pentest_tool_runs_bounded_orchestra_for_explicit_target(monkeypatch):
+    seen = []
+    report = pentest_orchestra.PentestReport(
+        target="https://sandbox.example.com",
+        started_at="2026-01-01T00:00:00Z",
+        probes_run=1,
+        held=1,
+        authorization="explicit test authorization",
+    )
+
+    def fake_run(target):
+        seen.append(target)
+        return report
+
+    monkeypatch.setattr(pentest_orchestra, "run_authorized_pentest", fake_run)
+    with scope("ハック", "https://sandbox.example.com/ を検証して"):
+        result = tools.run_authorized_pentest("https://sandbox.example.com")
+    assert seen == ["https://sandbox.example.com"]
+    assert result["status"] == "completed"
+    assert result["guards_ok"] is True
+    assert "自己脆弱性検証レポート" in result["report_markdown"]
+
+
+def test_chat_request_binds_tool_visibility_to_selected_task_title(monkeypatch):
+    monkeypatch.setenv("KARRY_TASK_STORAGE", "memory")
+    monkeypatch.setenv("KARRY_API_TOKEN", "synthetic-owner")
+    for name in (
+        "_RUNS", "_SESSIONS", "_PRIVATE_SESSIONS", "_PENDING_CALENDAR",
+        "_SESSION_META", "_SESSION_LOCKS", "_SESSION_APPROVALS",
+    ):
+        monkeypatch.setattr(app_module, name, {})
+
+    observed: list[set[str]] = []
+
+    class CapturingAgent(AgentCore):
+        def __init__(self):
+            super().__init__(client=SimpleNamespace(), model_id="test-model")
+
+        def run(self, prompt, **kwargs):
+            observed.append(_tool_names(self))
+            return AgentResult(text="ok", steps=1, tool_calls=0)
+
+    previous = dict(app_module.app.dependency_overrides)
+    app_module.app.dependency_overrides[app_module.get_agent] = CapturingAgent
+    client = TestClient(app_module.app)
+    headers = {"Authorization": "Bearer synthetic-owner"}
+    try:
+        normal = client.post("/api/sessions", headers=headers, json={"title": "通常"}).json()
+        hack = client.post("/api/sessions", headers=headers, json={"title": "ハック"}).json()
+        assert client.post("/api/chat", headers=headers, json={
+            "session_id": normal["session_id"],
+            "prompt": "https://sandbox.example.com を検証",
+        }).status_code == 200
+        assert client.post("/api/chat", headers=headers, json={
+            "session_id": hack["session_id"],
+            "prompt": "https://sandbox.example.com を検証",
+        }).status_code == 200
+    finally:
+        app_module.app.dependency_overrides.clear()
+        app_module.app.dependency_overrides.update(previous)
+
+    assert PENTEST_TOOL_NAME not in observed[0]
+    assert PENTEST_TOOL_NAME in observed[1]
