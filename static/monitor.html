@@ -53,7 +53,7 @@
 (() => {
   const $ = id => document.getElementById(id), KEY = 'karry-monitor-token', MAX_ROWS = 500;
   const KINDS = {http:'HTTP', agent:'エージェント', tool:'ツール', clone:'クローン', mobile:'モバイル', log:'ログ', control:'操作'};
-  const state = {token:'', after:0, events:[], controller:null, retry:null};
+  const state = {token:'', after:0, startedAt:null, events:[], controller:null, retry:null};
   const headers = () => ({Authorization:`Bearer ${state.token}`});
 
   async function api(path, options = {}) {
@@ -70,6 +70,8 @@
   }
 
   function renderState(s) {
+    if (state.startedAt !== null && s.started_at !== state.startedAt) { state.after = 0; state.events = []; renderFeed(); }
+    state.startedAt = s.started_at;
     const c = s.components || {}, agent = c.agent || {}, mobile = c.mobile || {}, clones = c.clones || {};
     const levels = s.levels || {};
     $('cards').replaceChildren(
@@ -135,6 +137,7 @@
     if (!state.token) return;
     state.controller = new AbortController();
     try {
+      renderState(await api('/state'));
       const res = await fetch(`/api/monitor/stream?after=${state.after}`, {headers:headers(), cache:'no-store', signal:state.controller.signal});
       if (res.status === 401 || res.status === 403) return logout('トークンが正しくありません。');
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -149,7 +152,7 @@
         while ((cut = buffer.indexOf('\n\n')) >= 0) { handle(buffer.slice(0, cut)); buffer = buffer.slice(cut + 2); }
       }
     } catch (error) {
-      if (error.name === 'AbortError') return;
+      if (error.name === 'AbortError' || error.message === 'unauthorized') return;
       $('conn').textContent = '再接続中…'; $('conn').className = 'warning';
     }
     if (state.token) state.retry = setTimeout(connect, 1500);
@@ -171,7 +174,7 @@
   }
 
   function logout(message = '') {
-    state.token = ''; state.after = 0; state.events = [];
+    state.token = ''; state.after = 0; state.startedAt = null; state.events = [];
     if (state.controller) state.controller.abort();
     clearTimeout(state.retry); sessionStorage.removeItem(KEY);
     $('feed').replaceChildren(); $('dash').hidden = true; $('login').hidden = false;
