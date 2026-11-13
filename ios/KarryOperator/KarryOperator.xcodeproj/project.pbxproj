@@ -38,6 +38,7 @@
 		DF1EAD762407028C4E874790 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22DA6B08B307CED723CCC71E /* BackendClient.swift */; };
 		EB16280D93568D8A34154030 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
 		F9FA97B09C1C89330B85CABB /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
+		FE6F5CD150681D760A4CA15B /* AppIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7402113E0F36E32A8371046 /* AppIdentityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 		962F924F15C18565976B2848 /* KarryOperatorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KarryOperatorApp.swift; sourceTree = "<group>"; };
 		9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActionExecutorTests.swift; sourceTree = "<group>"; };
 		A76520F348F1A1ECA7A0E0F5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B7402113E0F36E32A8371046 /* AppIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentityTests.swift; sourceTree = "<group>"; };
 		D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemServices.swift; sourceTree = "<group>"; };
 		E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPlannerTests.swift; sourceTree = "<group>"; };
 		EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClientTests.swift; sourceTree = "<group>"; };
@@ -109,6 +111,7 @@
 			isa = PBXGroup;
 			children = (
 				E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */,
+				B7402113E0F36E32A8371046 /* AppIdentityTests.swift */,
 				EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */,
 				5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */,
 				6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */,
@@ -294,6 +297,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1ACC94EC67EE08D0C42F806D /* ActionPlannerTests.swift in Sources */,
+				FE6F5CD150681D760A4CA15B /* AppIdentityTests.swift in Sources */,
 				359F3CFFF2BCDA18457D9DA4 /* BackendClientTests.swift in Sources */,
 				1A050F19C1DA26116A813726 /* BackendIntegrationTests.swift in Sources */,
 				BDE2793E0CDED2C5C148269E /* KeychainTokenStoreTests.swift in Sources */,
@@ -417,11 +421,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = KarryOperator/Info.plist;
+				KARRY_BUNDLE_ID = io.github.kek46991.KarryOperator;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -434,11 +439,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				KARRY4_BUNDLE_ID = io.github.kek46991.KarryOperator4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator4;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY4_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -452,11 +458,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = KarryOperator/Info.plist;
+				KARRY_BUNDLE_ID = io.github.kek46991.KarryOperator;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -553,11 +560,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				KARRY4_BUNDLE_ID = io.github.kek46991.KarryOperator4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator4;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY4_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
 				TARGETED_DEVICE_FAMILY = 1;

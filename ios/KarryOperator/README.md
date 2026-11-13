@@ -42,6 +42,18 @@ xcodebuild -project KarryOperator.xcodeproj -scheme KarryOperator4 \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
+Xcodeを開かずにビルドする場合は、リポジトリ直下から `scripts/build_ios.py` を使います。出力先には新しい（空の）絶対パスを指定し、結果は `result.json` に書かれます（成功で終了コード0、ブロック3、失敗1）。
+
+```bash
+python3 scripts/build_ios.py --output "$PWD/out/ios-sim" --mode simulator --test
+python3 scripts/build_ios.py --output "$PWD/out/ios-unsigned" --mode unsigned
+python3 scripts/build_ios.py --output "$PWD/out/ios-adhoc" --mode adhoc   # 署名素材がなければ blocked
+```
+
+- Bundle ID は `--bundle-id`（既定: `com.kishi.karryagent2`、`--scheme KarryOperator4` では `com.kishi.karryagent4`）で、`KARRY_BUNDLE_ID` / `KARRY4_BUNDLE_ID` ビルド設定として渡されます。アプリは実行時の Bundle ID を Keychain 名と自アプリ判定に使います。
+- `unsigned` は署名なしの `.app` で、IPAではなくiPhoneには入りません。
+- `adhoc` は、キーチェーンにある期限内の Apple Distribution 証明書（秘密鍵つき）と、Bundle ID・Team・登録端末が合う Ad Hoc プロファイル（`--profile` か Xcode のプロファイルフォルダ）を確認してから archive / export（`method: release-testing`）します。見つからなければ `blocked` で終わり、署名なしに切り替えることはありません。
+
 実バックエンドとの結合テスト（`BackendIntegrationTests`）は環境変数があるときだけ実行されます。
 
 ```bash

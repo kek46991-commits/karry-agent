@@ -16,7 +16,7 @@ python3 scripts/mobile_release.py --platform android --output dist/android-test
 
 ## iOS（Mac + Xcode）
 
-Xcode、利用可能なiOS Simulator runtime、およびXcodeGenが必要です。MacのiCloudアカウントを変更しません。
+Xcodeが必要です。Simulatorのビルド・テストには利用可能なiOS Simulator runtimeも必要です。生成済みXcodeプロジェクトを同梱しているため、通常のビルドにXcodeGenは不要です。MacのiCloudアカウントを変更しません。
 
 ```sh
 # Appleアカウント不要: Simulator向け、XCTestも実行
@@ -27,12 +27,14 @@ python3 scripts/mobile_release.py --platform ios --ios-mode simulator --ios-test
 python3 scripts/mobile_release.py --platform ios --ios-mode unsigned \
   --bundle-id com.kishi.karryagent2 --output dist/ios-unsigned
 
-# 4をビルドする場合はschemeとbundle IDを両方指定
+# 4をビルド。bundle IDの省略時もcom.kishi.karryagent4を自動選択
 python3 scripts/mobile_release.py --platform ios --ios-scheme KarryOperator4 \
   --bundle-id com.kishi.karryagent4 --output dist/ios-agent4
 ```
 
-署名済みアドホックには、対象bundle ID・Team・登録端末に一致する期限内のプロビジョニングプロファイルと、その証明書に対応する秘密鍵がMacのキーチェーンに必要です。利用可能な証明書がない場合は **blocked** となり、署名なしへの暗黙の切り替えはしません。
+署名済みアドホックには、対象bundle ID・Team・登録端末に一致する期限内のプロビジョニングプロファイルと、その証明書に対応する秘密鍵がMacのキーチェーンに必要です。Agent 4にはXCTest用ターゲットがないため、`--ios-test` はAgent 2で実行してください。
+
+利用可能な証明書がない場合は **blocked** となり、署名なしへの暗黙の切り替えはしません。
 
 ```sh
 python3 scripts/mobile_release.py --platform ios --ios-mode adhoc \

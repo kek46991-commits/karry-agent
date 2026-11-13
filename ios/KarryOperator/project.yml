@@ -19,7 +19,8 @@ targets:
       - KarryOperator
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.kek46991.KarryOperator
+        KARRY_BUNDLE_ID: io.github.kek46991.KarryOperator
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_ID)
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: KarryOperator/Info.plist
@@ -49,7 +50,8 @@ targets:
           - Info.plist
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.kek46991.KarryOperator4
+        KARRY4_BUNDLE_ID: io.github.kek46991.KarryOperator4
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY4_BUNDLE_ID)
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: KarryOperator4/Info.plist
