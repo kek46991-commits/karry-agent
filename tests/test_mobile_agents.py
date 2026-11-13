@@ -251,6 +251,56 @@ def test_android_observer_token_is_scoped_to_one_operation_device(monkeypatch):
     assert wrong_role.status_code == 401
 
 
+def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):
+    api, headers = client(monkeypatch)
+    pairs = (
+        ("observer-android", "operation-iphone"),
+        ("observer-android-3", "operation-iphone-4"),
+    )
+    observer_tokens: dict[str, dict[str, str]] = {}
+    event_ids: dict[str, str] = {}
+
+    for observer_id, operation_id in pairs:
+        enroll(api, headers, operation_id)
+        observer = api.post(
+            "/api/mobile-agent/devices/enroll",
+            headers=headers,
+            json={
+                "device_id": observer_id,
+                "role": "observer",
+                "observed_device_id": operation_id,
+            },
+        )
+        assert observer.status_code == 201
+        observer_tokens[observer_id] = {"X-Device-Token": observer.json()["device_token"]}
+        action = api.post(
+            "/api/mobile-agent/actions",
+            headers=headers,
+            json={
+                "device_id": operation_id,
+                "action": "choose_photo",
+                "payload": {"selection_limit": 1},
+            },
+        )
+        assert action.status_code == 201
+        event_ids[operation_id] = action.json()["id"]
+
+    for observer_id, operation_id in pairs:
+        visible = api.get(
+            f"/api/mobile-agent/observers/{observer_id}/devices/{operation_id}/actions",
+            headers=observer_tokens[observer_id],
+        )
+        assert visible.status_code == 200
+        assert [event["id"] for event in visible.json()["actions"]] == [event_ids[operation_id]]
+
+        other_operation_id = next(candidate for _, candidate in pairs if candidate != operation_id)
+        hidden = api.get(
+            f"/api/mobile-agent/observers/{observer_id}/devices/{other_operation_id}/actions",
+            headers=observer_tokens[observer_id],
+        )
+        assert hidden.status_code == 401
+
+
 def test_mobile_event_log_is_bounded():
     coordinator = mobile_agents.MobileAgentCoordinator(max_events=2, clock=lambda: 10)
     first = coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.Preferences"})

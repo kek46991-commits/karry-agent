@@ -1,4 +1,4 @@
-# Karry Observer (Android 観察・診断アプリ)
+# Karry-Agent 1 / Karry-Agent 3 (Android 観察・診断アプリ)
 
 Android側の観察エージェントです。iPhoneの操作エージェント(Swift/App Intents)が
 Karry-Agentへ送った操作イベントとエラー診断だけを、オーナー認証のうえで表示します。
@@ -13,9 +13,16 @@ Karry-Agentへ送った操作イベントとエラー診断だけを、オーナ
 - `GET /api/mobile-agent/observers/{observer_id}/devices/{device_id}/actions`
 - `GET /api/mobile-agent/observers/{observer_id}/devices/{device_id}/diagnostics`
 
+同じ監視コードから、独立インストールできる2つのAPKを生成します。
+
+- `agent1`: Karry-Agent 1。既定で `operation-iphone` を観察。
+- `agent3`: Karry-Agent 3。別application IDで、既定で `operation-iphone-4` を観察。
+
 ## ビルド
 ```
 cd android-observer
-./gradlew :app:testDebugUnitTest :app:assembleDebug
+./gradlew \
+  :app:testAgent1DebugUnitTest :app:assembleAgent1Debug \
+  :app:testAgent3DebugUnitTest :app:assembleAgent3Debug
 ```
 エミュレーターからローカルのKarry-Agentへ接続する場合は `http://10.0.2.2:<port>` を使用します。

@@ -1,5 +1,4 @@
 <resources>
-    <string name="app_name">Karry-Agent 1</string>
     <string name="server_url">Gimmy-Agent URL</string>
     <string name="owner_token">初回登録用オーナートークン</string>
     <string name="observer_id">Android観察端末ID</string>

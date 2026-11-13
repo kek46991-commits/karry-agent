@@ -17,6 +17,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "agent"
+    productFlavors {
+        create("agent1") {
+            dimension = "agent"
+            resValue("string", "app_name", "Karry-Agent 1")
+            buildConfigField("String", "DEFAULT_OBSERVER_ID", "\"observer-android\"")
+            buildConfigField("String", "DEFAULT_OPERATION_ID", "\"operation-iphone\"")
+        }
+        create("agent3") {
+            dimension = "agent"
+            applicationIdSuffix = ".agent3"
+            resValue("string", "app_name", "Karry-Agent 3")
+            buildConfigField("String", "DEFAULT_OBSERVER_ID", "\"observer-android-3\"")
+            buildConfigField("String", "DEFAULT_OPERATION_ID", "\"operation-iphone-4\"")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -33,6 +50,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    buildFeatures {
+        buildConfig = true
     }
 }
 

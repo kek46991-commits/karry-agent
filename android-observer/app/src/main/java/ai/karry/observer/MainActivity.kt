@@ -80,8 +80,8 @@ class MainActivity : AppCompatActivity() {
             setStatus("登録済み: ${it.operationId} を観察中")
         } ?: run {
             serverUrl.setText("https://")
-            observerId.setText("observer-android")
-            operationId.setText("operation-iphone")
+            observerId.setText(BuildConfig.DEFAULT_OBSERVER_ID)
+            operationId.setText(BuildConfig.DEFAULT_OPERATION_ID)
             setStatus("未登録")
         }
         updateControls()
