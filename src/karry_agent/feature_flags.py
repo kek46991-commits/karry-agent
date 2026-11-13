@@ -12,7 +12,7 @@ import os
 from starlette.responses import JSONResponse
 
 WEBTOON_PREFIX = "/api/webtoon"
-EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/autonomy", WEBTOON_PREFIX)
+EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/autonomy", "/monitor", "/companion", "/device-sw.js", WEBTOON_PREFIX)
 
 
 def _flag(name: str) -> bool:

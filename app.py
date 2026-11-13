@@ -1377,9 +1377,10 @@ app.include_router(_SHOP_PUBLIC)
 app.include_router(_SHOP_OWNER)
 
 from karry_agent.autonomy import AutonomousRunner, JsonRunStore, MemoryRunStore, MonitorGate, Subtask  # noqa: E402
+from karry_agent.autonomy.devices import DeviceRegistry  # noqa: E402
 from karry_agent.autonomy import api as autonomy_api  # noqa: E402
 
-_AUTONOMY: dict[str, AutonomousRunner] = {}
+_AUTONOMY: dict[str, Any] = {}
 _AUTONOMY_LOCK = threading.Lock()
 _AUTONOMY_MEDIA_LOCK = threading.Lock()
 
@@ -1422,7 +1423,39 @@ def autonomy_runner() -> AutonomousRunner:
         return _AUTONOMY["runner"]
 
 
-app.include_router(autonomy_api.build_router(require_tool_auth, lambda: autonomy_runner()))
+def autonomy_devices() -> DeviceRegistry:
+    with _AUTONOMY_LOCK:
+        if "devices" not in _AUTONOMY:
+            memory = os.getenv("KARRY_AUTONOMY_STORAGE", "file").strip().lower() == "memory"
+            root = Path(os.getenv("KARRY_AUTONOMY_DIR", "").strip() or "data/autonomy")
+            _AUTONOMY["devices"] = DeviceRegistry(None if memory else root / "devices.json")
+        return _AUTONOMY["devices"]
+
+
+app.include_router(autonomy_api.build_router(require_tool_auth, lambda: autonomy_runner(), lambda: autonomy_devices()))
+
+_DEVICE_PAGE_HEADERS = {
+    "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
+    "Content-Security-Policy": ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                                "img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+                                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+}
+
+
+@app.get("/monitor", include_in_schema=False)
+def monitor_page():
+    return FileResponse(STATIC_DIR / "monitor.html", headers={**_DEVICE_PAGE_HEADERS, "Permissions-Policy": "display-capture=()"})
+
+
+@app.get("/companion", include_in_schema=False)
+def companion_page():
+    return FileResponse(STATIC_DIR / "companion.html", headers={**_DEVICE_PAGE_HEADERS, "Permissions-Policy": "display-capture=(self)"})
+
+
+@app.get("/device-sw.js", include_in_schema=False)
+def device_service_worker():
+    return FileResponse(STATIC_DIR / "device-sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/gemini/status", dependencies=[Depends(require_tool_auth)])

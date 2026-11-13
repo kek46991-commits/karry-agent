@@ -1,0 +1,14 @@
+{
+  "name": "Karry 見守り",
+  "short_name": "見守り",
+  "start_url": "/monitor",
+  "scope": "/monitor",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#102a43",
+  "lang": "ja",
+  "icons": [
+    {"src": "/static/icons/device-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/static/icons/device-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
