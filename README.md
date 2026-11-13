@@ -297,6 +297,17 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 
 未知のコード障害のAI修復候補生成とGitHubドラフトPR提出は明示設定で有効化できます。既定は無効で、本番checkoutやmainを無検証で書き換えません。状態・診断ログは認証付きの `/api/agent/healing` と `/api/agent/healing/incidents` から確認できます。詳しくは [docs/self-healing.md](docs/self-healing.md) を参照してください。
 
+### iPhone操作・診断エージェント
+
+所有者が管理するiPhone向けに、許可済みApp Intentだけを受け取る操作エージェントと、失敗ログだけを読む診断エージェントのイベントAPIを提供します。任意コード、端末全体の読み取り、メッセージ・履歴・カメラの裏側での収集は行いません。APIとiOS連携仕様は [docs/mobile-agent-pair.md](docs/mobile-agent-pair.md)、iPhone操作アプリは [ios/KarryOperator](ios/KarryOperator/README.md) を参照してください。
+
+App Storeを使わずに試す場合は、iPhoneのSafariで `/operator` を開き、共有ボタンから「ホーム画面に追加」するとWeb版の操作アプリ（PWA）として使えます。
+
+- 登録はホーム画面のアイコンから開いた画面で行います（Safariのタブとは保存領域が別です）。オーナートークンは保存せず、端末トークンだけをブラウザのlocalStorageに保存します。Keychainほど安全ではないため、本番運用ではSwift版を推奨します。
+- 受け取ったアクションは「実行する」を押すまで実行しません。確認は表示中の10秒ごと、または手動です。
+- Web版の対応: URL（HTTPSのみ）、決まったAppleアプリを開く、カレンダー（.icsで追加画面を開く）、現在地（座標は報告しません）、ファイル・写真の選択（件数と種類のみ報告）、SMS下書き（送信はユーザーが行います）。リマインダーは未対応で `intent_unavailable` を報告します。
+- 位置情報などのブラウザ機能にはHTTPSが必要です。
+
 ### Optimus Core（自己進化・クローン生成）
 
 > 実験機能（`KARRY_EXPERIMENTAL_FEATURES=1` のときだけ有効）。
