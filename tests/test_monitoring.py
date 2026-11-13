@@ -126,3 +126,10 @@ def test_pause_holds_queued_mobile_actions_but_accepts_reports(monkeypatch):
 
     api.post("/api/monitor/control", headers=headers, json={"action": "resume"})
     assert api.post("/api/mobile-agent/devices/iphone/claim", headers=device).json()["action"]["id"] == queued[1]
+
+
+def test_summaries_mask_recognisable_keys_that_are_not_in_the_environment(monkeypatch):
+    api, headers = client(monkeypatch)
+    key = "AIza" + "Q" * 35
+    monitoring.hub.publish("log", f"Gemini call failed for key {key}")
+    assert key not in json.dumps(api.get("/api/monitor/events", headers=headers).json())

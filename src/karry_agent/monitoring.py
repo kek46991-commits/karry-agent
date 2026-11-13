@@ -58,7 +58,7 @@ def _starts_execution(path: str) -> bool:
 
 
 def _summary(text: Any) -> str:
-    value = str(redact(str(text)))
+    value = str(redact(mask_secrets(str(text))))
     return value if len(value) <= MAX_SUMMARY else value[: MAX_SUMMARY - 1] + "…"
 
 
