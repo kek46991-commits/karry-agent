@@ -40,6 +40,9 @@ Enrollment tokens are memory-only in the current prototype. A production deploym
 
 ## iPhone companion app contract
 
+The SwiftUI implementation of the operation side lives in [`ios/KarryOperator`](../ios/KarryOperator/README.md).
+
+
 The companion app should:
 
 - store `X-Device-Token` in Keychain;
