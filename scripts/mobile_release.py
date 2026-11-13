@@ -217,9 +217,13 @@ def prepare_ota(output: Path, ios: dict, base: str, bundle_id: str) -> dict:
         app = infos[0].removesuffix('Info.plist')
         if app + 'embedded.mobileprovision' not in archive.namelist() or app + '_CodeSignature/CodeResources' not in archive.namelist():
             raise ValueError('IPA lacks provisioning/signature metadata')
+        profile = archive.read(app + 'embedded.mobileprovision')
     directory = output / 'ota'
     directory.mkdir()
     shutil.copy2(ipas[0], directory / ipas[0].name)
+    start, end = profile.find(b'<?xml'), profile.rfind(b'</plist>')
+    devices = plistlib.loads(profile[start:end + 8]).get('ProvisionedDevices', []) if start >= 0 and end > start else []
+    (directory / 'provisioned_devices.json').write_text(json.dumps(sorted(str(d) for d in devices)) + '\n')
     manifest = {'items': [{'assets': [{'kind': 'software-package', 'url': base + '/' + quote(ipas[0].name)}],
         'metadata': {'bundle-identifier': bundle_id, 'bundle-version': str(info['CFBundleVersion']),
                      'kind': 'software', 'title': str(info.get('CFBundleDisplayName', 'Karry-Agent'))}}]}
@@ -228,7 +232,8 @@ def prepare_ota(output: Path, ios: dict, base: str, bundle_id: str) -> dict:
     link = 'itms-services://?action=download-manifest&url=' + quote(base + '/manifest.plist', safe='')
     (directory / 'install.html').write_text('<!doctype html><meta charset="utf-8"><title>Karry-Agent install</title>'
         '<h1>Registered test devices only</h1><p>Requires valid HTTPS hosting and an eligible registered device.</p>'
-        f'<a href="{escape(link, quote=True)}">Install signed test build</a>')
+        f'<a href="{escape(link, quote=True)}">Install signed test build</a>'
+        '<p>For automatic UDID enrollment, host this folder as KARRY_OTA_DIR with KARRY_OTA_ENROLLMENT=1 and share /ota/.</p>')
     return {'status': 'prepared_not_published', 'artifacts': ['ota'],
             'reason': 'Upload OTA files to the configured HTTPS host; no hosting/DNS changes were made.'}
 

@@ -99,6 +99,8 @@ python3 scripts/mobile_release.py --platform prepare --domain your-domain.com \
 
 署名済みアドホックが実際に成功した時のみ `--ota-base-url https://your-domain.com/ota` を追加すると、`ota/manifest.plist`、署名済みIPA、`ota/install.html` を生成します。未署名またはSimulatorのアプリからは生成しません。メタデータはexportされたIPAから取得します。
 
+`ota/provisioned_devices.json` に署名済みプロファイルの登録UDID一覧も出力します。この `ota/` を `KARRY_OTA_DIR` としてバックエンドに置き `KARRY_OTA_ENROLLMENT=1` にすると、`/ota/` から自動UDID取得とOTAインストールが使えます（[ota-enrollment.md](ota-enrollment.md)）。
+
 このコマンドはHTTPSサーバーへアップロードしません。URLで示した場所への公開、有効なTLS証明書、対象端末の登録とインストール承認が別途必要です。配布先が未指定の場合、OTA配布を完了したとは報告しません。
 
 ## 成果物と結果
