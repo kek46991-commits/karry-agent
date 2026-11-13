@@ -24,3 +24,8 @@ node_modules/
 ios/**/build/
 ios/**/xcuserdata/
 ios/**/*.xcuserstate
+
+# Apple signing credentials
+*.p8
+*.p12
+*.mobileprovision

@@ -5,7 +5,7 @@ Modes:
   simulator  Debug build for an auto-selected iPhone simulator.
   unsigned   Release build for generic iOS with CODE_SIGNING_ALLOWED=NO (not installable).
   adhoc      Archive and export a release-testing (ad hoc) IPA using an installed
-             distribution identity and provisioning profile. Never falls back to unsigned.
+             identity/profile or explicit API-key automatic signing. Never falls back to unsigned.
 
 Writes ``result.json`` into the fresh ``--output`` directory and exits 0 only on success.
 """
@@ -45,6 +45,7 @@ IDENTITY_RE = re.compile(r'^\s*\d+\)\s+([0-9A-F]{40})\s+"(.+)"\s*$')
 DESTINATION_RE = re.compile(r"\{\s*platform:iOS Simulator,.*?id:([0-9A-F-]{36}),\s*OS:([\d.]+),\s*name:([^}]+?)\s*\}")
 TESTS_RE = re.compile(r"Executed (\d+) tests?, with (?:(\d+) tests? skipped and )?(\d+) failures?")
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_BLOCKED = 0, 1, 2, 3
+AUTH_FLAGS = ("-authenticationKeyPath", "-authenticationKeyID", "-authenticationKeyIssuerID")
 
 
 class Blocked(Exception):
@@ -64,18 +65,33 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--scheme", default="KarryOperator", choices=sorted(SCHEMES))
     parser.add_argument("--bundle-id", help="default: com.kishi.karryagent2 (KarryOperator) / com.kishi.karryagent4")
     parser.add_argument("--test", action="store_true", help="also run the XCTest suite on a simulator")
-    parser.add_argument("--team-id", help="adhoc: Apple Developer Team ID (default: from the profile)")
+    parser.add_argument("--team-id", default=os.getenv("APPLE_TEAM_ID"), help="adhoc: Apple Developer Team ID (default: from the profile)")
     parser.add_argument("--profile", help="adhoc: path to a local .mobileprovision (default: installed profiles)")
     parser.add_argument("--signing-identity", help="adhoc: identity common name or SHA-1 to use")
+    parser.add_argument("--signing-mode", choices=("automatic", "manual"), default="automatic")
+    parser.add_argument("--api-key-path", default=os.getenv("APP_STORE_CONNECT_API_KEY_PATH"))
+    parser.add_argument("--api-key-id", default=os.getenv("APP_STORE_CONNECT_API_KEY_ID"))
+    parser.add_argument("--api-issuer-id", default=os.getenv("APP_STORE_CONNECT_API_ISSUER_ID"))
     return parser.parse_args(argv)
 
 
 def run(command: list[str], log: Path, env: dict[str, str] | None = None) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
+    confidential = [command[i + 1] for i, flag in enumerate(command[:-1]) if flag in AUTH_FLAGS]
+
+    def redact(text: str) -> str:
+        for value in confidential:
+            text = text.replace(value, "[REDACTED]")
+        return text
+
     with log.open("w", encoding="utf-8") as handle:
-        handle.write("$ " + " ".join(command) + "\n\n")
+        handle.write("$ " + redact(" ".join(command)) + "\n\n")
         handle.flush()
-        return subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, env=env, check=False).returncode
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, errors="replace", env=env) as process:
+            for line in process.stdout:
+                handle.write(redact(line))
+            return process.wait()
 
 
 def capture(command: list[str]) -> str:
@@ -160,7 +176,7 @@ def find_profiles(explicit: str | None) -> list[tuple[Path, dict]]:
 
 
 def profile_problems(profile: dict, bundle_id: str, team_id: str | None,
-                     identities: list[tuple[str, str]], now: dt.datetime) -> tuple[list[str], str | None]:
+                     identities: list[tuple[str, str]], now: dt.datetime, *, check_identity: bool = True) -> tuple[list[str], str | None]:
     """Why ``profile`` cannot sign an ad hoc build of ``bundle_id``, and the matching identity SHA-1."""
     problems = []
     expiry = profile.get("ExpirationDate")
@@ -182,7 +198,7 @@ def profile_problems(profile: dict, bundle_id: str, team_id: str | None,
         problems.append("no registered devices")
     certificates = {hashlib.sha1(cert).hexdigest().upper() for cert in profile.get("DeveloperCertificates") or []}
     matching = [sha for sha, name in identities if sha in certificates and name.startswith(DISTRIBUTION_PREFIXES)]
-    if not matching:
+    if check_identity and not matching:
         problems.append("no installed distribution certificate with private key matches")
     return problems, (matching[0] if matching else None)
 
@@ -220,7 +236,28 @@ def ensure_profile_installed(path: Path, uuid: str) -> None:
     shutil.copy2(path, PROFILE_DIRS[0] / f"{uuid}.mobileprovision")
 
 
-def verify_ipa(ipa: Path, bundle_id: str, work: Path) -> None:
+def automatic_signing(args: argparse.Namespace) -> tuple[list[str], dict]:
+    blockers = []
+    if args.profile or args.signing_identity:
+        blockers.append("manual profile/identity options require --signing-mode manual")
+    if not args.team_id or not TEAM_ID_RE.fullmatch(args.team_id):
+        blockers.append("APPLE_TEAM_ID / --team-id must identify the authorized Apple Developer team")
+    if not args.api_key_id or not re.fullmatch(r"[A-Z0-9]{10}", args.api_key_id):
+        blockers.append("APP_STORE_CONNECT_API_KEY_ID / --api-key-id is required (10 uppercase letters/digits)")
+    if not args.api_issuer_id or not re.fullmatch(r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}", args.api_issuer_id):
+        blockers.append("APP_STORE_CONNECT_API_ISSUER_ID / --api-issuer-id is required (team-key issuer UUID)")
+    path = Path(args.api_key_path).expanduser().resolve() if args.api_key_path else None
+    if path is None or not path.is_file() or not os.access(path, os.R_OK) or path.stat().st_size == 0:
+        blockers.append("APP_STORE_CONNECT_API_KEY_PATH / --api-key-path must point to a readable team API private key")
+    if blockers:
+        raise Blocked(blockers + ["No fallback to the Mac iCloud/Xcode account; authorize an Apple Developer team first."])
+    authentication = ["-allowProvisioningUpdates", "-authenticationKeyPath", str(path),
+                      "-authenticationKeyID", args.api_key_id, "-authenticationKeyIssuerID", args.api_issuer_id]
+    options = {"method": "release-testing", "signingStyle": "automatic", "teamID": args.team_id, "thinning": "<none>"}
+    return authentication, options
+
+
+def verify_ipa(ipa: Path, bundle_id: str, work: Path, team_id: str) -> dict:
     extracted = work / "ipa-check"
     with zipfile.ZipFile(ipa) as archive:
         archive.extractall(extracted)
@@ -229,8 +266,22 @@ def verify_ipa(ipa: Path, bundle_id: str, work: Path) -> None:
         raise Failed("exported IPA does not contain exactly one app with the requested bundle ID")
     if not (apps[0] / "embedded.mobileprovision").is_file():
         raise Failed("exported IPA has no embedded provisioning profile")
+    profile = load_profile(apps[0] / "embedded.mobileprovision")
+    if profile is None:
+        raise Failed("exported IPA has an unreadable embedded provisioning profile")
+    problems, _ = profile_problems(profile, bundle_id, team_id, [],
+                                   dt.datetime.now(dt.timezone.utc).replace(tzinfo=None), check_identity=False)
+    if problems:
+        raise Failed("exported IPA is not valid ad hoc provisioning: " + "; ".join(problems))
     if subprocess.run(["codesign", "--verify", "--strict", str(apps[0])], capture_output=True, check=False).returncode != 0:
         raise Failed("codesign verification of the exported app failed")
+    prefix = work / "signer-"
+    extracted = subprocess.run(["codesign", "--display", f"--extract-certificates={prefix}", str(apps[0])],
+                               capture_output=True, check=False)
+    leaf = work / "signer-0"
+    if extracted.returncode or not leaf.is_file() or leaf.read_bytes() not in profile.get("DeveloperCertificates", []):
+        raise Failed("exported IPA signer does not match the embedded profile")
+    return {"team_id": team_id, "registered_devices": len(profile["ProvisionedDevices"])}
 
 
 def build(args: argparse.Namespace, bundle_id: str, out: Path, work: Path, result: dict) -> None:
@@ -238,6 +289,9 @@ def build(args: argparse.Namespace, bundle_id: str, out: Path, work: Path, resul
     product, setting = scheme["product"], f"{scheme['bundle_setting']}={bundle_id}"
     base = ["xcodebuild", "-project", str(PROJECT), "-scheme", args.scheme, "-derivedDataPath", str(work / "dd")]
     logs = out / "logs"
+    automatic = None
+    if args.mode == "adhoc" and args.signing_mode == "automatic":
+        automatic = automatic_signing(args)
     result["xcode"] = capture(["xcodebuild", "-version"]).splitlines()[:1]
 
     simulator = None
@@ -260,34 +314,39 @@ def build(args: argparse.Namespace, bundle_id: str, out: Path, work: Path, resul
         copy_app(work / f"dd/Build/Products/Release-iphoneos/{product}.app", out / f"{folder}/{product}.app", bundle_id)
         (out / folder / "README.txt").write_text(
             "This .app is NOT signed and cannot be installed on an iPhone. It is not an IPA.\n"
-            "Sign it with your own Team in Xcode, or run build_ios.py --mode adhoc on a Mac with\n"
-            "an Apple Distribution identity and an ad hoc provisioning profile installed.\n", encoding="utf-8")
+            "Run build_ios.py --mode adhoc with authorized Apple team API credentials,\n"
+            "or --signing-mode manual with an installed distribution identity and ad hoc profile.\n", encoding="utf-8")
         result["artifacts"].append(f"{folder}/{product}.app")
     else:
-        path, profile, identity, team = choose_signing(args, bundle_id)
-        uuid = profile["UUID"]
-        ensure_profile_installed(path, uuid)
+        authentication = []
+        if automatic:
+            authentication, export_options = automatic
+            team = args.team_id
+            signing = [f"DEVELOPMENT_TEAM={team}", "CODE_SIGN_STYLE=Automatic", "CODE_SIGN_IDENTITY=Apple Development",
+                       "PROVISIONING_PROFILE_SPECIFIER=", "PROVISIONING_PROFILE="]
+        else:
+            path, profile, identity, team = choose_signing(args, bundle_id)
+            uuid = profile["UUID"]
+            ensure_profile_installed(path, uuid)
+            signing = [f"DEVELOPMENT_TEAM={team}", "CODE_SIGN_STYLE=Manual", f"CODE_SIGN_IDENTITY={identity}",
+                       f"PROVISIONING_PROFILE_SPECIFIER={uuid}"]
+            export_options = {"method": "release-testing", "signingStyle": "manual", "teamID": team,
+                              "signingCertificate": identity, "provisioningProfiles": {bundle_id: uuid}, "thinning": "<none>"}
         archive = work / f"{product}.xcarchive"
-        signing = [f"DEVELOPMENT_TEAM={team}", "CODE_SIGN_STYLE=Manual", f"CODE_SIGN_IDENTITY={identity}",
-                   f"PROVISIONING_PROFILE_SPECIFIER={uuid}"]
         if run(base + ["-configuration", "Release", "-destination", "generic/platform=iOS",
-                       "-archivePath", str(archive), setting, *signing, "archive"], logs / "adhoc-archive.log") != 0:
-            raise Failed("ad hoc archive failed (see logs/adhoc-archive.log)")
+                       "-archivePath", str(archive), setting, *signing, *authentication, "archive"], logs / "adhoc-archive.log") != 0:
+            raise Failed("ad hoc archive/provisioning failed (see logs/adhoc-archive.log; check Apple permissions and registered devices)")
         options = work / "ExportOptions.plist"
-        options.write_bytes(plistlib.dumps({
-            "method": "release-testing", "signingStyle": "manual", "teamID": team,
-            "signingCertificate": identity, "provisioningProfiles": {bundle_id: uuid}, "thinning": "<none>",
-        }))
+        options.write_bytes(plistlib.dumps(export_options))
         if run(["xcodebuild", "-exportArchive", "-archivePath", str(archive), "-exportPath", str(out / "adhoc"),
-                "-exportOptionsPlist", str(options)], logs / "adhoc-export.log") != 0:
+                "-exportOptionsPlist", str(options), *authentication], logs / "adhoc-export.log") != 0:
             raise Failed("ad hoc export failed (see logs/adhoc-export.log)")
         ipas = sorted((out / "adhoc").glob("*.ipa"))
         if len(ipas) != 1:
             raise Failed("ad hoc export did not produce exactly one IPA")
-        verify_ipa(ipas[0], bundle_id, work)
+        verified = verify_ipa(ipas[0], bundle_id, work, team)
         result["artifacts"].append(str(ipas[0].relative_to(out)))
-        result["signing"] = {"team_id": team, "profile": profile.get("Name", ""),
-                             "registered_devices": len(profile.get("ProvisionedDevices") or [])}
+        result["signing"] = {"mode": args.signing_mode, **verified}
 
     if args.test:
         run_tests(args, base, setting, bundle_id, simulator, logs, result)
@@ -322,6 +381,8 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     result = {"status": "failed", "mode": args.mode, "scheme": args.scheme, "bundle_id": bundle_id,
               "artifacts": [], "blockers": [], "tests": {"status": "requested" if args.test else "not_requested"}}
+    if args.mode == "adhoc":
+        result["signing_mode"] = args.signing_mode
     work = Path(tempfile.mkdtemp(prefix="karry-ios-"))
     try:
         require_tools()

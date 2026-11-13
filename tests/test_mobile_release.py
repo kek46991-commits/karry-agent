@@ -190,3 +190,31 @@ def test_android_install_failure_preserves_built_apks(tmp_path, monkeypatch):
     assert result['emulator_installed'] is False
     assert len(result['artifacts']) == 2
     assert all((tmp_path / path).is_file() for path in result['artifacts'])
+
+
+@pytest.mark.parametrize("suffix", [".p8", ".P8", ".p12", ".pem", ".key"])
+def test_package_refuses_signing_secrets_even_as_declared_artifacts(tmp_path, suffix):
+    path = tmp_path / ("not-a-real-credential" + suffix)
+    path.write_text("test only")
+    with pytest.raises(ValueError, match="credentials"):
+        release.package(tmp_path, {"ios": {"artifacts": [path.name]}})
+
+
+def test_ios_wrapper_forwards_automatic_signing_flags(tmp_path, monkeypatch):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(release.sys, "platform", "darwin")
+    args = Namespace(ios_mode="adhoc", ios_scheme="KarryOperator", bundle_id="com.kishi.karryagent2", ios_test=False,
+                     team_id="ABCDE12345", profile=None, signing_identity=None, signing_mode="automatic",
+                     api_key_path="/private/test-key.p8", api_key_id="TESTKEY123", api_issuer_id="test-issuer")
+
+    def fake_run(command, **kwargs):
+        for name in ("signing_mode", "api_key_path", "api_key_id", "api_issuer_id", "team_id"):
+            assert command[command.index("--" + name.replace("_", "-")) + 1] == getattr(args, name)
+        (tmp_path / "ios").mkdir()
+        (tmp_path / "ios/result.json").write_text(json.dumps({"status": "blocked", "artifacts": []}))
+        return SimpleNamespace(returncode=3)
+
+    monkeypatch.setattr(release.subprocess, "run", fake_run)
+    assert release.build_ios(tmp_path, args)["status"] == "blocked"

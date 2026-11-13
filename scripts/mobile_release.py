@@ -178,7 +178,7 @@ def build_ios(output: Path, args: argparse.Namespace) -> dict:
                '--mode', args.ios_mode, '--bundle-id', args.bundle_id, '--scheme', args.ios_scheme]
     if args.ios_test:
         command.append('--test')
-    for option in ('team_id', 'profile', 'signing_identity'):
+    for option in ('team_id', 'profile', 'signing_identity', 'signing_mode', 'api_key_path', 'api_key_id', 'api_issuer_id'):
         value = getattr(args, option)
         if value:
             command.extend(['--' + option.replace('_', '-'), str(value)])
@@ -240,6 +240,8 @@ def package(output: Path, result: dict) -> Path:
             paths.append(artifact_path(output, relative))
     files = {p for path in paths for p in (path.rglob('*') if path.is_dir() else [path]) if p.is_file()}
     for path in files:
+        if path.suffix.lower() in {'.p8', '.p12', '.key', '.pem'}:
+            raise ValueError('Signing credentials cannot be packaged')
         if path.is_symlink() or not path.resolve().is_relative_to(output.resolve()):
             raise ValueError('External/symlink artifacts cannot be packaged')
     sums = '# SHA256 artifact integrity only; NOT Apple signing or domain authorization.\n'
@@ -281,6 +283,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--team-id')
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--signing-identity')
+    parser.add_argument('--signing-mode', choices=('automatic', 'manual'), default='automatic')
+    parser.add_argument('--api-key-path', type=Path)
+    parser.add_argument('--api-key-id')
+    parser.add_argument('--api-issuer-id')
     parser.add_argument('--domain')
     parser.add_argument('--challenge-file', type=Path)
     parser.add_argument('--ota-base-url')

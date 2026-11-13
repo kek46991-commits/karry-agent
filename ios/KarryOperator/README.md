@@ -52,7 +52,9 @@ python3 scripts/build_ios.py --output "$PWD/out/ios-adhoc" --mode adhoc   # 署�
 
 - Bundle ID は `--bundle-id`（既定: `com.kishi.karryagent2`、`--scheme KarryOperator4` では `com.kishi.karryagent4`）で、`KARRY_BUNDLE_ID` / `KARRY4_BUNDLE_ID` ビルド設定として渡されます。アプリは実行時の Bundle ID を Keychain 名と自アプリ判定に使います。
 - `unsigned` は署名なしの `.app` で、IPAではなくiPhoneには入りません。
-- `adhoc` は、キーチェーンにある期限内の Apple Distribution 証明書（秘密鍵つき）と、Bundle ID・Team・登録端末が合う Ad Hoc プロファイル（`--profile` か Xcode のプロファイルフォルダ）を確認してから archive / export（`method: release-testing`）します。見つからなければ `blocked` で終わり、署名なしに切り替えることはありません。
+- `adhoc` は既定でAPIキーによる自動署名です。`APPLE_TEAM_ID`、`APP_STORE_CONNECT_API_KEY_PATH`、`APP_STORE_CONNECT_API_KEY_ID`、`APP_STORE_CONNECT_API_ISSUER_ID` を秘密情報管理から渡すと、Xcodeが証明書・プロファイルを管理します。MacのiCloud/Xcodeアカウントへフォールバックしません。API認証不足は `blocked`、Apple側の処理失敗は `failed` で停止し、未署名へ切り替えません。
+- 既存のキーチェーンとプロファイルを使う場合だけ `--signing-mode manual` を付け、必要なら `--profile` / `--signing-identity` で指定します。
+- 有料Developerチーム・チームAPIキーと必要権限・対象iPhoneのUDID登録は所有者が認可する前提です。詳細は [自動署名と配布準備](../../docs/mobile-builds.md) を参照してください。
 
 実バックエンドとの結合テスト（`BackendIntegrationTests`）は環境変数があるときだけ実行されます。
 
@@ -68,7 +70,7 @@ TEST_RUNNER_KARRY_E2E_OWNER_TOKEN=local-e2e-owner \
 
 ## 実機と署名
 
-- 実機で動かすには Apple ID（無料の Personal Team で可）を Xcode の Signing & Capabilities に設定し、KarryOperator と KarryOperator4 の `PRODUCT_BUNDLE_IDENTIFIER` をそれぞれ自分の一意な値に変更してください。リポジトリには `DEVELOPMENT_TEAM` を入れていません。
+- 無人アドホック署名には上記APIキー経路を使います。対話的な開発用インストールでは無料Personal Teamも利用できますが、自動アドホック配布とは別です。リポジトリに `DEVELOPMENT_TEAM` や秘密鍵を保存しません。
 - MacのiCloudアカウントを変更する必要はありません。Xcodeで使う署名用アカウントとiPhoneのiCloudアカウントは同一でなくても構いません。2と4の署名には同じTeamも使えますが、bundle IDは別々にしてください。
 - TestFlight / App Store 配布には有料の Apple Developer Program が必要です。
 - サーバーURLは HTTPS のみ（シミュレータ確認用に `localhost` / `127.0.0.1` だけ HTTP 可）。
