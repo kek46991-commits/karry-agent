@@ -85,8 +85,12 @@ def _validate_action_payload(action: ActionName, payload: dict[str, Any]) -> Non
     if action == "open_app" and not _BUNDLE_ID.fullmatch(str(payload.get("bundle_id", ""))):
         raise MobileAgentError("open_app requires a valid bundle_id")
     if action == "open_url":
-        parsed = urlsplit(str(payload.get("url", "")))
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        try:
+            parsed = urlsplit(str(payload.get("url", "")))
+            valid = parsed.scheme == "https" and parsed.hostname and not (parsed.username or parsed.password)
+        except ValueError:
+            valid = False
+        if not valid:
             raise MobileAgentError("open_url requires a public https URL without embedded credentials")
     if action in {"create_calendar_event", "create_reminder"} and not str(payload.get("title", "")).strip():
         raise MobileAgentError(f"{action} requires a title")

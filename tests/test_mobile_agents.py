@@ -135,6 +135,17 @@ def test_actions_reject_unbounded_or_unsafe_capabilities(monkeypatch):
     assert unsafe_url.status_code == 400
     assert "public https URL" in unsafe_url.json()["detail"]
 
+    credentialed_url = api.post(
+        "/api/mobile-agent/actions",
+        headers=headers,
+        json={
+            "device_id": "owners-iphone",
+            "action": "open_url",
+            "payload": {"url": "https://user:password@example.com/private"},
+        },
+    )
+    assert credentialed_url.status_code == 400
+
     oversized = api.post(
         "/api/mobile-agent/actions",
         headers=headers,

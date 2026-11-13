@@ -84,10 +84,22 @@ test('calendar files escape payload text instead of interpreting it',()=>{
   assert.equal(ics.match(/END:VEVENT/g).length,2);s.dom.window.close();
 });
 
+test('photo picker fails instead of truncating a selection over the limit',async()=>{
+  const s=setup({stored:enrolled,claims:[action('choose_photo',{selection_limit:2})]});
+  await tick(30);
+  s.win.KarryOperator.env.pickFiles=async()=>[{name:'a.jpg',type:'image/jpeg'},{name:'b.jpg',type:'image/jpeg'},{name:'c.jpg',type:'image/jpeg'}];
+  s.$('runBtn').click();await tick(30);
+  const report=s.calls.find(c=>c.url.includes('/report'));
+  assert.equal(report.body.success,false);
+  assert.equal(report.body.error_code,'selection_limit_exceeded');
+  assert.equal(report.body.output,'写真は2件までです（3件選択されました）');
+  s.dom.window.close();
+});
+
 test('photo picker reports only count and type, and a 401 asks for re-enrollment',async()=>{
   const s=setup({stored:enrolled,claims:[action('choose_photo',{selection_limit:2})]});
   await tick(30);
-  s.win.KarryOperator.env.pickFiles=async()=>[{name:'IMG_0001.JPG',type:'image/jpeg'},{name:'secret-name.heic',type:'image/heic'},{name:'x.png',type:'image/png'}];
+  s.win.KarryOperator.env.pickFiles=async()=>[{name:'IMG_0001.JPG',type:'image/jpeg'},{name:'secret-name.heic',type:'image/heic'}];
   s.$('runBtn').click();await tick(30);
   const report=s.calls.find(c=>c.url.includes('/report'));
   assert.equal(report.body.output,'写真を2件選択しました（種類: jpg, heic）');

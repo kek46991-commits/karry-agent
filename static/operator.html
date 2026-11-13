@@ -326,8 +326,9 @@
         return `ファイルを1件選択しました（拡張子: ${extension(files[0].name) || 'なし'}）`;
       }
       case 'choose_photo': {
-        const files = (await env.pickFiles('image/*', p.limit > 1)).slice(0, p.limit);
+        const files = await env.pickFiles('image/*', p.limit > 1);
         if (!files.length) throw new ActionFailure('user_cancelled', '写真の選択がキャンセルされました');
+        if (files.length > p.limit) throw new ActionFailure('selection_limit_exceeded', `写真は${p.limit}件までです（${files.length}件選択されました）`);
         const kinds = [...new Set(files.map(imageKind))].join(', ');
         return `写真を${files.length}件選択しました（種類: ${kinds}）`;
       }
