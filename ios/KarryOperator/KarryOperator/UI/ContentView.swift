@@ -26,7 +26,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Karry 操作エージェント")
+            .navigationTitle("Karry-Agent 2")
             .disabled(model.isBusy && prompts.prompt == nil)
         }
         .fileImporter(isPresented: fileBinding, allowedContentTypes: fileTypes, allowsMultipleSelection: false) { result in

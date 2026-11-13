@@ -27,7 +27,7 @@ targets:
     info:
       path: KarryOperator/Info.plist
       properties:
-        CFBundleDisplayName: Karry操作
+        CFBundleDisplayName: Karry-Agent 2
         CFBundleDevelopmentRegion: ja
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
