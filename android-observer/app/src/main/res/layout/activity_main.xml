@@ -27,6 +27,50 @@
             android:textColor="#94A3B8"
             android:textSize="13sp" />
 
+        <TextView
+            android:id="@+id/setupLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="#1E293B"
+            android:fontFamily="monospace"
+            android:padding="12dp"
+            android:textColor="#E2E8F0"
+            android:textIsSelectable="true"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/setupPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:fontFamily="monospace"
+            android:textColor="#FDE68A"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/setupPromptRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/setupYes"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/yes" />
+
+            <Button
+                android:id="@+id/setupNo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/no" />
+        </LinearLayout>
+
         <EditText
             android:id="@+id/serverUrl"
             android:layout_width="match_parent"

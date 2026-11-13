@@ -46,6 +46,24 @@ class KarryObserverApi {
         )
     }
 
+    /** Any HTTP answer from the server root counts as reachable; nothing is sent. */
+    suspend fun reachable(serverUrl: String): Boolean = withContext(Dispatchers.IO) {
+        val base = try { validateServerUrl(serverUrl) } catch (_: ObserverApiException) { return@withContext false }
+        try {
+            val connection = URL("$base/").openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 5_000
+                connection.readTimeout = 5_000
+                connection.responseCode in 100..599
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun request(
         url: String,
         method: String = "GET",

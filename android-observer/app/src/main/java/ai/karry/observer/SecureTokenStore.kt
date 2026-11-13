@@ -49,6 +49,9 @@ class SecureTokenStore(context: Context) {
         }
     }
 
+    /** True when the Keystore-backed key can be created or loaded on this device. */
+    fun isAvailable(): Boolean = runCatching { key() }.isSuccess
+
     fun clear() {
         preferences.edit().clear().apply()
     }

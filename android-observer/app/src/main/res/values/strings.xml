@@ -6,4 +6,6 @@
     <string name="enroll">観察端末を登録</string>
     <string name="refresh">今すぐ更新</string>
     <string name="clear_registration">登録を解除</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
 </resources>

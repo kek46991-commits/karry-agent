@@ -3,6 +3,8 @@ package ai.karry.observer
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.text.format.DateUtils
 import android.view.Gravity
 import android.view.View
@@ -30,6 +32,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var refreshButton: Button
     private lateinit var clearButton: Button
     private lateinit var connectionStatus: TextView
+    private lateinit var setupLog: TextView
+    private lateinit var setupPrompt: TextView
+    private lateinit var setupPromptRow: View
+    private var backendReachable: Boolean? = null
+    private var setupSkipped = false
     private lateinit var liveCard: TextView
     private lateinit var actionContainer: LinearLayout
     private lateinit var diagnosticContainer: LinearLayout
@@ -46,6 +53,19 @@ class MainActivity : AppCompatActivity() {
         enrollButton.setOnClickListener { enrollObserver() }
         refreshButton.setOnClickListener { refresh() }
         clearButton.setOnClickListener { clearRegistration() }
+        findViewById<Button>(R.id.setupYes).setOnClickListener { enrollObserver() }
+        findViewById<Button>(R.id.setupNo).setOnClickListener {
+            setupSkipped = true
+            renderSetup()
+        }
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) = renderSetup()
+        }
+        ownerToken.addTextChangedListener(watcher)
+        serverUrl.addTextChangedListener(watcher)
+        checkBackend()
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -66,6 +86,9 @@ class MainActivity : AppCompatActivity() {
         refreshButton = findViewById(R.id.refreshButton)
         clearButton = findViewById(R.id.clearButton)
         connectionStatus = findViewById(R.id.connectionStatus)
+        setupLog = findViewById(R.id.setupLog)
+        setupPrompt = findViewById(R.id.setupPrompt)
+        setupPromptRow = findViewById(R.id.setupPromptRow)
         liveCard = findViewById(R.id.liveCard)
         actionContainer = findViewById(R.id.actionContainer)
         diagnosticContainer = findViewById(R.id.diagnosticContainer)
@@ -85,6 +108,34 @@ class MainActivity : AppCompatActivity() {
             setStatus("未登録")
         }
         updateControls()
+        renderSetup()
+    }
+
+    private fun setupSnapshot() = SetupStatus.Snapshot(
+        appName = getString(R.string.app_name),
+        applicationId = BuildConfig.APPLICATION_ID,
+        serverUrlValid = runCatching { KarryObserverApi.validateServerUrl(serverUrl.text.toString()) }.isSuccess,
+        ownerTokenEntered = ownerToken.text.toString().isNotBlank(),
+        enrolled = registration != null,
+        backendReachable = backendReachable,
+        secureStorage = tokenStore.isAvailable(),
+    )
+
+    private fun renderSetup() {
+        val snapshot = setupSnapshot()
+        setupLog.text = SetupStatus.lines(snapshot).joinToString("\n")
+        val prompt = SetupStatus.prompt(snapshot, setupSkipped)
+        setupPrompt.text = prompt ?: ""
+        setupPrompt.visibility = if (prompt == null) View.GONE else View.VISIBLE
+        setupPromptRow.visibility = if (prompt == "enroll: register this observer now?") View.VISIBLE else View.GONE
+    }
+
+    private fun checkBackend() {
+        val url = registration?.serverUrl ?: serverUrl.text.toString()
+        lifecycleScope.launch {
+            backendReachable = api.reachable(url)
+            renderSetup()
+        }
     }
 
     private fun enrollObserver() {
@@ -102,9 +153,12 @@ class MainActivity : AppCompatActivity() {
                 ownerToken.text.clear()
                 setStatus("接続しました。iPhoneの状態を2秒ごとに更新します")
                 updateControls()
+                backendReachable = true
+                renderSetup()
                 refresh()
             } catch (error: Exception) {
                 setStatus("登録エラー: ${safeMessage(error)}")
+                checkBackend()
             } finally {
                 setBusy(false)
             }
@@ -261,6 +315,8 @@ class MainActivity : AppCompatActivity() {
         liveCard.setTextColor(Color.parseColor("#E2E8F0"))
         setStatus("登録を解除しました")
         updateControls()
+        setupSkipped = false
+        renderSetup()
     }
 
     private fun setBusy(busy: Boolean) {
