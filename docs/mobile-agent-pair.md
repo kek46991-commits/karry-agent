@@ -15,7 +15,7 @@ The bridge does not execute shell commands, read device-wide content, scrape mes
 4. Sensitive actions remain `awaiting_confirmation` until the owner confirms them.
 5. The iPhone companion app claims one pending action with its device token.
 6. The companion app executes the matching App Intent and reports success or failure.
-7. A failed event produces a redacted diagnostic visible only through the owner-authenticated diagnostics endpoint.
+7. A failed event produces a redacted diagnostic visible through owner-authenticated endpoints or the observer token scoped to that operation device.
 
 ## Allowed actions
 
@@ -53,3 +53,14 @@ The companion app should:
 - report bounded, non-sensitive summaries rather than file contents or private application data.
 
 Important actions such as sending a message, deleting data, purchasing, changing account settings, or installing profiles are intentionally outside this API.
+
+## Independent test pairs
+
+| Pair | Android observer | iPhone operator | Default operation ID prefix |
+| --- | --- | --- | --- |
+| 1 | Karry-Agent 1 (`agent1`) | Karry-Agent 2 (`KarryOperator`) | `operation-iphone-` |
+| 2 | Karry-Agent 3 (`agent3`) | Karry-Agent 4 (`KarryOperator4`) | `operation-iphone-4-` |
+
+The Android flavors have different application IDs; the iOS targets have different bundle IDs, Keychain services, and settings namespaces. Each iPhone generates a random suffix: copy its **complete displayed device ID** into the matching Android observer before enrollment. The Android defaults are examples, not automatic pairing. Use a distinct observer ID for every Android installation.
+
+Both clients must connect to a backend running this mobile bridge. These test builds alone do not deploy the backend. Enroll each app separately; tokens are scoped to its role and device, and observer responses omit action payloads.

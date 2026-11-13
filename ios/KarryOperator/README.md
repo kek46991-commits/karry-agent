@@ -1,6 +1,6 @@
-# Karry 操作エージェント（iPhone）
+# Karry-Agent 2 / Karry-Agent 4（iPhone操作）
 
-`/api/mobile-agent` の **操作側** iPhone アプリ（SwiftUI / iOS 17+）。観察・診断は別の Android アプリが担当し、このアプリは診断ダッシュボードを持ちません。
+`/api/mobile-agent` の **操作側** iPhone アプリ（SwiftUI / iOS 17+）。同じ安全な実装から、別bundle ID・別Keychain・別端末IDの Karry-Agent 2 と Karry-Agent 4 を生成します。観察・診断は別の Android アプリが担当し、このアプリは診断ダッシュボードを持ちません。
 
 ## 動作
 
@@ -23,6 +23,13 @@
 
 ペイロードは文字列・数値として扱うだけで、コードやコマンドとして解釈しません。未知のアクション・フィールドは `invalid_payload` として報告し、何も実行しません。
 
+## ペアの登録
+
+- Karry-Agent 1（Android）と2（iPhone）、Karry-Agent 3（Android）と4（iPhone）がテスト用の2組です。
+- iPhoneの端末ID初期値は2が `operation-iphone-xxxxxxxx`、4が `operation-iphone-4-xxxxxxxx` です。末尾はアプリごとに生成されます。保存済みのIDは変更しません。
+- Androidの「観察対象の操作端末ID」に、対応するiPhone画面の端末IDを **末尾までそのまま** 入れて登録します。両側のサーバーURLも同じにしてください。
+- 別ペアや別端末では端末ID・観察者IDを使い回さず、各アプリで個別に登録してください。トークンをコピーする必要はありません。
+
 ## ビルドとテスト
 
 ```bash
@@ -31,6 +38,8 @@ brew install xcodegen   # project.yml を変更したときだけ必要
 xcodegen generate
 xcodebuild -project KarryOperator.xcodeproj -scheme KarryOperator \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
+xcodebuild -project KarryOperator.xcodeproj -scheme KarryOperator4 \
+  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
 実バックエンドとの結合テスト（`BackendIntegrationTests`）は環境変数があるときだけ実行されます。
@@ -47,7 +56,8 @@ TEST_RUNNER_KARRY_E2E_OWNER_TOKEN=local-e2e-owner \
 
 ## 実機と署名
 
-- 実機で動かすには Apple ID（無料の Personal Team で可）を Xcode の Signing & Capabilities に設定し、`PRODUCT_BUNDLE_IDENTIFIER` を自分のものに変更してください。リポジトリには `DEVELOPMENT_TEAM` を入れていません。
+- 実機で動かすには Apple ID（無料の Personal Team で可）を Xcode の Signing & Capabilities に設定し、KarryOperator と KarryOperator4 の `PRODUCT_BUNDLE_IDENTIFIER` をそれぞれ自分の一意な値に変更してください。リポジトリには `DEVELOPMENT_TEAM` を入れていません。
+- MacのiCloudアカウントを変更する必要はありません。Xcodeで使う署名用アカウントとiPhoneのiCloudアカウントは同一でなくても構いません。2と4の署名には同じTeamも使えますが、bundle IDは別々にしてください。
 - TestFlight / App Store 配布には有料の Apple Developer Program が必要です。
 - サーバーURLは HTTPS のみ（シミュレータ確認用に `localhost` / `127.0.0.1` だけ HTTP 可）。
 

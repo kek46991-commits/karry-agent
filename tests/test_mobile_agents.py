@@ -257,11 +257,12 @@ def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):
         ("observer-android", "operation-iphone"),
         ("observer-android-3", "operation-iphone-4"),
     )
+    operation_tokens: dict[str, dict[str, str]] = {}
     observer_tokens: dict[str, dict[str, str]] = {}
     event_ids: dict[str, str] = {}
 
     for observer_id, operation_id in pairs:
-        enroll(api, headers, operation_id)
+        operation_tokens[operation_id] = enroll(api, headers, operation_id)
         observer = api.post(
             "/api/mobile-agent/devices/enroll",
             headers=headers,
@@ -285,6 +286,32 @@ def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):
         assert action.status_code == 201
         event_ids[operation_id] = action.json()["id"]
 
+    for _, operation_id in pairs:
+        other_operation_id = next(candidate for _, candidate in pairs if candidate != operation_id)
+        claimed = api.post(
+            f"/api/mobile-agent/devices/{operation_id}/claim",
+            headers=operation_tokens[operation_id],
+        )
+        assert claimed.status_code == 200
+        assert claimed.json()["action"]["id"] == event_ids[operation_id]
+        denied_claim = api.post(
+            f"/api/mobile-agent/devices/{other_operation_id}/claim",
+            headers=operation_tokens[operation_id],
+        )
+        assert denied_claim.status_code == 401
+        denied_report = api.post(
+            f"/api/mobile-agent/actions/{event_ids[other_operation_id]}/report",
+            headers=operation_tokens[operation_id],
+            json={"device_id": other_operation_id, "success": True},
+        )
+        assert denied_report.status_code == 401
+        reported = api.post(
+            f"/api/mobile-agent/actions/{event_ids[operation_id]}/report",
+            headers=operation_tokens[operation_id],
+            json={"device_id": operation_id, "success": False, "error_code": "permission_denied"},
+        )
+        assert reported.status_code == 200
+
     for observer_id, operation_id in pairs:
         visible = api.get(
             f"/api/mobile-agent/observers/{observer_id}/devices/{operation_id}/actions",
@@ -299,6 +326,17 @@ def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):
             headers=observer_tokens[observer_id],
         )
         assert hidden.status_code == 401
+        diagnostics = api.get(
+            f"/api/mobile-agent/observers/{observer_id}/devices/{operation_id}/diagnostics",
+            headers=observer_tokens[observer_id],
+        )
+        assert diagnostics.status_code == 200
+        assert [item["event_id"] for item in diagnostics.json()["diagnostics"]] == [event_ids[operation_id]]
+        hidden_diagnostics = api.get(
+            f"/api/mobile-agent/observers/{observer_id}/devices/{other_operation_id}/diagnostics",
+            headers=observer_tokens[observer_id],
+        )
+        assert hidden_diagnostics.status_code == 401
 
 
 def test_mobile_event_log_is_bounded():

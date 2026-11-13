@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
 		09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
 		0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
+		116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
 		1A050F19C1DA26116A813726 /* BackendIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */; };
 		1ACC94EC67EE08D0C42F806D /* ActionPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */; };
 		269CEF43A2E30EC6861F8C45 /* CheckActionsIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */; };
@@ -19,11 +21,22 @@
 		3D101E652197D5BCABC1705D /* MobileAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E990197197DC6C0137B6B13 /* MobileAction.swift */; };
 		44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */; };
 		4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
+		53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
+		58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */; };
 		7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
+		A8952D69F006DE12346C829B /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
+		ABEFDFF13C42F46C00AAD086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129DDEBB06671EAB865927D4 /* ContentView.swift */; };
 		BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */; };
 		BDE2793E0CDED2C5C148269E /* KeychainTokenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */; };
+		C3F39B6530365987B2F9EF57 /* AppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DB5F5AC2469900838C8502 /* AppIdentity.swift */; };
 		D0A524F4A907CC93A602D053 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129DDEBB06671EAB865927D4 /* ContentView.swift */; };
+		D308C2D3C72B45D43D4F869C /* MobileAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E990197197DC6C0137B6B13 /* MobileAction.swift */; };
+		D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
+		D98040714272902C63C269D3 /* AppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DB5F5AC2469900838C8502 /* AppIdentity.swift */; };
+		DE3B57201155ABD7055B7F4E /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22DA6B08B307CED723CCC71E /* BackendClient.swift */; };
+		DE72B264F81A4A4B6837ECAF /* CheckActionsIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */; };
 		DF1EAD762407028C4E874790 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22DA6B08B307CED723CCC71E /* BackendClient.swift */; };
+		EB16280D93568D8A34154030 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
 		F9FA97B09C1C89330B85CABB /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -38,7 +51,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		02DB5F5AC2469900838C8502 /* AppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentity.swift; sourceTree = "<group>"; };
 		129DDEBB06671EAB865927D4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KarryOperator4.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		22DA6B08B307CED723CCC71E /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
 		3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KarryOperatorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendIntegrationTests.swift; sourceTree = "<group>"; };
@@ -84,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				FB456697091CCE4A3216E1F7 /* KarryOperator.app */,
+				1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */,
 				3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */,
 			);
 			name = Products;
@@ -128,6 +144,7 @@
 			isa = PBXGroup;
 			children = (
 				EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */,
+				02DB5F5AC2469900838C8502 /* AppIdentity.swift */,
 				22DA6B08B307CED723CCC71E /* BackendClient.swift */,
 				6E990197197DC6C0137B6B13 /* MobileAction.swift */,
 				7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */,
@@ -156,6 +173,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		296FA13831139E748EBF52A8 /* KarryOperator4 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 057E2E2A5ABEA1B6C8C59DA0 /* Build configuration list for PBXNativeTarget "KarryOperator4" */;
+			buildPhases = (
+				E8EA75BD7A24D429F81F7C07 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KarryOperator4;
+			packageProductDependencies = (
+			);
+			productName = KarryOperator4;
+			productReference = 1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */;
+			productType = "com.apple.product-type.application";
+		};
 		5922F59BF24A252B0A61CC21 /* KarryOperator */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 70BFA13902C865CF22A6C183 /* Build configuration list for PBXNativeTarget "KarryOperator" */;
@@ -200,6 +234,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					296FA13831139E748EBF52A8 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					5922F59BF24A252B0A61CC21 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -225,6 +263,7 @@
 			projectRoot = "";
 			targets = (
 				5922F59BF24A252B0A61CC21 /* KarryOperator */,
+				296FA13831139E748EBF52A8 /* KarryOperator4 */,
 				8CB9164159971EF689CB1F2C /* KarryOperatorTests */,
 			);
 		};
@@ -237,6 +276,7 @@
 			files = (
 				32B55CD2935A16CA2211850C /* ActionExecutor.swift in Sources */,
 				7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */,
+				D98040714272902C63C269D3 /* AppIdentity.swift in Sources */,
 				DF1EAD762407028C4E874790 /* BackendClient.swift in Sources */,
 				269CEF43A2E30EC6861F8C45 /* CheckActionsIntent.swift in Sources */,
 				D0A524F4A907CC93A602D053 /* ContentView.swift in Sources */,
@@ -260,6 +300,25 @@
 				381C0D90B3845E8BB44E8519 /* OperatorViewModelTests.swift in Sources */,
 				BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */,
 				44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E8EA75BD7A24D429F81F7C07 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */,
+				A8952D69F006DE12346C829B /* ActionPlan.swift in Sources */,
+				C3F39B6530365987B2F9EF57 /* AppIdentity.swift in Sources */,
+				DE3B57201155ABD7055B7F4E /* BackendClient.swift in Sources */,
+				DE72B264F81A4A4B6837ECAF /* CheckActionsIntent.swift in Sources */,
+				ABEFDFF13C42F46C00AAD086 /* ContentView.swift in Sources */,
+				53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */,
+				0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */,
+				D308C2D3C72B45D43D4F869C /* MobileAction.swift in Sources */,
+				116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */,
+				D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */,
+				EB16280D93568D8A34154030 /* TokenStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +427,24 @@
 			};
 			name = Release;
 		};
+		81A5AADDF0EE522FB1F4BFF5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator4;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		9EAC11662242237C4C8C433B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -469,9 +546,36 @@
 			};
 			name = Release;
 		};
+		F60FFC73A5FFEE98C9412DAD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperator4;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		057E2E2A5ABEA1B6C8C59DA0 /* Build configuration list for PBXNativeTarget "KarryOperator4" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				81A5AADDF0EE522FB1F4BFF5 /* Debug */,
+				F60FFC73A5FFEE98C9412DAD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		70BFA13902C865CF22A6C183 /* Build configuration list for PBXNativeTarget "KarryOperator" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

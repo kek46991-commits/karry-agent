@@ -28,7 +28,7 @@ enum ActionPlan: Equatable {
 }
 
 enum ActionPlanner {
-    static let ownBundleID = "io.github.kek46991.KarryOperator"
+    static let ownBundleID = AppIdentity.bundleIdentifier
 
     /// Fixed mapping from allowlisted bundle IDs to public URL schemes. iOS does not
     /// allow opening arbitrary apps by bundle ID, so anything else is unavailable.

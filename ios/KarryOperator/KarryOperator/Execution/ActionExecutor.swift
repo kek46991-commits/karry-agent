@@ -56,7 +56,7 @@ struct SystemActionExecutor: ActionPerforming {
     func perform(_ plan: ActionPlan) async throws -> String {
         switch plan {
         case .openApp(let bundleID, let url):
-            guard let url else { return "Karry-Agent 2 は既に表示中です" }
+            guard let url else { return "\(AppIdentity.displayName) は既に表示中です" }
             guard await urlOpener.open(url) else {
                 throw ActionFailure(.appUnavailable, "アプリを開けませんでした（\(bundleID)）")
             }

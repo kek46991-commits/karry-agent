@@ -16,7 +16,7 @@ struct KeychainTokenStore: TokenStoring {
     let service: String
     let account: String
 
-    init(service: String = "io.github.kek46991.KarryOperator.device-token", account: String = "device_token") {
+    init(service: String = AppIdentity.deviceTokenService, account: String = "device_token") {
         self.service = service
         self.account = account
     }
@@ -70,8 +70,8 @@ struct KeychainTokenStore: TokenStoring {
 /// Non-secret settings. The owner token is intentionally never stored here.
 struct OperatorSettings {
     static let defaultBaseURL = "https://karry-agent-1.onrender.com"
-    private static let baseURLKey = "karry.operator.baseURL"
-    private static let deviceIDKey = "karry.operator.deviceID"
+    private static let baseURLKey = "\(AppIdentity.storageNamespace).baseURL"
+    private static let deviceIDKey = "\(AppIdentity.storageNamespace).deviceID"
 
     let defaults: UserDefaults
 
@@ -87,7 +87,7 @@ struct OperatorSettings {
     var deviceID: String {
         get {
             if let saved = defaults.string(forKey: Self.deviceIDKey), !saved.isEmpty { return saved }
-            let generated = "iphone-" + UUID().uuidString.prefix(8).lowercased()
+            let generated = AppIdentity.defaultDeviceIDPrefix + "-" + UUID().uuidString.prefix(8).lowercased()
             defaults.set(generated, forKey: Self.deviceIDKey)
             return generated
         }

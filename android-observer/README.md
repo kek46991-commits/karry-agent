@@ -18,6 +18,8 @@ Karry-Agentへ送った操作イベントとエラー診断だけを、オーナ
 - `agent1`: Karry-Agent 1。既定で `operation-iphone` を観察。
 - `agent3`: Karry-Agent 3。別application IDで、既定で `operation-iphone-4` を観察。
 
+iPhone側は端末IDの末尾にランダムな文字列を付けます。登録前に、観察対象IDを **iPhoneアプリに表示される端末ID全体**（末尾を含む）へ変更してください。上の既定値だけでは自動接続しません。複数のAndroid端末で使う場合は観察者IDも別々にしてください。
+
 ## ビルド
 ```
 cd android-observer
