@@ -14,7 +14,12 @@ struct KarryOperatorApp: App {
             location: OneShotLocationProvider(),
             prompts: prompts
         )
-        let model = OperatorViewModel(settings: OperatorSettings(), tokenStore: KeychainTokenStore(), executor: executor)
+        let model = OperatorViewModel(
+            settings: OperatorSettings(),
+            tokenStore: KeychainTokenStore(),
+            executor: executor,
+            permissions: SystemPermissionService()
+        )
         _prompts = StateObject(wrappedValue: prompts)
         _model = StateObject(wrappedValue: model)
         OperatorRuntime.model = model

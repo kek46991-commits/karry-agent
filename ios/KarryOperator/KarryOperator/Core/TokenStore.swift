@@ -72,6 +72,7 @@ struct OperatorSettings {
     static let defaultBaseURL = "https://karry-agent-1.onrender.com"
     private static let baseURLKey = "\(AppIdentity.storageNamespace).baseURL"
     private static let deviceIDKey = "\(AppIdentity.storageNamespace).deviceID"
+    private static let autoCheckKey = "\(AppIdentity.storageNamespace).autoCheck"
 
     let defaults: UserDefaults
 
@@ -92,5 +93,11 @@ struct OperatorSettings {
             return generated
         }
         nonmutating set { defaults.set(newValue, forKey: Self.deviceIDKey) }
+    }
+
+    /// Foreground auto-check is on unless the owner turned it off.
+    var autoCheck: Bool {
+        get { defaults.object(forKey: Self.autoCheckKey) as? Bool ?? true }
+        nonmutating set { defaults.set(newValue, forKey: Self.autoCheckKey) }
     }
 }

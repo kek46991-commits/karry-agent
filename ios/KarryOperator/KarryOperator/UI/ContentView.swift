@@ -12,6 +12,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                setupSection
                 connectionSection
                 if model.hasToken {
                     operationSection
@@ -20,11 +21,6 @@ struct ContentView: View {
                 }
                 claimedSection
                 resultSection
-                Section {
-                    Text("このアプリは許可リストのアクションだけを、iOSの許可ダイアログ・ピッカー・作成画面を通して実行します。メッセージ・履歴・写真・ファイルを一括で読み取ることはありません。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle(AppIdentity.displayName)
             .disabled(model.isBusy && prompts.prompt == nil)
@@ -44,6 +40,29 @@ struct ContentView: View {
                     .ignoresSafeArea()
             }
         }
+    }
+
+    private var setupSection: some View {
+        Section("setup") {
+            Text(model.setupLines.joined(separator: "\n"))
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+                .accessibilityIdentifier("setupLog")
+            if let prompt = model.setupPrompt {
+                Text(prompt.text)
+                    .font(.system(.footnote, design: .monospaced))
+                    .accessibilityIdentifier("setupPrompt")
+                HStack {
+                    Button("Yes") { Task { await model.answerSetup(yes: true) } }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("setupYes")
+                    Button("No") { Task { await model.answerSetup(yes: false) } }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("setupNo")
+                }
+            }
+        }
+        .onAppear { model.refreshSetup() }
     }
 
     private var connectionSection: some View {

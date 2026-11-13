@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
+		058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
 		09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
 		0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
 		116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
@@ -20,10 +21,14 @@
 		3946DA0FE1FEF780002698E6 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
 		3D101E652197D5BCABC1705D /* MobileAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E990197197DC6C0137B6B13 /* MobileAction.swift */; };
 		44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */; };
+		485D20E6C076FFE1C717DCD7 /* SetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */; };
 		4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
 		53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
+		56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
 		58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */; };
+		649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */; };
 		7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
+		862A60AF0AEF788BA96F3CAD /* SetupStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD004016D0F7694FD7908657 /* SetupStatusTests.swift */; };
 		A8952D69F006DE12346C829B /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
 		ABEFDFF13C42F46C00AAD086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129DDEBB06671EAB865927D4 /* ContentView.swift */; };
 		BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */; };
@@ -57,6 +62,7 @@
 		1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KarryOperator4.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		22DA6B08B307CED723CCC71E /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
 		3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KarryOperatorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4102C6D98F0810FA0C15677D /* SystemPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPermissions.swift; sourceTree = "<group>"; };
 		5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendIntegrationTests.swift; sourceTree = "<group>"; };
 		6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTokenStoreTests.swift; sourceTree = "<group>"; };
 		6E990197197DC6C0137B6B13 /* MobileAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAction.swift; sourceTree = "<group>"; };
@@ -70,6 +76,8 @@
 		A76520F348F1A1ECA7A0E0F5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B7402113E0F36E32A8371046 /* AppIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentityTests.swift; sourceTree = "<group>"; };
 		D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemServices.swift; sourceTree = "<group>"; };
+		D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupStatus.swift; sourceTree = "<group>"; };
+		DD004016D0F7694FD7908657 /* SetupStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupStatusTests.swift; sourceTree = "<group>"; };
 		E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPlannerTests.swift; sourceTree = "<group>"; };
 		EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClientTests.swift; sourceTree = "<group>"; };
 		EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPlan.swift; sourceTree = "<group>"; };
@@ -92,6 +100,7 @@
 			isa = PBXGroup;
 			children = (
 				8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */,
+				4102C6D98F0810FA0C15677D /* SystemPermissions.swift */,
 				D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */,
 			);
 			path = Execution;
@@ -116,6 +125,7 @@
 				5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */,
 				6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */,
 				839E5CA41F48BED8F94ED309 /* OperatorViewModelTests.swift */,
+				DD004016D0F7694FD7908657 /* SetupStatusTests.swift */,
 				9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */,
 				F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */,
 			);
@@ -150,6 +160,7 @@
 				02DB5F5AC2469900838C8502 /* AppIdentity.swift */,
 				22DA6B08B307CED723CCC71E /* BackendClient.swift */,
 				6E990197197DC6C0137B6B13 /* MobileAction.swift */,
+				D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */,
 				7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */,
 			);
 			path = Core;
@@ -287,6 +298,8 @@
 				0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */,
 				3D101E652197D5BCABC1705D /* MobileAction.swift in Sources */,
 				3946DA0FE1FEF780002698E6 /* OperatorViewModel.swift in Sources */,
+				649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */,
+				058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */,
 				4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */,
 				09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */,
 			);
@@ -302,6 +315,7 @@
 				1A050F19C1DA26116A813726 /* BackendIntegrationTests.swift in Sources */,
 				BDE2793E0CDED2C5C148269E /* KeychainTokenStoreTests.swift in Sources */,
 				381C0D90B3845E8BB44E8519 /* OperatorViewModelTests.swift in Sources */,
+				862A60AF0AEF788BA96F3CAD /* SetupStatusTests.swift in Sources */,
 				BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */,
 				44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */,
 			);
@@ -321,6 +335,8 @@
 				0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */,
 				D308C2D3C72B45D43D4F869C /* MobileAction.swift in Sources */,
 				116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */,
+				485D20E6C076FFE1C717DCD7 /* SetupStatus.swift in Sources */,
+				56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */,
 				D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */,
 				EB16280D93568D8A34154030 /* TokenStore.swift in Sources */,
 			);

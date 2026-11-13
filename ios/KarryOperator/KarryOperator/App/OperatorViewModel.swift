@@ -56,13 +56,20 @@ final class OperatorViewModel: ObservableObject {
     @Published var deviceID: String {
         didSet { settings.deviceID = deviceID }
     }
-    @Published var autoCheck = false {
-        didSet { autoCheck ? startPolling() : stopPolling() }
+    @Published var autoCheck: Bool {
+        didSet {
+            settings.autoCheck = autoCheck
+            autoCheck ? startPolling() : stopPolling()
+        }
     }
+    @Published private(set) var setupLines: [String] = []
+    @Published private(set) var setupPrompt: SetupPrompt?
+    private var skippedSteps: Set<SetupStep> = []
 
     private let settings: OperatorSettings
     private let tokenStore: TokenStoring
     private let executor: ActionPerforming
+    private let permissions: PermissionServicing
     private let makeClient: (URL) throws -> BackendServing
     private var pendingReport: (eventID: String, report: ActionReport)?
     private var pollTask: Task<Void, Never>?
@@ -71,17 +78,55 @@ final class OperatorViewModel: ObservableObject {
         settings: OperatorSettings,
         tokenStore: TokenStoring,
         executor: ActionPerforming,
+        permissions: PermissionServicing = UnavailablePermissionService(),
         makeClient: @escaping (URL) throws -> BackendServing = { try BackendClient(baseURL: $0) }
     ) {
         self.settings = settings
         self.tokenStore = tokenStore
         self.executor = executor
+        self.permissions = permissions
         self.makeClient = makeClient
         baseURL = settings.baseURL
         deviceID = settings.deviceID
+        autoCheck = settings.autoCheck
         let hasToken = tokenStore.readToken() != nil
         self.hasToken = hasToken
         connection = hasToken ? .ready : .notEnrolled
+        refreshSetup()
+    }
+
+    var setupSnapshot: SetupSnapshot {
+        SetupSnapshot(
+            serverURLValid: URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host != nil,
+            deviceIDValid: BackendClient.isValidDeviceID(deviceID),
+            enrolled: hasToken,
+            calendar: permissions.calendarState(),
+            reminders: permissions.remindersState(),
+            location: permissions.locationState(),
+            messagesCompose: permissions.canComposeMessages,
+            autoCheck: autoCheck
+        )
+    }
+
+    /// Rebuilds the raw yes/no setup log and the next Yes/No question.
+    func refreshSetup() {
+        let snapshot = setupSnapshot
+        setupLines = SetupStatus.lines(snapshot, skipped: skippedSteps)
+        setupPrompt = SetupStatus.nextPrompt(snapshot, skipped: skippedSteps)
+    }
+
+    /// Yes routes straight to the system prompt (or Settings); No skips that step.
+    func answerSetup(yes: Bool) async {
+        guard let prompt = setupPrompt else { return }
+        if !yes {
+            skippedSteps.insert(prompt.step)
+        } else if prompt.opensSettings {
+            skippedSteps.insert(prompt.step)
+            await permissions.openSettings()
+        } else {
+            await permissions.request(prompt.step)
+        }
+        refreshSetup()
     }
 
     private func client() throws -> BackendServing {
@@ -114,6 +159,7 @@ final class OperatorViewModel: ObservableObject {
         } catch {
             connection = .error("端末トークンをキーチェーンに保存できませんでした")
         }
+        refreshSetup()
     }
 
     /// For a device token issued elsewhere (e.g. by the owner with curl).
@@ -130,15 +176,17 @@ final class OperatorViewModel: ObservableObject {
         } catch {
             connection = .error("端末トークンをキーチェーンに保存できませんでした")
         }
+        refreshSetup()
     }
 
     func unenroll() {
-        autoCheck = false
+        stopPolling()
         try? tokenStore.deleteToken()
         hasToken = false
         pendingReport = nil
         claimed = nil
         connection = .notEnrolled
+        refreshSetup()
     }
 
     /// Claims at most one action, executes it locally, and reports a bounded result.
@@ -220,11 +268,12 @@ final class OperatorViewModel: ObservableObject {
     }
 
     func sceneBecameActive(_ active: Bool) {
+        if active { refreshSetup() }
         if active && autoCheck { startPolling() } else { stopPolling() }
     }
 
     private func startPolling() {
-        guard pollTask == nil else { return }
+        guard pollTask == nil, hasToken else { return }
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.autoCheck else { return }
