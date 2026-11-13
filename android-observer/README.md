@@ -7,6 +7,9 @@ Karry-Agentへ送った操作イベントとエラー診断だけを、オーナ
 - 端末専用トークンは Android Keystore で暗号化して保存します。
 - 観察トークンは1台のiPhone操作端末だけに紐づきます(`observed_device_id`)。
 
+## セットアップログ
+起動時に画面上部へ英語の生ログ（`key: yes|no`）を表示します。ネットワーク権限、Keystore、バックエンド到達性、登録状態、`ready` を自動判定し、質問は `enroll: register this observer now?` の Yes/No だけです。説明画面はありません。全体の状態一覧は `docs/mobile-readiness-log.md` を参照してください。
+
 ## 連携するバックエンド
 `docs/mobile-agent-pair.md` と `src/karry_agent/mobile_agents.py`。
 観察用エンドポイント:

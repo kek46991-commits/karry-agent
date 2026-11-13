@@ -23,6 +23,9 @@
 
 ペイロードは文字列・数値として扱うだけで、コードやコマンドとして解釈しません。未知のアクション・フィールドは `invalid_payload` として報告し、何も実行しません。
 
+## セットアップログ
+画面上部の `setup` セクションに英語の生ログ（`enrolled: no`、`calendar_write: not_determined` など）を表示します。未決定の権限があれば `calendar_write: request now? (system prompt)` のような質問を1つだけ出し、Yes でそのままiOSの許可ダイアログ（拒否済みなら設定アプリ）へ、No でスキップします。自動確認（10秒、表示中のみ）は既定でオンです。説明画面はありません。
+
 ## ペアの登録
 
 - Karry-Agent 1（Android）と2（iPhone）、Karry-Agent 3（Android）と4（iPhone）がテスト用の2組です。
