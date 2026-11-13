@@ -1,10 +1,15 @@
 package ai.karry.observer
 
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.format.DateUtils
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
@@ -25,9 +30,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var refreshButton: Button
     private lateinit var clearButton: Button
     private lateinit var connectionStatus: TextView
-    private lateinit var actionList: TextView
-    private lateinit var diagnosticList: TextView
+    private lateinit var liveCard: TextView
+    private lateinit var actionContainer: LinearLayout
+    private lateinit var diagnosticContainer: LinearLayout
     private var registration: Registration? = null
+    private var blink = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +51,7 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
                     if (registration != null) refresh(silent = true)
-                    delay(5_000)
+                    delay(2_000)
                 }
             }
         }
@@ -59,8 +66,9 @@ class MainActivity : AppCompatActivity() {
         refreshButton = findViewById(R.id.refreshButton)
         clearButton = findViewById(R.id.clearButton)
         connectionStatus = findViewById(R.id.connectionStatus)
-        actionList = findViewById(R.id.actionList)
-        diagnosticList = findViewById(R.id.diagnosticList)
+        liveCard = findViewById(R.id.liveCard)
+        actionContainer = findViewById(R.id.actionContainer)
+        diagnosticContainer = findViewById(R.id.diagnosticContainer)
     }
 
     private fun restoreRegistration() {
@@ -92,7 +100,7 @@ class MainActivity : AppCompatActivity() {
                 tokenStore.saveRegistration(result)
                 registration = result
                 ownerToken.text.clear()
-                setStatus("接続しました。iPhoneの状態を5秒ごとに更新します")
+                setStatus("接続しました。iPhoneの状態を2秒ごとに更新します")
                 updateControls()
                 refresh()
             } catch (error: Exception) {
@@ -112,7 +120,8 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 render(api.snapshot(current))
-                setStatus("接続中: ${current.operationId} を観察中")
+                blink = !blink
+                setStatus("${if (blink) "● " else "○ "}接続中: ${current.operationId} を観察中")
             } catch (error: Exception) {
                 setStatus("更新エラー: ${safeMessage(error)}")
             } finally {
@@ -122,33 +131,134 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render(snapshot: ObserverSnapshot) {
-        actionList.text = if (snapshot.actions.isEmpty()) {
-            "まだ操作はありません"
-        } else {
-            snapshot.actions.joinToString("\n\n") {
-                val relative = DateUtils.getRelativeTimeSpanString(
-                    (it.updatedAt * 1000).toLong(),
-                    System.currentTimeMillis(),
-                    DateUtils.MINUTE_IN_MILLIS,
-                )
-                "${actionLabel(it.action)}\n状態: ${statusLabel(it.status)} / $relative"
+        renderLiveCard(snapshot.actions)
+        renderActions(snapshot.actions)
+        renderDiagnostics(snapshot.diagnostics)
+    }
+
+    private fun renderLiveCard(actions: List<ActionStatus>) {
+        val active = actions.firstOrNull { it.status == "claimed" }
+            ?: actions.firstOrNull { it.status == "pending" }
+            ?: actions.firstOrNull { it.status == "awaiting_confirmation" }
+        if (active == null) {
+            liveCard.text = "● 待機中（実行中の操作はありません）"
+            liveCard.setBackgroundColor(Color.parseColor("#1E293B"))
+            liveCard.setTextColor(Color.parseColor("#E2E8F0"))
+            return
+        }
+        val color = statusColor(active.status)
+        liveCard.text = "● ${actionLabel(active.action)}\n${statusLabel(active.status)}"
+        liveCard.setBackgroundColor(withAlpha(color, 0x33))
+        liveCard.setTextColor(Color.parseColor("#F8FAFC"))
+    }
+
+    private fun renderActions(actions: List<ActionStatus>) {
+        actionContainer.removeAllViews()
+        if (actions.isEmpty()) {
+            actionContainer.addView(emptyCard("まだ操作はありません"))
+            return
+        }
+        actions.forEach { item ->
+            val relative = DateUtils.getRelativeTimeSpanString(
+                (item.updatedAt * 1000).toLong(),
+                System.currentTimeMillis(),
+                DateUtils.MINUTE_IN_MILLIS,
+            )
+            actionContainer.addView(
+                timelineRow(
+                    statusColor(item.status),
+                    actionLabel(item.action),
+                    "${statusLabel(item.status)} ・ $relative",
+                ),
+            )
+        }
+    }
+
+    private fun renderDiagnostics(diagnostics: List<DiagnosticStatus>) {
+        diagnosticContainer.removeAllViews()
+        if (diagnostics.isEmpty()) {
+            diagnosticContainer.addView(emptyCard("エラーはありません"))
+            return
+        }
+        diagnostics.forEach { item ->
+            diagnosticContainer.addView(
+                timelineRow(
+                    Color.parseColor("#F97316"),
+                    "${actionLabel(item.action)}: ${categoryLabel(item.category)}",
+                    recommendationLabel(item.recommendation),
+                ),
+            )
+        }
+    }
+
+    private fun timelineRow(accent: Int, title: String, subtitle: String): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = cardBackground()
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(8) }
+        }
+        val chip = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(accent)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(12), dp(12)).apply {
+                topMargin = dp(5)
+                marginEnd = dp(12)
             }
         }
-        diagnosticList.text = if (snapshot.diagnostics.isEmpty()) {
-            "エラーはありません"
-        } else {
-            snapshot.diagnostics.joinToString("\n\n") {
-                "${actionLabel(it.action)}: ${categoryLabel(it.category)}\n${recommendationLabel(it.recommendation)}"
-            }
+        val text = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
+        text.addView(TextView(this).apply {
+            setText(title)
+            setTextColor(Color.parseColor("#F8FAFC"))
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        text.addView(TextView(this).apply {
+            setText(subtitle)
+            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 13f
+        })
+        row.addView(chip)
+        row.addView(text)
+        return row
+    }
+
+    private fun emptyCard(message: String): View = TextView(this).apply {
+        setText(message)
+        setTextColor(Color.parseColor("#94A3B8"))
+        background = cardBackground()
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(14), dp(16), dp(14), dp(16))
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(8) }
+    }
+
+    private fun cardBackground(): GradientDrawable = GradientDrawable().apply {
+        setColor(Color.parseColor("#1E293B"))
+        cornerRadius = dp(10).toFloat()
     }
 
     private fun clearRegistration() {
         tokenStore.clear()
         registration = null
         ownerToken.text.clear()
-        actionList.text = "まだ操作はありません"
-        diagnosticList.text = "エラーはありません"
+        actionContainer.removeAllViews()
+        diagnosticContainer.removeAllViews()
+        actionContainer.addView(emptyCard("まだ操作はありません"))
+        diagnosticContainer.addView(emptyCard("エラーはありません"))
+        liveCard.text = "● 待機中"
+        liveCard.setBackgroundColor(Color.parseColor("#1E293B"))
+        liveCard.setTextColor(Color.parseColor("#E2E8F0"))
         setStatus("登録を解除しました")
         updateControls()
     }
@@ -166,6 +276,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun setStatus(message: String) {
         connectionStatus.text = message
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+
+    private fun statusColor(status: String): Int = when (status) {
+        "awaiting_confirmation" -> Color.parseColor("#F59E0B")
+        "pending" -> Color.parseColor("#64748B")
+        "claimed" -> Color.parseColor("#3B82F6")
+        "completed" -> Color.parseColor("#22C55E")
+        "failed" -> Color.parseColor("#EF4444")
+        else -> Color.parseColor("#94A3B8")
     }
 
     private fun safeMessage(error: Exception): String =
