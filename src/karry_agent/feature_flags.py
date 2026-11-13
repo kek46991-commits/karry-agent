@@ -1,6 +1,6 @@
 """Public-portfolio gate for experimental features.
 
-Video generation, the media DB API, Optimus self-evolution and the self-correction loop are still
+Video generation, the media DB API, Optimus self-evolution, the self-correction loop and autonomous runs are still
 experimental. They stay off (404, hidden from the UI and /docs) unless the
 deployment sets ``KARRY_EXPERIMENTAL_FEATURES=1``, e.g. on a sandbox service.
 The novel-to-webtoon pipeline can be published on its own with ``KARRY_WEBTOON=1``.
@@ -12,7 +12,7 @@ import os
 from starlette.responses import JSONResponse
 
 WEBTOON_PREFIX = "/api/webtoon"
-EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", WEBTOON_PREFIX)
+EXPERIMENTAL_PREFIXES = ("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/autonomy", WEBTOON_PREFIX)
 
 
 def _flag(name: str) -> bool:

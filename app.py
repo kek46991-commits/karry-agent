@@ -1376,6 +1376,54 @@ _SHOP_PUBLIC, _SHOP_OWNER = shop_api.build_routers(require_tool_auth)
 app.include_router(_SHOP_PUBLIC)
 app.include_router(_SHOP_OWNER)
 
+from karry_agent.autonomy import AutonomousRunner, JsonRunStore, MemoryRunStore, MonitorGate, Subtask  # noqa: E402
+from karry_agent.autonomy import api as autonomy_api  # noqa: E402
+
+_AUTONOMY: dict[str, AutonomousRunner] = {}
+_AUTONOMY_LOCK = threading.Lock()
+_AUTONOMY_MEDIA_LOCK = threading.Lock()
+
+
+def _autonomy_prompt(task: Subtask, context: dict[str, Any]) -> str:
+    parts = [f"全体の目的: {context['goal']}"] if context.get("goal") else []
+    parts += [f"前段 {dep} の結果:\n{output}" for dep, output in context.get("dependencies", {}).items()]
+    return "\n\n".join(parts + [f"このサブタスク:\n{task.prompt}"])
+
+
+def _autonomy_agent_handler(task: Subtask, context: dict[str, Any]) -> str:
+    agent = app.dependency_overrides.get(get_agent, get_agent)()
+    return _run_agent(agent, _autonomy_prompt(task, context), False).text
+
+
+def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
+    """Image/video subtasks go through the normal task chat path, so generation and storage work as before."""
+    session_id = context.get("session_id")
+    if not session_id:
+        raise ValueError("画像・動画のサブタスクには session_id（タスクID）が必要です。")
+    agent = app.dependency_overrides.get(get_agent, get_agent)()
+    with _AUTONOMY_MEDIA_LOCK:
+        response = _execute(RunRequest(prompt=task.prompt, session_id=session_id), agent)
+    text = response.text
+    if response.generated_images:
+        text += "\n生成画像ID: " + ", ".join(response.generated_images)
+    return text
+
+
+def autonomy_runner() -> AutonomousRunner:
+    with _AUTONOMY_LOCK:
+        if "runner" not in _AUTONOMY:
+            if os.getenv("KARRY_AUTONOMY_STORAGE", "file").strip().lower() == "memory":
+                store: Any = MemoryRunStore()
+            else:
+                store = JsonRunStore(os.getenv("KARRY_AUTONOMY_DIR", "").strip() or "data/autonomy")
+            handlers = {"general": _autonomy_agent_handler, "research": _autonomy_agent_handler,
+                        "image": _autonomy_media_handler, "video": _autonomy_media_handler}
+            _AUTONOMY["runner"] = AutonomousRunner(store, handlers, gate=MonitorGate.from_env())
+        return _AUTONOMY["runner"]
+
+
+app.include_router(autonomy_api.build_router(require_tool_auth, lambda: autonomy_runner()))
+
 
 @app.get("/api/gemini/status", dependencies=[Depends(require_tool_auth)])
 def gemini_status():
