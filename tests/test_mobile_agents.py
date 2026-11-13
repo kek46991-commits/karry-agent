@@ -191,3 +191,17 @@ def test_mobile_event_log_is_bounded():
     events = coordinator.list_events("iphone")
     assert len(events) == 2
     assert first["id"] not in {event["id"] for event in events}
+
+
+def test_operator_web_app_is_installable_without_owner_auth(monkeypatch):
+    api, _ = client(monkeypatch)
+    page = api.get("/operator")
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store"
+    assert '<link rel="manifest" href="/operator.webmanifest">' in page.text
+    manifest = api.get("/operator.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    body = manifest.json()
+    assert (body["start_url"], body["display"]) == ("/operator", "standalone")
+    for icon in body["icons"]:
+        assert api.get(icon["src"]).headers["content-type"] == "image/png"

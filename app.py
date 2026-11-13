@@ -80,6 +80,14 @@ CHAT_HTML_HEADERS = {"Cache-Control": "private, no-store, max-age=0", "Pragma": 
                      "Permissions-Policy": "microphone=(self)"}
 
 
+OPERATOR_MANIFEST = {
+    "name": "Karry 操作エージェント", "short_name": "Karry操作", "lang": "ja", "start_url": "/operator",
+    "scope": "/operator", "display": "standalone", "background_color": "#f2f2f7", "theme_color": "#f2f2f7",
+    "icons": [{"src": f"/static/operator-icon-{size}.png", "sizes": f"{size}x{size}", "type": "image/png"}
+              for size in (180, 192, 512)],
+}
+
+
 class ArtifactNotFound(HTTPException):
     def __init__(self) -> None:
         super().__init__(status_code=404, detail=resource_errors.missing('artifact')['detail'], headers={"Cache-Control": "no-store"})
@@ -1420,6 +1428,18 @@ def admin_me():
 def admin_page():
     return FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex",
                                                             "Referrer-Policy": "no-referrer"})
+
+
+@app.get("/operator", include_in_schema=False)
+def operator_page():
+    return FileResponse(STATIC_DIR / "operator.html", headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex",
+                                                               "Referrer-Policy": "no-referrer",
+                                                               "Permissions-Policy": "geolocation=(self)"})
+
+
+@app.get("/operator.webmanifest", include_in_schema=False)
+def operator_manifest():
+    return JSONResponse(OPERATOR_MANIFEST, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/shop", include_in_schema=False)
