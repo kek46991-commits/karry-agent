@@ -134,7 +134,12 @@ class AutonomousRunner:
             state.control = "" if action == "resume" else action
             state.control_reason = reason[:500]
             self.store.save(state)
+            idle = run_id not in self._active
         self._record(state, "monitor_signal", action=action, reason=reason[:500], actor=actor)
+        if idle and action == "stop":
+            # No worker will see the signal, so the stop takes effect here.
+            self._skip_pending(state, "見守り端末の停止指示により中止しました。")
+            return self._finish(state, "stopped", state.control_reason or "見守り端末が停止を指示しました。")
         return state
 
     # --- execution -----------------------------------------------------------
@@ -187,9 +192,7 @@ class AutonomousRunner:
         while True:
             self._save(state)  # refresh inbound signals
             if state.control == "stop":
-                for task in state.subtasks:
-                    if task.status == "pending":
-                        task.status, task.error = "skipped", "見守り端末の停止指示により中止しました。"
+                self._skip_pending(state, "見守り端末の停止指示により中止しました。")
                 return self._finish(state, "stopped", state.control_reason or "見守り端末が停止を指示しました。")
             if state.control == "pause":
                 return self._pause(state, state.control_reason or "見守り端末が一時停止を指示しました。")
@@ -205,9 +208,17 @@ class AutonomousRunner:
                 return self._pause(state, "制限時間に達したため一時停止しました。再開できます。")
             batch = ready[: self.limits.max_workers]
             if not self._admit(state, batch):
+                if state.control:
+                    continue  # a signal arrived while the monitor was reviewing
                 return state
             self._run_batch(state, [t for t in batch if t.status == "running"])
         return self._merge(state)
+
+    @staticmethod
+    def _skip_pending(state: RunState, reason: str) -> None:
+        for task in state.subtasks:
+            if task.status in {"pending", "blocked"}:
+                task.status, task.error = "skipped", reason
 
     def _deps_done(self, state: RunState, task: Subtask) -> bool:
         return all(state.subtask(dep).status == "done" for dep in task.depends_on)
@@ -233,11 +244,15 @@ class AutonomousRunner:
         if held:
             self._pause(state, held[0][1].reason)
             return False
-        for task, verdict in verdicts:
-            if verdict.decision == "allow":
-                task.status, task.attempts, task.started_at, task.error = "running", task.attempts + 1, time.time(), ""
-                state.executions += 1
-        self._save(state)  # persisted before work starts, so a crash is visible on resume
+        with self._lock:  # serialized with signal(): a stop/pause sent during review wins
+            self._save(state)
+            if state.control:
+                return False
+            for task, verdict in verdicts:
+                if verdict.decision == "allow":
+                    task.status, task.attempts, task.started_at, task.error = "running", task.attempts + 1, time.time(), ""
+                    state.executions += 1
+            self._save(state)  # persisted before work starts, so a crash is visible on resume
         for task in batch:
             if task.status == "running":
                 self._record(state, "subtask_started", subtask=task.id, kind=task.kind, attempt=task.attempts)

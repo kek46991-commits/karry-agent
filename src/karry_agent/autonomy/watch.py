@@ -206,10 +206,13 @@ class MonitorGate:
             return policy
         if policy.get("halt"):
             return Verdict("hold", str(policy.get("reason") or "検閲ファイルで一時停止中です。")[:500], "policy")
-        if subtask.kind in set(policy.get("blocked_kinds") or []):
+        kinds, patterns = policy.get("blocked_kinds") or [], policy.get("blocked_patterns") or []
+        if not isinstance(kinds, list) or not isinstance(patterns, list):
+            return Verdict("hold", "検閲ファイルの blocked_kinds / blocked_patterns は配列で指定してください。", "policy")
+        if subtask.kind in {str(kind) for kind in kinds}:
             return Verdict("deny", f"検閲ファイルで「{subtask.kind}」の実行が禁止されています。", "policy")
         try:
-            for pattern in policy.get("blocked_patterns") or []:
+            for pattern in patterns:
                 if re.search(str(pattern), subtask.prompt, re.IGNORECASE):
                     return Verdict("deny", "検閲ファイルの禁止パターンに一致しました。", "policy")
         except re.error:

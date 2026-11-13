@@ -189,6 +189,40 @@ def test_signals_pause_resume_and_stop():
     assert events[0] == "run_planned" and "monitor_signal" in events and events[-1] == "run_finished"
 
 
+def test_stop_on_idle_run_finishes_it_and_signals_during_review_win(tmp_path):
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({"halt": True}))
+    r = runner(gate=MonitorGate(policy_file=policy))
+    held = r.execute(r.create("- 作業").id)
+    assert held.status == "paused"
+    stopped = r.signal(held.id, "stop", actor="monitor")
+    assert stopped.status == "stopped" and stopped.subtasks[0].status == "skipped"
+    assert r.store.load(held.id).status == "stopped"
+
+    calls = []
+
+    class SlowReviewGate(MonitorGate):
+        action = "stop"
+
+        def review(self, state, subtask):
+            verdict = super().review(state, subtask)
+            if not state.control:
+                current.signal(state.id, self.action, actor="monitor")  # arrives while the monitor is deciding
+            return verdict
+
+    for action, status in (("stop", "stopped"), ("pause", "paused")):
+        gate = SlowReviewGate()
+        gate.action = action
+        current = runner(handlers={"general": lambda t, c: calls.append(t.id) or "x"}, gate=gate)
+        final = current.execute(current.create("- 作業").id)
+        assert final.status == status and final.executions == 0 and final.subtasks[0].attempts == 0
+    assert calls == []
+
+    policy.write_text(json.dumps({"blocked_kinds": "video"}))
+    typed = r.execute(r.create("- 作業").id)
+    assert typed.status == "paused" and "配列" in typed.hold_reason
+
+
 def test_audit_chain_detects_tampering_and_checks_hmac(tmp_path):
     path = tmp_path / "a.audit.jsonl"
     log = AuditLog("r1", path, secret="signing-secret-value")
