@@ -21,3 +21,6 @@ __pycache__/
 progress.md
 static/instant/
 node_modules/
+ios/**/build/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
