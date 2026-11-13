@@ -35,7 +35,8 @@ KEEPALIVE_SECONDS = 15
 MONITOR_PREFIX = "/api/monitor"
 # POSTs that start agent work; refused with 423 while the monitor has paused execution.
 EXECUTION_PATHS = ("/chat", "/run", "/agent/run", "/api/chat", "/api/agent/tools/execute",
-                   "/api/optimus/clones", "/api/mobile-agent/actions")
+                   "/api/optimus/clones")
+MOBILE_PREFIX = "/api/mobile-agent"
 # Bodies never recorded: credentials, uploaded media, chat text (agent events already log it
 # while honouring private mode) and mobile payloads (message drafts, picked file names).
 BODYLESS_PATHS = ("/api/login", "/api/media/upload", "/api/upload_image", "/api/secret", "/api/mobile-agent",
@@ -47,6 +48,13 @@ Level = Literal["info", "warning", "error"]
 
 def _under(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
+
+
+def _starts_execution(path: str) -> bool:
+    """Submitting, confirming and claiming mobile actions start work; reporting a claimed one does not."""
+    if _under(path, MOBILE_PREFIX):
+        return path == f"{MOBILE_PREFIX}/actions" or path.endswith(("/confirm", "/claim"))
+    return any(_under(path, p) for p in EXECUTION_PATHS)
 
 
 def _summary(text: Any) -> str:
@@ -210,7 +218,7 @@ class MonitorMiddleware:
             return await self.app(scope, receive, send)
         method = scope.get("method", "")
         headers = dict(scope.get("headers") or [])
-        if hub.paused and method == "POST" and any(_under(path, p) for p in EXECUTION_PATHS):
+        if hub.paused and method == "POST" and _starts_execution(path):
             hub.publish("http", f"{method} {path} → 423（一時停止中）", {"method": method, "path": path,
                         "status": 423, "auth": _auth_kind(headers)}, level="warning")
             return await StarletteJSONResponse({"detail": "監視側で実行を一時停止しています。"}, status_code=423,

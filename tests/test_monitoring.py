@@ -106,3 +106,23 @@ def test_pause_blocks_new_execution_until_resumed(monkeypatch):
     api.post("/api/monitor/control", headers=headers, json={"action": "resume"})
     assert api.post("/api/mobile-agent/actions", headers=headers, json=action).status_code == 201
     assert [e["summary"] for e in events(api, headers, "control")] == ["実行を一時停止しました", "実行を再開しました"]
+
+
+def test_pause_holds_queued_mobile_actions_but_accepts_reports(monkeypatch):
+    api, headers = client(monkeypatch)
+    device_token = api.post("/api/mobile-agent/devices/enroll", headers=headers, json={"device_id": "iphone"}).json()["device_token"]
+    device = {"X-Device-Token": device_token}
+    action = {"device_id": "iphone", "action": "open_app", "payload": {"bundle_id": "com.apple.Maps"}}
+    queued = [api.post("/api/mobile-agent/actions", headers=headers, json=action).json()["id"] for _ in range(2)]
+    for event_id in queued:
+        api.post(f"/api/mobile-agent/actions/{event_id}/confirm", headers=headers, json={"device_id": "iphone"})
+    claimed = api.post("/api/mobile-agent/devices/iphone/claim", headers=device).json()["action"]
+    api.post("/api/monitor/control", headers=headers, json={"action": "pause"})
+
+    assert api.post("/api/mobile-agent/devices/iphone/claim", headers=device).status_code == 423
+    report = api.post(f"/api/mobile-agent/actions/{claimed['id']}/report", headers=device,
+                      json={"device_id": "iphone", "success": True})
+    assert report.status_code == 200 and report.json()["status"] == "completed"
+
+    api.post("/api/monitor/control", headers=headers, json={"action": "resume"})
+    assert api.post("/api/mobile-agent/devices/iphone/claim", headers=device).json()["action"]["id"] == queued[1]
