@@ -24,7 +24,7 @@ from .config import compact_every, max_tool_steps
 from .light_llm import LightProvider
 from .url_analysis import normalize_urls_in_text, single_analysis_url
 from . import html_repair
-from . import secret_runtime
+from . import monitoring, secret_runtime
 from .knowledge_engine import gemini_embedder
 from .knowledge_sync_service import KnowledgeSyncService
 from .github_workflow import GITHUB_AUTO_SYNC_SYSTEM_PROMPT
@@ -588,10 +588,25 @@ class AgentCore:
 
     def run(self, prompt: str, private_mode: bool = False, *, current_prompt: str | None = None, images: list[dict[str, Any]] | None = None) -> AgentResult:
         token = _SYNCED_CONTEXT.set(self._synced_context(current_prompt if current_prompt is not None else prompt))
+        visible = None if private_mode else (current_prompt if current_prompt is not None else prompt)
+        monitoring.hub.publish("agent", "エージェント実行を開始しました",
+                               {"prompt": visible, "private_mode": private_mode, "images": len(images or [])},
+                               source="agent_core")
         try:
-            return self._run(prompt, private_mode, current_prompt=current_prompt, images=images)
+            result = self._run(prompt, private_mode, current_prompt=current_prompt, images=images)
+        except Exception as exc:
+            monitoring.hub.publish("agent", f"エージェント実行が失敗しました: {type(exc).__name__}",
+                                   {"exception": type(exc).__name__}, level="error", source="agent_core")
+            raise
         finally:
             _SYNCED_CONTEXT.reset(token)
+        status = getattr(result, "status", "")
+        monitoring.hub.publish("agent", f"エージェント実行が終わりました: {status}",
+                               {"status": status, "steps": getattr(result, "steps", 0),
+                                "tool_calls": getattr(result, "tool_calls", 0),
+                                "text": None if private_mode else getattr(result, "text", "")},
+                               level="info" if status == "completed" else "warning", source="agent_core")
+        return result
 
     def _light_decide(self, light: Any, request: str, trace: list[ExecutionEvent], metrics: AgentMetrics) -> Any:
         declarations = [tool.declaration for name, tool in self.registry.tools.items() if not _LIGHT_UNSAFE_TOOL_RE.search(name)]

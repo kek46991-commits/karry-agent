@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Karry 監視ダッシュボード</title>
+  <style>
+    :root{--bg:#0b1222;--card:#111b30;--line:#263451;--text:#e8eefc;--muted:#9fb0cf;--accent:#7cc4ff;--ok:#5fd38d;--warn:#ffc96b;--ng:#ff7b7b}
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text)}
+    header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}header h1{margin:0;font-size:18px}
+    main{max-width:1100px;margin:0 auto;padding:14px;display:grid;gap:12px}
+    section{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:12px}section h2{margin:0 0 8px;font-size:15px}
+    input,select{padding:8px;border-radius:8px;border:1px solid var(--line);background:#0c1426;color:var(--text);font-size:14px}
+    button{border:0;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;background:var(--accent);color:#06101f}button:disabled{opacity:.45}
+    .ghost{background:#24324f;color:var(--text)}.danger{background:#5a2330;color:#ffd9de}
+    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+    .card{border:1px solid var(--line);border-radius:10px;padding:8px}.card b{display:block;font-size:20px}.card span{color:var(--muted);font-size:12px}
+    .hint{color:var(--muted);font-size:12px}.ok{color:var(--ok)}.warning{color:var(--warn)}.error{color:var(--ng)}
+    #feed{max-height:60vh;overflow:auto;font-size:13px}
+    .ev{border-bottom:1px solid var(--line);padding:6px 2px}.ev summary{cursor:pointer;list-style:none;display:flex;gap:8px}
+    .ev time{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}.ev .k{flex:none;min-width:52px;color:var(--accent)}
+    .ev pre{white-space:pre-wrap;word-break:break-all;background:#0c1426;padding:8px;border-radius:8px;margin:6px 0 0}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+  <header><h1>Karry 監視ダッシュボード</h1><span id="conn" class="hint">未接続</span></header>
+  <main>
+    <section id="login">
+      <h2>所有者ログイン</h2>
+      <form id="loginForm" class="row"><input id="token" type="password" autocomplete="current-password" placeholder="管理者トークン（KARRY_API_TOKEN）" maxlength="1024" required><button type="submit">接続</button></form>
+      <p class="hint">トークンはこのタブを閉じると消えます。</p><p id="loginStatus" class="error" aria-live="polite"></p>
+    </section>
+    <div id="dash" hidden>
+      <section>
+        <div class="row" style="justify-content:space-between"><h2>現在の状態</h2>
+          <div class="row"><input id="reason" maxlength="200" placeholder="停止の理由（任意）"><button id="pause" class="danger" type="button">実行を一時停止</button><button id="resume" type="button">再開</button><button id="logout" class="ghost" type="button">ログアウト</button></div></div>
+        <p id="pausedNote" class="warning" hidden></p>
+        <div class="cards" id="cards"></div>
+        <p class="hint" id="components"></p>
+      </section>
+      <section>
+        <div class="row" style="justify-content:space-between"><h2>リアルタイムログ</h2>
+          <div class="row"><select id="kind"><option value="">すべて</option><option value="http">HTTP</option><option value="agent">エージェント</option><option value="tool">ツール</option><option value="clone">クローン</option><option value="mobile">モバイル</option><option value="log">ログ</option><option value="control">操作</option></select>
+          <select id="level"><option value="">全レベル</option><option value="warning">警告以上</option><option value="error">エラーのみ</option></select>
+          <label class="hint"><input id="follow" type="checkbox" checked> 自動スクロール</label></div></div>
+        <div id="feed" aria-live="polite"></div>
+      </section>
+    </div>
+  </main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id), KEY = 'karry-monitor-token', MAX_ROWS = 500;
+  const KINDS = {http:'HTTP', agent:'エージェント', tool:'ツール', clone:'クローン', mobile:'モバイル', log:'ログ', control:'操作'};
+  const state = {token:'', after:0, events:[], controller:null, retry:null};
+  const headers = () => ({Authorization:`Bearer ${state.token}`});
+
+  async function api(path, options = {}) {
+    const res = await fetch(`/api/monitor${path}`, {...options, cache:'no-store', headers:{...headers(), ...(options.body ? {'Content-Type':'application/json'} : {})}});
+    if (res.status === 401 || res.status === 403) { logout('トークンが正しくありません。'); throw new Error('unauthorized'); }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  function card(label, value, cls = '') {
+    const el = document.createElement('div'); el.className = 'card';
+    const b = document.createElement('b'); b.textContent = String(value); if (cls) b.className = cls;
+    const s = document.createElement('span'); s.textContent = label; el.append(b, s); return el;
+  }
+
+  function renderState(s) {
+    const c = s.components || {}, agent = c.agent || {}, mobile = c.mobile || {}, clones = c.clones || {};
+    const levels = s.levels || {};
+    $('cards').replaceChildren(
+      card('実行', s.paused ? '一時停止中' : '稼働中', s.paused ? 'warning' : 'ok'),
+      card('処理中のリクエスト', s.active_requests ?? 0),
+      card('実行中のセッション', agent.running_sessions ?? 0),
+      card('クローン', (clones.clones || []).length),
+      card('登録端末', mobile.devices ?? 0),
+      card('警告', levels.warning || 0, levels.warning ? 'warning' : ''),
+      card('エラー', levels.error || 0, levels.error ? 'error' : ''),
+      card('記録済みイベント', s.latest_seq ?? 0));
+    $('pausedNote').hidden = !s.paused;
+    $('pausedNote').textContent = s.paused ? `新しい実行を止めています${s.pause_reason ? `（理由: ${s.pause_reason}）` : ''}` : '';
+    $('pause').disabled = !!s.paused; $('resume').disabled = !s.paused;
+    const actions = Object.entries(mobile.actions || {}).map(([k, v]) => `${k}: ${v}`).join(' / ');
+    const last = s.last_error ? `最後のエラー: ${s.last_error.summary}` : '';
+    $('components').textContent = [actions && `モバイル操作 ${actions}`, last].filter(Boolean).join('　');
+  }
+
+  function visible(e) {
+    const kind = $('kind').value, level = $('level').value;
+    if (kind && e.kind !== kind) return false;
+    if (level === 'error') return e.level === 'error';
+    if (level === 'warning') return e.level !== 'info';
+    return true;
+  }
+
+  function row(e) {
+    const d = document.createElement('details'); d.className = 'ev'; d.dataset.seq = e.seq;
+    const s = document.createElement('summary');
+    const t = document.createElement('time'); t.textContent = new Date(e.at * 1000).toLocaleTimeString('ja-JP');
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = KINDS[e.kind] || e.kind;
+    const m = document.createElement('span'); m.className = e.level === 'info' ? '' : e.level; m.textContent = e.summary;
+    s.append(t, k, m);
+    const pre = document.createElement('pre'); pre.textContent = JSON.stringify({source:e.source, level:e.level, ...(e.data ? {data:e.data} : {})}, null, 2);
+    d.append(s, pre); return d;
+  }
+
+  function renderFeed() { $('feed').replaceChildren(...state.events.filter(visible).map(row)); scroll(); }
+  function scroll() { if ($('follow').checked) $('feed').scrollTop = $('feed').scrollHeight; }
+
+  function add(e) {
+    if (e.seq <= state.after) return;
+    state.after = e.seq; state.events.push(e);
+    if (state.events.length > MAX_ROWS) state.events.splice(0, state.events.length - MAX_ROWS);
+    if (visible(e)) { $('feed').append(row(e)); while ($('feed').childElementCount > MAX_ROWS) $('feed').firstElementChild.remove(); scroll(); }
+  }
+
+  function handle(block) {
+    let event = 'message', data = '';
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data += line.slice(5).trim();
+    }
+    if (!data) return;
+    const value = JSON.parse(data);
+    if (event === 'state') renderState(value);
+    else if (event === 'activity') add(value);
+  }
+
+  async function connect() {
+    clearTimeout(state.retry);
+    if (!state.token) return;
+    state.controller = new AbortController();
+    try {
+      const res = await fetch(`/api/monitor/stream?after=${state.after}`, {headers:headers(), cache:'no-store', signal:state.controller.signal});
+      if (res.status === 401 || res.status === 403) return logout('トークンが正しくありません。');
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      $('conn').textContent = 'リアルタイム接続中'; $('conn').className = 'ok';
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream:true});
+        let cut;
+        while ((cut = buffer.indexOf('\n\n')) >= 0) { handle(buffer.slice(0, cut)); buffer = buffer.slice(cut + 2); }
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      $('conn').textContent = '再接続中…'; $('conn').className = 'warning';
+    }
+    if (state.token) state.retry = setTimeout(connect, 1500);
+  }
+
+  async function refresh() { if (state.token) try { renderState(await api('/state')); } catch {} }
+
+  async function login(token) {
+    state.token = token.trim().replace(/^Bearer\s+/i, '');
+    if (!state.token) return;
+    try {
+      renderState(await api('/state'));
+      const backlog = await api('/events?limit=500');
+      backlog.events.forEach(add);
+    } catch (error) { if (error.message !== 'unauthorized') $('loginStatus').textContent = '接続できませんでした。'; return; }
+    sessionStorage.setItem(KEY, state.token); $('token').value = ''; $('loginStatus').textContent = '';
+    $('login').hidden = true; $('dash').hidden = false;
+    connect();
+  }
+
+  function logout(message = '') {
+    state.token = ''; state.after = 0; state.events = [];
+    if (state.controller) state.controller.abort();
+    clearTimeout(state.retry); sessionStorage.removeItem(KEY);
+    $('feed').replaceChildren(); $('dash').hidden = true; $('login').hidden = false;
+    $('loginStatus').textContent = message; $('conn').textContent = '未接続'; $('conn').className = 'hint';
+  }
+
+  async function control(action) {
+    try { renderState(await api('/control', {method:'POST', body:JSON.stringify({action, reason:$('reason').value})})); $('reason').value = ''; }
+    catch (error) { if (error.message !== 'unauthorized') $('components').textContent = '操作に失敗しました。'; }
+  }
+
+  $('loginForm').addEventListener('submit', event => { event.preventDefault(); login($('token').value); });
+  $('pause').addEventListener('click', () => control('pause'));
+  $('resume').addEventListener('click', () => control('resume'));
+  $('logout').addEventListener('click', () => logout());
+  $('kind').addEventListener('change', renderFeed); $('level').addEventListener('change', renderFeed);
+  setInterval(refresh, 5000);
+  window.KarryMonitor = {state, handle, add, login, logout};
+  const saved = sessionStorage.getItem(KEY); if (saved) login(saved);
+})();
+</script>
+</body>
+</html>
