@@ -135,6 +135,28 @@ def test_actions_reject_unbounded_or_unsafe_capabilities(monkeypatch):
     assert unsafe_url.status_code == 400
     assert "public https URL" in unsafe_url.json()["detail"]
 
+    private_url = api.post(
+        "/api/mobile-agent/actions",
+        headers=headers,
+        json={
+            "device_id": "owners-iphone",
+            "action": "open_url",
+            "payload": {"url": "https://192.168.1.1/admin"},
+        },
+    )
+    assert private_url.status_code == 400
+
+    malformed_url = api.post(
+        "/api/mobile-agent/actions",
+        headers=headers,
+        json={
+            "device_id": "owners-iphone",
+            "action": "open_url",
+            "payload": {"url": "https://["},
+        },
+    )
+    assert malformed_url.status_code == 400
+
     oversized = api.post(
         "/api/mobile-agent/actions",
         headers=headers,
@@ -183,11 +205,92 @@ def test_device_events_are_isolated_and_owner_authenticated(monkeypatch):
     ).json() == {"actions": []}
 
 
+def test_android_observer_token_is_scoped_to_one_operation_device(monkeypatch):
+    api, headers = client(monkeypatch)
+    enroll(api, headers, "operation-iphone")
+    observer = api.post(
+        "/api/mobile-agent/devices/enroll",
+        headers=headers,
+        json={
+            "device_id": "observer-android",
+            "role": "observer",
+            "observed_device_id": "operation-iphone",
+        },
+    )
+    assert observer.status_code == 201
+    observer_headers = {"X-Device-Token": observer.json()["device_token"]}
+
+    action = api.post(
+        "/api/mobile-agent/actions",
+        headers=headers,
+        json={
+            "device_id": "operation-iphone",
+            "action": "open_app",
+            "payload": {"bundle_id": "com.apple.Preferences"},
+        },
+    ).json()
+    visible = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/operation-iphone/actions",
+        headers=observer_headers,
+    )
+    assert visible.status_code == 200
+    assert visible.json()["actions"][0]["id"] == action["id"]
+    assert "payload" not in visible.json()["actions"][0]
+
+    wrong_target = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/other-iphone/actions",
+        headers=observer_headers,
+    )
+    assert wrong_target.status_code == 401
+
+    operation_token = enroll(api, headers, "second-iphone")
+    wrong_role = api.get(
+        "/api/mobile-agent/observers/second-iphone/devices/operation-iphone/diagnostics",
+        headers=operation_token,
+    )
+    assert wrong_role.status_code == 401
+
+
 def test_mobile_event_log_is_bounded():
     coordinator = mobile_agents.MobileAgentCoordinator(max_events=2, clock=lambda: 10)
     first = coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.Preferences"})
+    coordinator.claim_next("iphone")
+    coordinator.report(first["id"], "iphone", success=True)
     coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.MobileSMS"})
     coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.mobilesafari"})
     events = coordinator.list_events("iphone")
     assert len(events) == 2
     assert first["id"] not in {event["id"] for event in events}
+
+
+def test_mobile_event_log_does_not_evict_unfinished_actions():
+    coordinator = mobile_agents.MobileAgentCoordinator(max_events=2)
+    first = coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.Preferences"})
+    second = coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.MobileSMS"})
+    try:
+        coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.mobilesafari"})
+        assert False, "queue should reject a third unfinished action"
+    except mobile_agents.MobileAgentError as exc:
+        assert "queue is full" in str(exc)
+    assert {event["id"] for event in coordinator.list_events("iphone")} == {first["id"], second["id"]}
+
+
+def test_claim_lease_recovers_after_response_loss():
+    clock = [10.0]
+    coordinator = mobile_agents.MobileAgentCoordinator(clock=lambda: clock[0])
+    action = coordinator.submit("iphone", "open_app", {"bundle_id": "com.apple.Preferences"})
+    assert coordinator.claim_next("iphone")["id"] == action["id"]
+    assert coordinator.claim_next("iphone") is None
+    clock[0] += mobile_agents.CLAIM_LEASE_SECONDS
+    assert coordinator.claim_next("iphone")["id"] == action["id"]
+
+
+def test_open_url_keeps_query_parameters(monkeypatch):
+    monkeypatch.setattr(mobile_agents, "_resolve_public", lambda host, port, remaining: "93.184.216.34")
+    coordinator = mobile_agents.MobileAgentCoordinator()
+    action = coordinator.submit(
+        "iphone",
+        "open_url",
+        {"url": "https://example.com/search?q=karry&video=123"},
+    )
+    assert action["payload"]["url"] == "https://example.com/search?q=karry&video=123"

@@ -11,17 +11,18 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Mapping
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .self_healing import redact
+from .url_analysis import URLFetchError, _resolve_public, validate_url
 
 NO_STORE = {"Cache-Control": "private, no-store"}
 MAX_EVENTS = 200
 MAX_RESULT_TEXT = 2000
+CLAIM_LEASE_SECONDS = 30
 
 ActionName = Literal[
     "open_app",
@@ -75,7 +76,7 @@ def _bounded_payload(value: Mapping[str, Any]) -> dict[str, Any]:
             safe[name] = item
         else:
             raise MobileAgentError("payload values must be scalar JSON values")
-    return redact(safe)
+    return safe
 
 
 def _validate_action_payload(action: ActionName, payload: dict[str, Any]) -> None:
@@ -85,8 +86,15 @@ def _validate_action_payload(action: ActionName, payload: dict[str, Any]) -> Non
     if action == "open_app" and not _BUNDLE_ID.fullmatch(str(payload.get("bundle_id", ""))):
         raise MobileAgentError("open_app requires a valid bundle_id")
     if action == "open_url":
-        parsed = urlsplit(str(payload.get("url", "")))
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        url = str(payload.get("url", ""))
+        try:
+            scheme, host, port = validate_url(url)
+            if scheme != "https":
+                raise MobileAgentError("open_url requires a public https URL without embedded credentials")
+            _resolve_public(host, port, 2.0)
+        except URLFetchError as exc:
+            raise MobileAgentError("open_url requires a public https URL without embedded credentials") from exc
+        except (ValueError, UnicodeError):
             raise MobileAgentError("open_url requires a public https URL without embedded credentials")
     if action in {"create_calendar_event", "create_reminder"} and not str(payload.get("title", "")).strip():
         raise MobileAgentError(f"{action} requires a title")
@@ -121,8 +129,9 @@ class MobileAgentCoordinator:
 
     def __init__(self, max_events: int = MAX_EVENTS, clock: Callable[[], float] = time.time) -> None:
         self._events: dict[str, dict[str, Any]] = {}
-        self._order: deque[str] = deque(maxlen=max(1, min(max_events, 1000)))
-        self._device_tokens: dict[str, str] = {}
+        self._max_events = max(1, min(max_events, 1000))
+        self._order: deque[str] = deque()
+        self._device_tokens: dict[str, dict[str, str | None]] = {}
         self._lock = threading.RLock()
         self._clock = clock
 
@@ -136,23 +145,66 @@ class MobileAgentCoordinator:
         if not _DEVICE_ID.fullmatch(device_id):
             raise MobileAgentError("device_id is invalid")
 
-    def enroll(self, device_id: str) -> str:
+    def enroll(
+        self,
+        device_id: str,
+        *,
+        role: Literal["operation", "observer"] = "operation",
+        observed_device_id: str | None = None,
+    ) -> str:
         self._check_device_id(device_id)
+        if role == "observer":
+            if observed_device_id is None:
+                raise MobileAgentError("observer enrollment requires observed_device_id")
+            self._check_device_id(observed_device_id)
+            if observed_device_id == device_id:
+                raise MobileAgentError("observer and operation device IDs must be different")
+        elif observed_device_id is not None:
+            raise MobileAgentError("operation enrollment cannot set observed_device_id")
         token = secrets.token_urlsafe(32)
         with self._lock:
-            self._device_tokens[device_id] = hashlib.sha256(token.encode()).hexdigest()
+            self._device_tokens[device_id] = {
+                "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+                "role": role,
+                "observed_device_id": observed_device_id,
+            }
         return token
 
-    def authenticate_device(self, device_id: str, token: str) -> None:
+    def authenticate_device(
+        self,
+        device_id: str,
+        token: str,
+        *,
+        role: Literal["operation", "observer"],
+        observed_device_id: str | None = None,
+    ) -> None:
         self._check_device_id(device_id)
         digest = hashlib.sha256(token.encode()).hexdigest()
         with self._lock:
-            expected = self._device_tokens.get(device_id)
-        if expected is None or not secrets.compare_digest(digest, expected):
+            registration = self._device_tokens.get(device_id)
+        if registration is None or not secrets.compare_digest(digest, str(registration["token_hash"])):
             raise MobileAgentError("device authentication failed")
+        if registration["role"] != role:
+            raise MobileAgentError("device role is not authorized for this operation")
+        if role == "observer" and registration["observed_device_id"] != observed_device_id:
+            raise MobileAgentError("observer is not authorized for this operation device")
 
     def _copy(self, event: dict[str, Any]) -> dict[str, Any]:
         return copy.deepcopy(event)
+
+    def _observer_copy(self, event: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": event["id"],
+            "device_id": event["device_id"],
+            "action": event["action"],
+            "status": event["status"],
+            "requires_confirmation": event["requires_confirmation"],
+            "uses_system_picker": event["uses_system_picker"],
+            "created_at": event["created_at"],
+            "updated_at": event["updated_at"],
+            "claimed_at": event["claimed_at"],
+            "diagnostic": copy.deepcopy(event["diagnostic"]),
+        }
 
     def _get(self, event_id: str, device_id: str) -> dict[str, Any]:
         event = self._events.get(event_id)
@@ -189,9 +241,19 @@ class MobileAgentCoordinator:
             "diagnostic": None,
         }
         with self._lock:
-            if len(self._order) == self._order.maxlen:
-                oldest = self._order[0]
-                self._events.pop(oldest, None)
+            if len(self._order) >= self._max_events:
+                removable = next(
+                    (
+                        event_id
+                        for event_id in self._order
+                        if self._events[event_id]["status"] in {"completed", "failed"}
+                    ),
+                    None,
+                )
+                if removable is None:
+                    raise MobileAgentError("mobile action queue is full")
+                self._order.remove(removable)
+                self._events.pop(removable, None)
             self._events[event["id"]] = event
             self._order.append(event["id"])
         return self._copy(event)
@@ -208,11 +270,23 @@ class MobileAgentCoordinator:
     def claim_next(self, device_id: str) -> dict[str, Any] | None:
         self._check_device_id(device_id)
         with self._lock:
+            now = self._clock()
+            for event_id in self._order:
+                event = self._events[event_id]
+                if (
+                    event["device_id"] == device_id
+                    and event["status"] == "claimed"
+                    and event["claimed_at"] is not None
+                    and now - event["claimed_at"] >= CLAIM_LEASE_SECONDS
+                ):
+                    event["status"] = "pending"
+                    event["claimed_at"] = None
+                    event["updated_at"] = now
             for event_id in self._order:
                 event = self._events[event_id]
                 if event["device_id"] == device_id and event["status"] == "pending":
                     event["status"] = "claimed"
-                    event["claimed_at"] = self._clock()
+                    event["claimed_at"] = now
                     event["updated_at"] = event["claimed_at"]
                     return self._copy(event)
         return None
@@ -268,6 +342,18 @@ class MobileAgentCoordinator:
             for event in self.list_events(device_id, status="failed", limit=limit)
         ]
 
+    def observer_events(
+        self,
+        device_id: str,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return [
+            self._observer_copy(event)
+            for event in self.list_events(device_id, status=status, limit=limit)
+        ]
+
 
 class ActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -281,6 +367,16 @@ class DeviceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     device_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+class DeviceEnrollmentRequest(DeviceRequest):
+    role: Literal["operation", "observer"] = "operation"
+    observed_device_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+    )
 
 
 class ActionReport(DeviceRequest):
@@ -302,13 +398,22 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
         return HTTPException(status_code=400, detail=str(exc), headers=NO_STORE)
 
     @router.post("/devices/enroll", dependencies=[Depends(require_auth)], status_code=201)
-    def enroll_device(body: DeviceRequest) -> JSONResponse:
+    def enroll_device(body: DeviceEnrollmentRequest) -> JSONResponse:
         try:
-            token = coordinator.enroll(body.device_id)
+            token = coordinator.enroll(
+                body.device_id,
+                role=body.role,
+                observed_device_id=body.observed_device_id,
+            )
         except MobileAgentError as exc:
             raise handle_error(exc) from exc
         return JSONResponse(
-            {"device_id": body.device_id, "device_token": token},
+            {
+                "device_id": body.device_id,
+                "device_token": token,
+                "role": body.role,
+                "observed_device_id": body.observed_device_id,
+            },
             status_code=201,
             headers=NO_STORE,
         )
@@ -335,7 +440,7 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
         x_device_token: Annotated[str | None, Header()] = None,
     ) -> JSONResponse:
         try:
-            coordinator.authenticate_device(device_id, x_device_token or "")
+            coordinator.authenticate_device(device_id, x_device_token or "", role="operation")
             event = coordinator.claim_next(device_id)
         except MobileAgentError as exc:
             raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
@@ -348,7 +453,7 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
         x_device_token: Annotated[str | None, Header()] = None,
     ) -> JSONResponse:
         try:
-            coordinator.authenticate_device(body.device_id, x_device_token or "")
+            coordinator.authenticate_device(body.device_id, x_device_token or "", role="operation")
         except MobileAgentError as exc:
             raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
         try:
@@ -384,5 +489,44 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
             {"diagnostics": coordinator.diagnostics(device_id, limit=limit)},
             headers=NO_STORE,
         )
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/actions")
+    def observer_actions(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+        status: Annotated[str | None, Query(max_length=40)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            events = coordinator.observer_events(device_id, status=status, limit=limit)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"actions": events}, headers=NO_STORE)
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/diagnostics")
+    def observer_diagnostics(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            diagnostics = coordinator.diagnostics(device_id, limit=limit)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"diagnostics": diagnostics}, headers=NO_STORE)
 
     return router
