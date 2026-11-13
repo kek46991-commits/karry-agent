@@ -299,7 +299,7 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 
 ### iPhone操作・診断エージェント
 
-所有者が管理するiPhone向けに、許可済みApp Intentだけを受け取る操作エージェントと、失敗ログだけを読む診断エージェントのイベントAPIを提供します。任意コード、端末全体の読み取り、メッセージ・履歴・カメラの裏側での収集は行いません。APIとiOS連携仕様は [docs/mobile-agent-pair.md](docs/mobile-agent-pair.md)、iPhone操作アプリは [ios/KarryOperator](ios/KarryOperator/README.md) を参照してください。
+所有者が管理するiPhone向けに、許可済みApp Intentだけを受け取る操作エージェントと、失敗ログだけを読む診断エージェントのイベントAPIを提供します。任意コード、端末全体の読み取り、メッセージ・履歴・カメラの裏側での収集は行いません。APIとiOS連携仕様は [docs/mobile-agent-pair.md](docs/mobile-agent-pair.md)、iPhone操作アプリは [ios/KarryOperator](ios/KarryOperator/README.md) を参照してください。 APK・iOSの自動ビルドと配布準備は [モバイルビルド手順](docs/mobile-builds.md) を参照してください。
 
 ### Optimus Core（自己進化・クローン生成）
 
