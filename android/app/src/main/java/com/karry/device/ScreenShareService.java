@@ -42,6 +42,8 @@ public class ScreenShareService extends Service {
     private static final String CHANNEL = "share";
     private static final int MAX_WIDTH = 720;
     private static final long INTERVAL_MS = 3000;
+    private static final int HEARTBEAT_TICKS = 5;
+    private int ticks;
 
     private MediaProjection projection;
     private VirtualDisplay display;
@@ -106,6 +108,7 @@ public class ScreenShareService extends Service {
         if (jpeg != null) lastFrame = jpeg;
         else jpeg = lastFrame;
         if (jpeg != null) send("PUT", "/api/autonomy/device/frame", "image/jpeg", jpeg);
+        if (++ticks % HEARTBEAT_TICKS == 0) heartbeat(true);
         handler.postDelayed(this::tick, INTERVAL_MS);
     }
 
@@ -164,7 +167,10 @@ public class ScreenShareService extends Service {
             }
             int status = connection.getResponseCode();
             connection.disconnect();
-            if (status == 401) running = false;
+            if (status == 401) {
+                running = false;
+                stopSelf();
+            }
         } catch (Exception ignored) {
             // Network hiccups: the next tick retries; the monitor shows the device as offline meanwhile.
         }
