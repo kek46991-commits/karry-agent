@@ -1402,8 +1402,10 @@ def _autonomy_agent_handler(task: Subtask, context: dict[str, Any]) -> str:
     return result.text
 
 
-def _autonomy_routed(prompt: str) -> tuple[bool, bool]:
-    return bool(_chat_video_request(prompt)), bool(_chat_webtoon_request(prompt))
+def _autonomy_routed(prompt: str) -> str:
+    if _chat_webtoon_request(prompt):
+        return "webtoon"
+    return "video" if _chat_video_request(prompt) else ""
 
 
 def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
