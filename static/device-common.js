@@ -46,7 +46,7 @@ function setupDevice({role, onReady}) {
   const install = document.getElementById('installButton');
   addEventListener('beforeinstallprompt', (event) => { event.preventDefault(); deferred = event; install.hidden = false; });
   install.addEventListener('click', async () => { if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; install.hidden = true; } });
-  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone || /KarryDevice\//.test(navigator.userAgent);
   const hint = document.getElementById('installHint');
   if (hint && !standalone) hint.hidden = false;
 }

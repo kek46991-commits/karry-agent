@@ -41,11 +41,14 @@
 <script src="/static/device-common.js"></script>
 <script>
 let stream = null, frameTimer = null, battery = null;
+const native = window.KarryNative || null;
+const isSharing = () => native ? native.isSharing() : !!stream;
 const video = document.getElementById('shareVideo');
 
 function platformName() { return (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''; }
 async function beat() {
-  const body = {visible: document.visibilityState === 'visible', sharing: !!stream, platform: platformName().slice(0, 60), app: '作業端末'};
+  if (native) showSharing(isSharing());
+  const body = {visible: document.visibilityState === 'visible', sharing: isSharing(), platform: platformName().slice(0, 60), app: '作業端末'};
   if (battery) { body.battery = Math.round(battery.level * 100); body.charging = battery.charging; }
   try {
     const data = await api('/device/heartbeat', {method: 'POST', body: JSON.stringify(body)});
@@ -77,6 +80,7 @@ async function sendFrame() {
   if (blob) await api('/device/frame', {method: 'PUT', body: blob, headers: {'Content-Type': 'image/jpeg'}}).catch(() => {});
 }
 async function startShare() {
+  if (native) { native.startScreenShare(); return; }
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: 2}, audio: false});
   } catch (_) { stream = null; return; }
@@ -86,15 +90,18 @@ async function startShare() {
   frameTimer = setInterval(sendFrame, 3000);
 }
 async function stopShare() {
+  if (native) { native.stopScreenShare(); setTimeout(window.karryNativeChanged, 800); return; }
   clearInterval(frameTimer); frameTimer = null;
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null; video.srcObject = null; showSharing(false); await beat();
 }
+window.karryNativeChanged = () => { showSharing(isSharing()); beat(); };
 document.getElementById('shareStart').addEventListener('click', startShare);
 document.getElementById('shareStop').addEventListener('click', stopShare);
 setupDevice({role: 'worker', onReady: async (device) => {
   document.getElementById('me').textContent = `この端末: ${device.name}`;
-  if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
+  if (native) showSharing(native.isSharing());
+  else if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
     document.getElementById('shareUnsupported').hidden = false; document.getElementById('shareStart').hidden = true;
   }
   if (navigator.getBattery) battery = await navigator.getBattery().catch(() => null);

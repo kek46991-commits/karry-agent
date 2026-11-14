@@ -111,3 +111,23 @@ Render のディスクは再デプロイで消えます。本番で長期保存�
 | 変数 | 内容 |
 | --- | --- |
 | `KARRY_DEVICE_ENROLL_PASSWORD` | 端末登録用のパスワード。未設定なら登録 API は 503 |
+
+## Android アプリ（`android/`）
+
+`/monitor` と `/companion` をそのまま開く Android アプリです。1つのプロジェクトから2つの APK を作ります。
+
+- `monitor` フレーバー（`com.karry.device.monitor`）: 見守り端末用。`/monitor` を開くだけ。
+- `worker` フレーバー（`com.karry.device.worker`）: 作業端末用。`/companion` に `window.KarryNative` を渡し、
+  「画面の共有を始める」で Android の MediaProjection 許可を出します。許可後は前面サービスが 3 秒ごとに
+  720px 幅の JPEG を `PUT /api/autonomy/device/frame` へ送るので、アプリを閉じてもほかのアプリの画面が見守り端末に届きます。
+  共有中は常駐通知が出て、通知の「共有をやめる」で止まります。
+
+どちらも WebView の Cookie（`karry_device`）で認証し、設定したサーバー以外のページは外部ブラウザで開きます。
+
+```bash
+cd android
+gradle assembleDebug                                    # つなぎ先は https://karry-agent-1.onrender.com
+gradle assembleDebug -PkarryServerUrl=https://example.com  # 別のサーバーにつなぐ場合
+```
+
+APK は `app/build/outputs/apk/{monitor,worker}/debug/` に出ます。今は開発用署名です。
