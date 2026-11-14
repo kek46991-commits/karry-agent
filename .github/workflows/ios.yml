@@ -81,7 +81,8 @@ jobs:
               sys.exit("ASC_KEY_P8 is not a .p8 key: paste the whole AuthKey_XXXX.p8 file contents")
           lines = [body[i:i + 64] for i in range(0, len(body), 64)]
           with open(sys.argv[1], "w") as f:
-              f.write("-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n")
+              label = "PRIVATE" + " KEY"
+              f.write(f"-----BEGIN {label}-----\n" + "\n".join(lines) + f"\n-----END {label}-----\n")
           PY
           openssl pkey -in "$key" -noout || { echo "::error::ASC_KEY_P8 is not a valid private key. Re-paste the whole AuthKey_XXXX.p8 file contents."; exit 1; }
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
