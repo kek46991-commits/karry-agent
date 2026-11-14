@@ -17,6 +17,14 @@ targets:
     platform: iOS
     sources:
       - KarryOperator
+    dependencies:
+      - target: KarryBroadcast
+        embed: true
+    entitlements:
+      path: KarryOperator/KarryOperator.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(KARRY_BUNDLE_ID).shared
     settings:
       base:
         KARRY_BUNDLE_ID: io.github.kek46991.KarryOperator
@@ -48,6 +56,14 @@ targets:
       - path: KarryOperator
         excludes:
           - Info.plist
+    dependencies:
+      - target: KarryBroadcast4
+        embed: true
+    entitlements:
+      path: KarryOperator4/KarryOperator4.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(KARRY4_BUNDLE_ID).shared
     settings:
       base:
         KARRY4_BUNDLE_ID: io.github.kek46991.KarryOperator4
@@ -73,6 +89,42 @@ targets:
         NSLocationWhenInUseUsageDescription: Karryから承認済みの位置情報リクエストを実行するときだけ使います。座標そのものはサーバーへ送信しません。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+  KarryBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - KarryBroadcast
+      - KarryOperator/ScreenShare/ScreenShareStore.swift
+    entitlements:
+      path: KarryBroadcast/Broadcast.entitlements
+    settings:
+      base:
+        KARRY_BUNDLE_ID: io.github.kek46991.KarryOperator
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_ID).broadcast
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: KarryBroadcast/Info.plist
+        CODE_SIGN_ENTITLEMENTS: KarryBroadcast/Broadcast.entitlements
+  KarryBroadcast4:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: KarryBroadcast
+        excludes:
+          - Info.plist
+          - Broadcast.entitlements
+      - KarryOperator/ScreenShare/ScreenShareStore.swift
+    entitlements:
+      path: KarryBroadcast4/Broadcast.entitlements
+    settings:
+      base:
+        KARRY4_BUNDLE_ID: io.github.kek46991.KarryOperator4
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY4_BUNDLE_ID).broadcast
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: KarryBroadcast4/Info.plist
+        CODE_SIGN_ENTITLEMENTS: KarryBroadcast4/Broadcast.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) KARRY_AGENT_4"
   KarryOperatorTests:
     type: bundle.unit-test
     platform: iOS

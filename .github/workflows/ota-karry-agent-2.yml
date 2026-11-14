@@ -80,6 +80,9 @@ jobs:
         run: |
           echo "::error::No UDIDs to provision. Enroll an iPhone at $BASE_URL/ota/ first (the registry resets on redeploy), or pass udids."
           exit 1
+      - name: Generate Xcode project
+        if: steps.udids.outputs.skip != 'true'
+        run: brew install xcodegen && cd ios/KarryOperator && xcodegen generate
       - name: Register devices with Apple
         if: steps.udids.outputs.skip != 'true'
         run: python3 scripts/asc_devices.py register --udids "${{ steps.udids.outputs.list }}"

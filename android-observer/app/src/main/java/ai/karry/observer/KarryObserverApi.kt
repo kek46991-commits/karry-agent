@@ -1,5 +1,7 @@
 package ai.karry.observer
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -9,6 +11,9 @@ import java.net.URI
 import java.net.URL
 
 class KarryObserverApi {
+    private var cachedFrameAt = 0.0
+    private var cachedFrame: Bitmap? = null
+
     suspend fun enroll(
         serverUrl: String,
         ownerToken: String,
@@ -40,9 +45,26 @@ class KarryObserverApi {
             "${registration.serverUrl}$path/diagnostics?limit=30",
             deviceToken = registration.deviceToken,
         ).getJSONArray("diagnostics")
+        val screen = request(
+            "${registration.serverUrl}$path/screen",
+            deviceToken = registration.deviceToken,
+        )
+        val sharing = screen.optBoolean("sharing", false)
+        val frameAt = screen.optDouble("frame_at", 0.0)
+        if (sharing && frameAt > 0 && (cachedFrame == null || frameAt != cachedFrameAt)) {
+            cachedFrame = requestImage(
+                "${registration.serverUrl}$path/frame",
+                registration.deviceToken,
+            )
+            cachedFrameAt = frameAt
+        } else if (!sharing) {
+            cachedFrameAt = 0.0
+            cachedFrame = null
+        }
         ObserverSnapshot(
             actions = parseActions(actions),
             diagnostics = parseDiagnostics(diagnostics),
+            screen = ScreenPreview(sharing, frameAt, cachedFrame),
         )
     }
 
@@ -93,6 +115,34 @@ class KarryObserverApi {
                 throw ObserverApiException(detail?.takeIf { it.isNotBlank() } ?: "HTTP $status")
             }
             return JSONObject(text)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun requestImage(url: String, deviceToken: String): Bitmap {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.setRequestProperty("Accept", "image/jpeg,image/png,image/webp")
+            connection.setRequestProperty("Cache-Control", "no-store")
+            connection.setRequestProperty("X-Device-Token", deviceToken)
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val detail = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                throw ObserverApiException(
+                    runCatching { JSONObject(detail.orEmpty()).optString("detail") }.getOrNull()
+                        ?.takeIf { it.isNotBlank() } ?: "HTTP $status",
+                )
+            }
+            val data = connection.inputStream.use { it.readBytes() }
+            if (data.isEmpty() || data.size > 600 * 1024) {
+                throw ObserverApiException("画面画像のサイズが不正です")
+            }
+            return BitmapFactory.decodeByteArray(data, 0, data.size)
+                ?: throw ObserverApiException("画面画像を読み取れません")
         } finally {
             connection.disconnect()
         }
@@ -155,6 +205,13 @@ class ObserverApiException(message: String) : Exception(message)
 data class ObserverSnapshot(
     val actions: List<ActionStatus>,
     val diagnostics: List<DiagnosticStatus>,
+    val screen: ScreenPreview,
+)
+
+data class ScreenPreview(
+    val sharing: Boolean,
+    val frameAt: Double,
+    val bitmap: Bitmap?,
 )
 
 data class ActionStatus(

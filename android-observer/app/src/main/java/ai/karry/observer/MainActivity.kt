@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -38,6 +39,8 @@ class MainActivity : AppCompatActivity() {
     private var backendReachable: Boolean? = null
     private var setupSkipped = false
     private lateinit var liveCard: TextView
+    private lateinit var screenStatus: TextView
+    private lateinit var screenPreview: ImageView
     private lateinit var actionContainer: LinearLayout
     private lateinit var diagnosticContainer: LinearLayout
     private var registration: Registration? = null
@@ -90,6 +93,8 @@ class MainActivity : AppCompatActivity() {
         setupPrompt = findViewById(R.id.setupPrompt)
         setupPromptRow = findViewById(R.id.setupPromptRow)
         liveCard = findViewById(R.id.liveCard)
+        screenStatus = findViewById(R.id.screenStatus)
+        screenPreview = findViewById(R.id.screenPreview)
         actionContainer = findViewById(R.id.actionContainer)
         diagnosticContainer = findViewById(R.id.diagnosticContainer)
     }
@@ -185,9 +190,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render(snapshot: ObserverSnapshot) {
+        renderScreen(snapshot.screen)
         renderLiveCard(snapshot.actions)
         renderActions(snapshot.actions)
         renderDiagnostics(snapshot.diagnostics)
+    }
+
+    private fun renderScreen(screen: ScreenPreview) {
+        if (screen.sharing && screen.bitmap != null) {
+            screenStatus.text = "● iPhone画面を共有中（2秒ごとに更新）"
+            screenStatus.setTextColor(Color.parseColor("#4ADE80"))
+            screenPreview.setImageBitmap(screen.bitmap)
+            screenPreview.visibility = View.VISIBLE
+        } else {
+            screenStatus.text = "○ iPhone側で画面共有を開始してください"
+            screenStatus.setTextColor(Color.parseColor("#FBBF24"))
+            screenPreview.setImageDrawable(null)
+            screenPreview.visibility = View.GONE
+        }
     }
 
     private fun renderLiveCard(actions: List<ActionStatus>) {
