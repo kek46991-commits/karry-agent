@@ -266,8 +266,22 @@ def test_dispatch_signing_requires_token_and_posts_workflow_inputs(monkeypatch):
 
 def test_android_page_links_apk_and_pairing_ids(api, monkeypatch):
     page = api.get("/ota/android").text
-    assert "releases/latest/download/karry-agent-1.apk" in page
+    assert "releases/download/android-v0.1.0/karry-agent-1.apk" in page
     assert "observer-android" in page and "operation-iphone" in page
     monkeypatch.setenv("KARRY_ANDROID_APK_URL", "http://insecure.example/app.apk")
     assert "KARRY_ANDROID_APK_URL" in api.get("/ota/android").text
     assert '/ota/android' in api.get("/ota/", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130 Mobile"}).text
+
+
+def test_signed_build_reads_remote_release_metadata(monkeypatch):
+    metadata = {"bundle_id": "com.kishi.karryagent2", "version": "7", "title": "Karry-Agent 2", "devices": [UDID]}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, limit): return json.dumps(metadata).encode()
+
+    monkeypatch.setattr(ota.urllib.request, "urlopen", lambda url, timeout: Response())
+    build = ota.SignedBuild(None)
+    assert build.covers(UDID)
+    assert build.info()["ipa_url"].endswith("/ota-latest/karry-agent-2.ipa")

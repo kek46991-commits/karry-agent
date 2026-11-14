@@ -122,11 +122,17 @@ jobs:
           cp "$RUNNER_TEMP"/out/ota/provisioned_devices.json ota/provisioned_devices.json
           python3 - <<'PY'
           import json, pathlib, datetime
+          import plistlib, zipfile
           devices = json.loads(pathlib.Path("ota/provisioned_devices.json").read_text())
+          with zipfile.ZipFile("ota/app.ipa") as archive:
+              name = next(n for n in archive.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist"))
+              info = plistlib.loads(archive.read(name))
           pathlib.Path("ota/build.json").write_text(json.dumps({
               "scheme": "${{ inputs.scheme }}", "run": ${{ github.run_number }}, "commit": "${{ github.sha }}",
               "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-              "provisioned_device_count": len(devices)}, indent=2) + "\n")
+              "bundle_id": info["CFBundleIdentifier"], "version": str(info["CFBundleVersion"]),
+              "title": info.get("CFBundleDisplayName") or info.get("CFBundleName") or "Karry-Agent 2",
+              "devices": devices, "provisioned_device_count": len(devices)}, indent=2) + "\n")
           print(open("ota/build.json").read())
           PY
       - uses: actions/upload-artifact@v4
@@ -134,15 +140,11 @@ jobs:
         with:
           name: karry-agent-2-ota
           path: ota/
-      - name: Publish to main
+      - name: Publish stable OTA release
         if: inputs.publish && steps.udids.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ota/app.ipa ota/provisioned_devices.json ota/build.json
-          git commit -m "chore(ota): publish signed ${{ inputs.scheme }} build #${{ github.run_number }}" || exit 0
-          for attempt in 1 2 3; do
-            git push origin HEAD:main && exit 0
-            git fetch origin main && git rebase origin/main
-          done
-          exit 1
+          cp ota/app.ipa ota/karry-agent-2.ipa
+          gh release view ota-latest >/dev/null 2>&1 || gh release create ota-latest --title "Karry-Agent 2 OTA" --notes "Latest signed ad hoc build. Managed by the OTA Karry-Agent 2 workflow."
+          gh release upload ota-latest ota/karry-agent-2.ipa ota/build.json ota/provisioned_devices.json --clobber
