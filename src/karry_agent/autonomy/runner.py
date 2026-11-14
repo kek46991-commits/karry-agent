@@ -97,7 +97,7 @@ class AutonomousRunner:
 
     def create(self, instruction: str, *, session_id: str | None = None, budget_tokens: int | None = None) -> RunState:
         goal, subtasks = self.plan(instruction, budget_tokens)
-        state = RunState.new(mask_text(instruction), subtasks, goal=goal, session_id=session_id)
+        state = RunState.new(mask_text(instruction), subtasks, goal=mask_text(goal), session_id=session_id)
         for task in state.subtasks:
             task.prompt = mask_text(task.prompt)
         self.store.save(state)
