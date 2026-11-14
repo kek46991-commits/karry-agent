@@ -244,6 +244,8 @@ def build_router(owner_auth: Callable[..., None], runner: Callable[[], Autonomou
             raise _error(exc) from exc
         if state.status in FINISHED:
             raise HTTPException(status_code=409, detail="この実行は終了しています。")
+        if state.control == "pause":
+            state = current.signal(run_id, "resume", "所有者が再開しました。", "owner")
         if not current.start_background(run_id):
             raise HTTPException(status_code=409, detail="この実行はすでに進行中です。")
         return JSONResponse(view(state), status_code=202, headers=NO_STORE)
@@ -255,7 +257,7 @@ def build_router(owner_auth: Callable[..., None], runner: Callable[[], Autonomou
             state = current.signal(run_id, body.action, body.reason, actor)
         except RunStateError as exc:
             raise _error(exc) from exc
-        if body.action == "resume" and state.status == "paused":
+        if body.action == "resume" and state.status in {"paused", "running", "pending"}:
             current.start_background(run_id)
         return JSONResponse(view(state), headers=NO_STORE)
 
