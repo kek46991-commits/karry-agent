@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102a43"><meta name="robots" content="noindex">
+<title>監視用 | Karry</title>
+<link rel="manifest" href="/static/monitor.webmanifest"><link rel="apple-touch-icon" href="/static/icons/device-192.png">
+<link rel="stylesheet" href="/static/device-common.css">
+</head>
+<body>
+<header><h1>監視用</h1><span id="conn" class="muted" style="color:#cbd2d9"></span><button id="installButton" class="ghost" hidden>ホーム画面に追加</button></header>
+<main>
+  <section id="setup" class="card" hidden>
+    <h2>はじめての設定</h2>
+    <p>会社から伝えられたパスワードを入れて「利用開始」を押してください。設定は1回だけで、次からは開くだけで使えます。</p>
+    <form id="enrollForm">
+      <label for="name">この端末の名前</label><input id="name" name="name" value="監視用" maxlength="40" autocomplete="off">
+      <label for="password">パスワード</label><input id="password" name="password" type="password" required autocomplete="current-password">
+      <button class="big" type="submit">利用開始</button>
+      <p id="enrollError" class="error" role="alert"></p>
+    </form>
+  </section>
+  <div id="app" hidden>
+    <p id="installHint" class="muted" hidden>ホーム画面に追加すると普通のアプリのように開けます（iPhone は共有ボタン →「ホーム画面に追加」）。</p>
+    <section class="card"><h2>作業端末</h2><div id="devices" class="grid"></div></section>
+    <section class="card"><h2>タスク</h2><div id="runs"></div></section>
+    <section class="card"><h2>最近の出来事</h2><ul id="events" class="plain"></ul></section>
+    <section class="card row"><span class="muted" id="me"></span><span style="flex:1"></span><button class="ghost" onclick="forgetDevice()">この端末の登録を解除</button></section>
+  </div>
+</main>
+<script src="/static/device-common.js"></script>
+<script>
+const openAudits = new Set(), openOutputs = new Set();
+const EVENT_JA = {enrolled: '登録しました', online: '接続しました', revoked: '登録を解除しました', sharing_started: '画面共有を開始', sharing_stopped: '画面共有を終了'};
+
+function deviceCard(d) {
+  const s = d.status || {};
+  const facts = [d.role === 'monitor' ? '見守り端末' : '作業端末', ago(d.last_seen)];
+  if (typeof s.battery === 'number') facts.push(`電池 ${s.battery}%${s.charging ? '（充電中）' : ''}`);
+  if (s.visible === false) facts.push('画面は裏側');
+  if (s.platform) facts.push(s.platform);
+  const preview = d.sharing ? el('img', {class: 'preview', alt: `${d.name} の画面`, src: `${API}/devices/${d.id}/frame?t=${d.frame_at}`})
+    : el('p', {class: 'muted'}, d.role === 'worker' ? '画面は共有されていません' : '');
+  return el('div', {class: 'card'},
+    el('div', {class: 'row'}, el('strong', {}, el('span', {class: 'dot' + (d.online ? ' on' : '')}), d.name), d.sharing ? el('span', {class: 'badge failed'}, '画面共有中') : null),
+    el('p', {class: 'muted'}, facts.join(' / ')), s.note ? el('p', {}, s.note) : null, preview,
+    el('div', {class: 'row', style: 'margin-top:10px'}, el('button', {class: 'ghost', onclick: () => revoke(d)}, '登録解除')));
+}
+async function revoke(d) {
+  if (!confirm(`${d.name} の登録を解除しますか？`)) return;
+  await api(`/devices/${d.id}/revoke`, {method: 'POST'}).catch((e) => alert(e.message));
+  refresh();
+}
+async function signal(run, action) {
+  const label = {pause: '一時停止', stop: '停止', resume: '再開'}[action];
+  if (action === 'stop' && !confirm('このタスクを停止しますか？停止すると再開できません。')) return;
+  await api(`/runs/${run.id}/signal`, {method: 'POST', body: JSON.stringify({action, reason: `見守り端末から${label}`})}).catch((e) => alert(e.message));
+  refresh();
+}
+async function loadAudit(run, box) {
+  try {
+    const data = await api(`/runs/${run.id}/audit`);
+    box.replaceChildren(el('p', {}, data.verified ? el('span', {class: 'badge completed'}, '記録は改ざんされていません') : el('span', {class: 'badge failed'}, '記録の検証に失敗しました')),
+      el('pre', {}, data.entries.slice(-40).map((e) => `${new Date(e.ts * 1000).toLocaleTimeString()} ${e.event} ${JSON.stringify(e.data)}`).join('\n')));
+  } catch (e) { box.textContent = e.message; }
+}
+function runCard(run) {
+  const done = run.subtasks.filter((t) => t.status === 'done').length;
+  const finished = ['completed', 'failed', 'stopped'].includes(run.status);
+  const audit = el('div', {});
+  const toggle = el('button', {class: 'ghost', onclick: () => { openAudits.has(run.id) ? openAudits.delete(run.id) : openAudits.add(run.id); refresh(); }},
+    openAudits.has(run.id) ? '記録を閉じる' : '記録を見る');
+  if (openAudits.has(run.id)) loadAudit(run, audit);
+  return el('div', {class: 'card'},
+    el('div', {class: 'row'}, el('span', {class: `badge ${run.status}`}, STATUS_JA[run.status] || run.status), run.active ? el('span', {class: 'muted'}, '動作中') : null,
+      el('strong', {style: 'flex:1'}, run.goal || run.instruction.slice(0, 80))),
+    el('div', {class: 'bar', style: 'margin:10px 0'}, el('i', {style: `width:${Math.round(100 * done / Math.max(1, run.subtasks.length))}%`})),
+    el('p', {class: 'muted'}, `${done} / ${run.subtasks.length} 完了`, run.hold_reason ? ` ・ ${run.hold_reason}` : '', run.control ? ` ・ 指示: ${run.control}` : ''),
+    el('ul', {class: 'plain'}, run.subtasks.map((t) => el('li', {}, el('span', {class: `badge ${t.status === 'done' ? 'completed' : t.status}`}, STATUS_JA[t.status] || t.status), ` ${t.id}（${t.kind}） ${t.prompt.slice(0, 90)}`, t.error ? el('div', {class: 'error'}, t.error) : null))),
+    run.final_output ? el('details', {open: openOutputs.has(run.id), ontoggle: (e) => e.target.open ? openOutputs.add(run.id) : openOutputs.delete(run.id)},
+      el('summary', {}, '最終出力'), el('pre', {}, run.final_output)) : null,
+    el('div', {class: 'row', style: 'margin-top:10px'},
+      finished ? null : el('button', {class: 'warn', onclick: () => signal(run, 'pause')}, '一時停止'),
+      finished ? null : el('button', {onclick: () => signal(run, 'resume')}, '再開'),
+      finished ? null : el('button', {class: 'danger', onclick: () => signal(run, 'stop')}, '停止'), toggle), audit);
+}
+async function refresh() {
+  try {
+    const data = await api('/overview');
+    document.getElementById('conn').textContent = `更新 ${new Date().toLocaleTimeString()}`;
+    const workers = data.devices.filter((d) => d.role === 'worker');
+    document.getElementById('devices').replaceChildren(...(workers.length ? workers.map(deviceCard) : [el('p', {class: 'muted'}, '作業端末はまだ登録されていません。作業端末で /companion を開いて登録してください。')]));
+    document.getElementById('runs').replaceChildren(...(data.runs.length ? data.runs.map(runCard) : [el('p', {class: 'muted'}, 'タスクはまだありません。')]));
+    document.getElementById('events').replaceChildren(...data.events.slice(0, 20).map((e) => el('li', {}, `${new Date(e.ts * 1000).toLocaleString()} ${e.name}: ${EVENT_JA[e.event] || e.event}`)));
+  } catch (e) {
+    document.getElementById('conn').textContent = '接続できません';
+    if (e.status === 401) location.reload();
+  }
+}
+setupDevice({role: 'monitor', onReady: (device) => {
+  document.getElementById('me').textContent = `この端末: ${device.name}`;
+  refresh(); setInterval(refresh, 5000);
+}});
+</script>
+</body>
+</html>

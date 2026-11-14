@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102a43"><meta name="robots" content="noindex">
+<title>作業用 | Karry</title>
+<link rel="manifest" href="/static/companion.webmanifest"><link rel="apple-touch-icon" href="/static/icons/device-192.png">
+<link rel="stylesheet" href="/static/device-common.css">
+</head>
+<body>
+<header><h1>作業用</h1><span id="conn" style="color:#cbd2d9"></span><button id="installButton" class="ghost" hidden>ホーム画面に追加</button></header>
+<main>
+  <section id="setup" class="card" hidden>
+    <h2>はじめての設定</h2>
+    <p>会社から伝えられたパスワードを入れて「利用開始」を押してください。設定は1回だけで、次からは開くだけで見守り端末につながります。</p>
+    <form id="enrollForm">
+      <label for="name">この端末の名前</label><input id="name" name="name" value="作業用" maxlength="40" autocomplete="off">
+      <label for="password">パスワード</label><input id="password" name="password" type="password" required autocomplete="current-password">
+      <button class="big" type="submit">利用開始</button>
+      <p id="enrollError" class="error" role="alert"></p>
+    </form>
+  </section>
+  <div id="app" hidden>
+    <p id="installHint" class="muted" hidden>ホーム画面に追加すると普通のアプリのように開けます（iPhone は共有ボタン →「ホーム画面に追加」）。</p>
+    <section class="card">
+      <h2><span id="linkDot" class="dot"></span><span id="linkText">接続中…</span></h2>
+      <p class="muted">この画面を開いている間、動作状況を見守り端末へ送ります。</p>
+    </section>
+    <section class="card">
+      <h2>画面の共有</h2>
+      <p id="shareState" class="muted">画面は共有していません。</p>
+      <p id="sharingBanner" class="sharing" hidden>画面を共有中です。見守り端末からこの画面が見えています。</p>
+      <p id="shareUnsupported" class="muted" hidden>この端末のブラウザは画面共有に対応していません（Android の Chrome など）。動作状況とタスクの共有は続きます。</p>
+      <div class="row"><button id="shareStart" class="big">画面の共有を始める</button><button id="shareStop" class="big danger" hidden>共有をやめる</button></div>
+      <video id="shareVideo" muted playsinline hidden></video>
+    </section>
+    <section class="card"><h2>タスクの状況</h2><ul id="runs" class="plain"></ul></section>
+    <section class="card row"><span class="muted" id="me"></span><span style="flex:1"></span><button class="ghost" onclick="forgetDevice()">この端末の登録を解除</button></section>
+  </div>
+</main>
+<script src="/static/device-common.js"></script>
+<script>
+let stream = null, frameTimer = null, battery = null;
+const native = window.KarryNative || null;
+const isSharing = () => native ? native.isSharing() : !!stream;
+const video = document.getElementById('shareVideo');
+
+function platformName() { return (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''; }
+async function beat() {
+  if (native) showSharing(isSharing());
+  const body = {visible: document.visibilityState === 'visible', sharing: isSharing(), platform: platformName().slice(0, 60), app: '作業端末'};
+  if (battery) { body.battery = Math.round(battery.level * 100); body.charging = battery.charging; }
+  try {
+    const data = await api('/device/heartbeat', {method: 'POST', body: JSON.stringify(body)});
+    document.getElementById('linkDot').className = 'dot on';
+    document.getElementById('linkText').textContent = '見守り端末とつながっています';
+    document.getElementById('conn').textContent = new Date().toLocaleTimeString();
+    document.getElementById('runs').replaceChildren(...(data.runs.length ? data.runs.map((r) =>
+      el('li', {}, el('span', {class: `badge ${r.status}`}, STATUS_JA[r.status] || r.status), ` ${r.goal || r.id}  ${r.counts.done || 0}/${r.subtasks} 完了`))
+      : [el('li', {class: 'muted'}, 'タスクはまだありません。')]));
+  } catch (e) {
+    document.getElementById('linkDot').className = 'dot';
+    document.getElementById('linkText').textContent = e.status === 401 ? '登録が解除されました' : 'つながっていません（自動でやり直します）';
+    if (e.status === 401) setTimeout(() => location.reload(), 1500);
+  }
+}
+function showSharing(on) {
+  document.getElementById('shareStart').hidden = on;
+  document.getElementById('shareStop').hidden = !on;
+  document.getElementById('sharingBanner').hidden = !on;
+  document.getElementById('shareState').textContent = on ? '' : '画面は共有していません。';
+}
+async function sendFrame() {
+  if (!stream || !video.videoWidth) return;
+  const scale = Math.min(1, 720 / video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.6));
+  if (blob) await api('/device/frame', {method: 'PUT', body: blob, headers: {'Content-Type': 'image/jpeg'}}).catch(() => {});
+}
+async function startShare() {
+  if (native) { native.startScreenShare(); return; }
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: 2}, audio: false});
+  } catch (_) { stream = null; return; }
+  stream.getVideoTracks()[0].addEventListener('ended', stopShare);
+  video.srcObject = stream; await video.play().catch(() => {});
+  showSharing(true); await beat(); await sendFrame();
+  frameTimer = setInterval(sendFrame, 3000);
+}
+async function stopShare() {
+  if (native) { native.stopScreenShare(); setTimeout(window.karryNativeChanged, 800); return; }
+  clearInterval(frameTimer); frameTimer = null;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null; video.srcObject = null; showSharing(false); await beat();
+}
+window.karryNativeChanged = () => { showSharing(isSharing()); beat(); };
+document.getElementById('shareStart').addEventListener('click', startShare);
+document.getElementById('shareStop').addEventListener('click', stopShare);
+setupDevice({role: 'worker', onReady: async (device) => {
+  document.getElementById('me').textContent = `この端末: ${device.name}`;
+  if (native) showSharing(native.isSharing());
+  else if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
+    document.getElementById('shareUnsupported').hidden = false; document.getElementById('shareStart').hidden = true;
+  }
+  if (navigator.getBattery) battery = await navigator.getBattery().catch(() => null);
+  document.addEventListener('visibilitychange', beat);
+  beat(); setInterval(beat, 15000);
+}});
+</script>
+</body>
+</html>

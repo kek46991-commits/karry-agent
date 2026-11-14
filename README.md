@@ -28,8 +28,8 @@ flowchart LR
 ## 公開モードと実験機能
 
 本番（`main`）は安定したコア機能（タスク管理・チャット・ReAct 実行モニター・Calendar・Web ページ生成・Knowledge Sync/RAG）だけを公開します。
-動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core、自己修正ループ（[docs/self-correction.md](docs/self-correction.md)）、小説→縦読みマンガ（[docs/webtoon.md](docs/webtoon.md)）は **実験機能** として既定で無効です。
-無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*`・`/api/agent/self-correction`・`/api/webtoon/*` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
+動画生成（Creative Video Suite / SQL動画プロジェクト / SadTalker）、メディアDB API、Optimus Core、自己修正ループ（[docs/self-correction.md](docs/self-correction.md)）、自律実行（[docs/autonomy.md](docs/autonomy.md)）、小説→縦読みマンガ（[docs/webtoon.md](docs/webtoon.md)）は **実験機能** として既定で無効です。
+無効時は `/api/video/*`・`/api/media/*`・`/api/optimus/*`・`/api/agent/self-correction`・`/api/autonomy/*`・`/api/webtoon/*` が 404 を返し、画面と `/docs` からも外れます（実装・DB スキーマ・テストはそのまま残しています）。
 
 | 環境 | 設定 | 用途 |
 | --- | --- | --- |
@@ -300,6 +300,10 @@ API例外、コア障害、Gemini再試行、ツールの例外・構造化エ�
 ### iPhone操作・診断エージェント
 
 所有者が管理するiPhone向けに、許可済みApp Intentだけを受け取る操作エージェントと、失敗ログだけを読む診断エージェントのイベントAPIを提供します。任意コード、端末全体の読み取り、メッセージ・履歴・カメラの裏側での収集は行いません。APIとiOS連携仕様は [docs/mobile-agent-pair.md](docs/mobile-agent-pair.md)、iPhone操作アプリは [ios/KarryOperator](ios/KarryOperator/README.md) を参照してください。 APK・iOSの自動ビルドと配布準備は [モバイルビルド手順](docs/mobile-builds.md) を参照してください。
+
+### 自律実行と見守り端末連携（実験機能）
+
+`POST /api/autonomy/runs` は、1 つの指示をトークン上限内のサブタスクに分けます。サブタスクは種類（一般・調査・画像・動画）ごとに振り分け、依存関係のないものは並列に実行し、最後に 1 つの出力へまとめます。進捗は遷移ごとに JSON へ保存するため、セッションが切れても途中から再開できます。試行回数・再開回数・制限時間の上限で、無限ループも防ぎます。各ステップはハッシュ連鎖の監査ログに記録します。別の見守り端末は、監査ログの取得・停止信号・実行前の判定・検閲ファイルを使って検閲できます（見守り端末そのものはこのアプリに含みません）。画像・動画のサブタスクは既存のタスクチャット経路をそのまま使います。詳細は [docs/autonomy.md](docs/autonomy.md)。
 
 ### Optimus Core（自己進化・クローン生成）
 

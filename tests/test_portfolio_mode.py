@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 import app as app_module
 
-EXPERIMENTAL = ["/api/video/config", "/api/video/jobs", "/api/video/autopilot", "/api/media", "/api/optimus/status", "/api/agent/self-correction", "/api/webtoon/jobs"]
+EXPERIMENTAL = ["/api/video/config", "/api/video/jobs", "/api/video/autopilot", "/api/media", "/api/optimus/status", "/api/agent/self-correction", "/api/webtoon/jobs", "/api/autonomy/runs"]
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def test_experimental_features_are_off_by_default(client, monkeypatch):
         assert client.get(path, headers=AUTH).status_code == 404, path
         assert client.post(path, headers=AUTH).status_code == 404, path
     paths = client.get("/openapi.json").json()["paths"]
-    assert not [p for p in paths if p.startswith(("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/webtoon"))]
+    assert not [p for p in paths if p.startswith(("/api/video", "/api/media", "/api/optimus", "/api/agent/self-correction", "/api/webtoon", "/api/autonomy"))]
     assert "/api/sessions" in paths and "/api/chat" in paths
     assert client.get("/health").status_code == 200
 

@@ -1,0 +1,36 @@
+plugins { id "com.android.application" }
+
+def serverUrl = (project.findProperty("karryServerUrl") ?: "https://karry-agent-1.onrender.com").toString()
+
+android {
+    namespace "com.karry.device"
+    compileSdk 36
+    defaultConfig {
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "SERVER_URL", "\"${serverUrl}\""
+        manifestPlaceholders = [cleartext: serverUrl.startsWith("http://").toString()]
+    }
+    buildFeatures { buildConfig true }
+    flavorDimensions "role"
+    productFlavors {
+        monitor {
+            dimension "role"
+            applicationId "com.karry.device.monitor"
+            buildConfigField "String", "START_PATH", "\"/monitor\""
+            buildConfigField "boolean", "WORKER", "false"
+        }
+        worker {
+            dimension "role"
+            applicationId "com.karry.device.worker"
+            buildConfigField "String", "START_PATH", "\"/companion\""
+            buildConfigField "boolean", "WORKER", "true"
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

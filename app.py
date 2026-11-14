@@ -1379,6 +1379,104 @@ _SHOP_PUBLIC, _SHOP_OWNER = shop_api.build_routers(require_tool_auth)
 app.include_router(_SHOP_PUBLIC)
 app.include_router(_SHOP_OWNER)
 
+from karry_agent.autonomy import AutonomousRunner, JsonRunStore, MemoryRunStore, MonitorGate, Subtask  # noqa: E402
+from karry_agent.autonomy.devices import DeviceRegistry  # noqa: E402
+from karry_agent.autonomy import api as autonomy_api  # noqa: E402
+
+_AUTONOMY: dict[str, Any] = {}
+_AUTONOMY_LOCK = threading.Lock()
+_AUTONOMY_MEDIA_LOCK = threading.Lock()
+
+
+def _autonomy_prompt(task: Subtask, context: dict[str, Any]) -> str:
+    parts = [f"全体の目的: {context['goal']}"] if context.get("goal") else []
+    parts += [f"前段 {dep} の結果:\n{output}" for dep, output in context.get("dependencies", {}).items()]
+    return "\n\n".join(parts + [f"このサブタスク:\n{task.prompt}"])
+
+
+_AUTONOMY_FAILED = {"failed", "error", "limit_reached", "needs_user_action"}
+
+
+def _autonomy_agent_handler(task: Subtask, context: dict[str, Any]) -> str:
+    agent = app.dependency_overrides.get(get_agent, get_agent)()
+    result = _run_agent(agent, _autonomy_prompt(task, context), False)
+    if getattr(result, "status", "completed") in _AUTONOMY_FAILED:
+        raise RuntimeError(result.text[:500])
+    return result.text
+
+
+def _autonomy_routed(prompt: str) -> str:
+    if _chat_webtoon_request(prompt):
+        return "webtoon"
+    return "video" if _chat_video_request(prompt) else ""
+
+
+def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
+    """Image/video subtasks go through the normal task chat path, so generation and storage work as before."""
+    session_id = context.get("session_id")
+    if not session_id:
+        raise ValueError("画像・動画のサブタスクには session_id（タスクID）が必要です。")
+    agent = app.dependency_overrides.get(get_agent, get_agent)()
+    with _AUTONOMY_MEDIA_LOCK:
+        prompt = _autonomy_prompt(task, context)
+        if _autonomy_routed(prompt) != _autonomy_routed(task.prompt):
+            prompt = task.prompt  # context must not switch the chat router (e.g. an image task into video generation)
+        response = _execute(RunRequest(prompt=prompt, session_id=session_id), agent)
+    if response.status in _AUTONOMY_FAILED:
+        raise RuntimeError(response.text[:500])
+    text = response.text
+    if response.generated_images:
+        text += "\n生成画像ID: " + ", ".join(response.generated_images)
+    return text
+
+
+def autonomy_runner() -> AutonomousRunner:
+    with _AUTONOMY_LOCK:
+        if "runner" not in _AUTONOMY:
+            if os.getenv("KARRY_AUTONOMY_STORAGE", "file").strip().lower() == "memory":
+                store: Any = MemoryRunStore()
+            else:
+                store = JsonRunStore(os.getenv("KARRY_AUTONOMY_DIR", "").strip() or "data/autonomy")
+            handlers = {"general": _autonomy_agent_handler, "research": _autonomy_agent_handler,
+                        "image": _autonomy_media_handler, "video": _autonomy_media_handler}
+            _AUTONOMY["runner"] = AutonomousRunner(store, handlers, gate=MonitorGate.from_env())
+        return _AUTONOMY["runner"]
+
+
+def autonomy_devices() -> DeviceRegistry:
+    with _AUTONOMY_LOCK:
+        if "devices" not in _AUTONOMY:
+            memory = os.getenv("KARRY_AUTONOMY_STORAGE", "file").strip().lower() == "memory"
+            root = Path(os.getenv("KARRY_AUTONOMY_DIR", "").strip() or "data/autonomy")
+            _AUTONOMY["devices"] = DeviceRegistry(None if memory else root / "devices.json")
+        return _AUTONOMY["devices"]
+
+
+app.include_router(autonomy_api.build_router(require_tool_auth, lambda: autonomy_runner(), lambda: autonomy_devices()))
+
+_DEVICE_PAGE_HEADERS = {
+    "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
+    "Content-Security-Policy": ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                                "img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+                                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+}
+
+
+@app.get("/monitor", include_in_schema=False)
+def monitor_page():
+    return FileResponse(STATIC_DIR / "monitor.html", headers={**_DEVICE_PAGE_HEADERS, "Permissions-Policy": "display-capture=()"})
+
+
+@app.get("/companion", include_in_schema=False)
+def companion_page():
+    return FileResponse(STATIC_DIR / "companion.html", headers={**_DEVICE_PAGE_HEADERS, "Permissions-Policy": "display-capture=(self)"})
+
+
+@app.get("/device-sw.js", include_in_schema=False)
+def device_service_worker():
+    return FileResponse(STATIC_DIR / "device-sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
 
 @app.get("/api/gemini/status", dependencies=[Depends(require_tool_auth)])
 def gemini_status():
