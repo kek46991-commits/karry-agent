@@ -89,7 +89,7 @@ async function refresh() {
     const data = await api('/overview');
     document.getElementById('conn').textContent = `更新 ${new Date().toLocaleTimeString()}`;
     const workers = data.devices.filter((d) => d.role === 'worker');
-    document.getElementById('devices').replaceChildren(...(workers.length ? workers.map(deviceCard) : [el('p', {class: 'muted'}, '作業端末はまだ登録されていません。作業端末で /companion を開いて登録してください。')]));
+    document.getElementById('devices').replaceChildren(...(workers.length ? workers.map(deviceCard) : [el('p', {class: 'muted'}, '作業端末はまだ登録されていません。作業用アプリを開いて登録してください。')]));
     document.getElementById('runs').replaceChildren(...(data.runs.length ? data.runs.map(runCard) : [el('p', {class: 'muted'}, 'タスクはまだありません。')]));
     document.getElementById('events').replaceChildren(...data.events.slice(0, 20).map((e) => el('li', {}, `${new Date(e.ts * 1000).toLocaleString()} ${e.name}: ${EVENT_JA[e.event] || e.event}`)));
   } catch (e) {

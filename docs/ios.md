@@ -23,7 +23,8 @@ Android版（`android/`）と同じ2つのアプリを iPhone 向けに作るた
 3. 3つのターゲット（KarryMonitor / KarryWorker / KarryWorkerBroadcast）の Signing & Capabilities で Team を選びます。バンドルIDが使えない場合は、Build Settings の `KARRY_BUNDLE_PREFIX`（初期値 `com.kek46991.karry`）を自分用に変えます。App Group は `group.<prefix>.worker` です。
 4. iPhone を USB でつなぎ、スキームを選んで実行します。初回だけ、iPhone の「設定 → 一般 → VPNとデバイス管理」で開発者を信頼します。
 
-接続先は Build Settings の `KARRY_SERVER_URL`（初期値 `https://karry-agent-1.onrender.com`）で変えられます。
+接続先は Build Settings の `KARRY_MONITOR_URL` と `KARRY_WORKER_URL`
+（初期値はいずれも `https://karry-agent-1.onrender.com`）で役割ごとに変えられます。
 
 ## 配布（TestFlight）
 

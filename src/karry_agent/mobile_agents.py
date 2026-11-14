@@ -16,6 +16,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .location_history import RETENTION_DAYS, LocationHistoryError
+from .location_history import store as location_history
 from .self_healing import redact
 from .url_analysis import URLFetchError, _resolve_public, validate_url
 
@@ -23,6 +25,7 @@ NO_STORE = {"Cache-Control": "private, no-store"}
 MAX_EVENTS = 200
 MAX_RESULT_TEXT = 2000
 CLAIM_LEASE_SECONDS = 30
+LOCATION_TTL_SECONDS = RETENTION_DAYS * 24 * 60 * 60
 
 ActionName = Literal[
     "open_app",
@@ -132,6 +135,7 @@ class MobileAgentCoordinator:
         self._max_events = max(1, min(max_events, 1000))
         self._order: deque[str] = deque()
         self._device_tokens: dict[str, dict[str, str | None]] = {}
+        self._locations: dict[str, list[dict[str, float]]] = {}
         self._lock = threading.RLock()
         self._clock = clock
 
@@ -140,6 +144,7 @@ class MobileAgentCoordinator:
             self._events.clear()
             self._order.clear()
             self._device_tokens.clear()
+            self._locations.clear()
 
     def _check_device_id(self, device_id: str) -> None:
         if not _DEVICE_ID.fullmatch(device_id):
@@ -342,6 +347,66 @@ class MobileAgentCoordinator:
             for event in self.list_events(device_id, status="failed", limit=limit)
         ]
 
+    def report_location(
+        self,
+        device_id: str,
+        *,
+        latitude: float,
+        longitude: float,
+        accuracy_m: float,
+        collected_at: float,
+    ) -> dict[str, float]:
+        self._check_device_id(device_id)
+        now = self._clock()
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            raise MobileAgentError("location coordinates are invalid")
+        if not 0 <= accuracy_m <= 100_000:
+            raise MobileAgentError("location accuracy is invalid")
+        if collected_at < now - LOCATION_TTL_SECONDS or collected_at > now + 300:
+            raise MobileAgentError("location timestamp is invalid")
+        location = {
+            "latitude": round(float(latitude), 6),
+            "longitude": round(float(longitude), 6),
+            "accuracy_m": round(float(accuracy_m), 1),
+            "collected_at": float(collected_at),
+            "received_at": now,
+        }
+        with self._lock:
+            history = self._locations.setdefault(device_id, [])
+            if not history or collected_at > history[-1]["collected_at"]:
+                history.append(location)
+            elif collected_at == history[-1]["collected_at"]:
+                history[-1] = location
+            else:
+                history.append(location)
+                history.sort(key=lambda item: item["collected_at"])
+            cutoff = now - LOCATION_TTL_SECONDS
+            self._locations[device_id] = [item for item in history if item["received_at"] >= cutoff][-1000:]
+            return copy.deepcopy(location)
+
+    def latest_location(self, device_id: str) -> dict[str, float] | None:
+        self._check_device_id(device_id)
+        with self._lock:
+            history = self._locations.get(device_id, [])
+            if not history:
+                return None
+            location = history[-1]
+            if self._clock() - location["received_at"] > LOCATION_TTL_SECONDS:
+                self._locations.pop(device_id, None)
+                return None
+            return copy.deepcopy(location)
+
+    def location_history(self, device_id: str, *, since: float | None = None, limit: int = 1000) -> list[dict[str, float]]:
+        self._check_device_id(device_id)
+        cutoff = self._clock() - LOCATION_TTL_SECONDS
+        with self._lock:
+            points = [
+                copy.deepcopy(item)
+                for item in self._locations.get(device_id, [])
+                if item["received_at"] >= cutoff and (since is None or item["collected_at"] >= since)
+            ]
+        return list(reversed(points[-max(1, min(limit, 1000)):]))
+
     def observer_events(
         self,
         device_id: str,
@@ -383,6 +448,15 @@ class ActionReport(DeviceRequest):
     success: bool
     output: str = Field(default="", max_length=MAX_RESULT_TEXT)
     error_code: str = Field(default="", max_length=80)
+
+
+class LocationReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float = Field(ge=0, le=100_000)
+    collected_at: float = Field(gt=0)
 
 
 coordinator = MobileAgentCoordinator()
@@ -468,6 +542,23 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
             raise handle_error(exc) from exc
         return JSONResponse(event, headers=NO_STORE)
 
+    @router.post("/devices/{device_id}/location")
+    def report_location(
+        device_id: str,
+        body: LocationReport,
+        x_device_token: Annotated[str | None, Header()] = None,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(device_id, x_device_token or "", role="operation")
+            location = coordinator.report_location(device_id, **body.model_dump())
+            if location_history.configured():
+                location = location_history.insert(device_id, location)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401 if "authentication" in str(exc) else 400, detail=str(exc), headers=NO_STORE) from exc
+        except LocationHistoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"location": location}, headers=NO_STORE)
+
     @router.get("/devices/{device_id}/actions", dependencies=[Depends(require_auth)])
     def list_actions(
         device_id: str,
@@ -489,6 +580,33 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
             {"diagnostics": coordinator.diagnostics(device_id, limit=limit)},
             headers=NO_STORE,
         )
+
+    @router.get("/devices/{device_id}/location", dependencies=[Depends(require_auth)])
+    def get_location(device_id: str) -> JSONResponse:
+        try:
+            location = location_history.latest(device_id) if location_history.configured() else coordinator.latest_location(device_id)
+        except MobileAgentError as exc:
+            raise handle_error(exc) from exc
+        except LocationHistoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"location": location}, headers=NO_STORE)
+
+    @router.get("/devices/{device_id}/location/history", dependencies=[Depends(require_auth)])
+    def get_location_history(
+        device_id: str,
+        since: Annotated[float | None, Query(gt=0)] = None,
+        limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    ) -> JSONResponse:
+        try:
+            points = (
+                location_history.list(device_id, since=since, limit=limit)
+                if location_history.configured()
+                else coordinator.location_history(device_id, since=since, limit=limit)
+            )
+        except (MobileAgentError, LocationHistoryError) as exc:
+            status = 503 if isinstance(exc, LocationHistoryError) else 400
+            raise HTTPException(status_code=status, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"locations": points, "retention_days": RETENTION_DAYS}, headers=NO_STORE)
 
     @router.get("/observers/{observer_id}/devices/{device_id}/actions")
     def observer_actions(
@@ -528,5 +646,51 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
         except MobileAgentError as exc:
             raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
         return JSONResponse({"diagnostics": diagnostics}, headers=NO_STORE)
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/location")
+    def observer_location(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            location = location_history.latest(device_id) if location_history.configured() else coordinator.latest_location(device_id)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        except LocationHistoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"location": location}, headers=NO_STORE)
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/location/history")
+    def observer_location_history(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+        since: Annotated[float | None, Query(gt=0)] = None,
+        limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            points = (
+                location_history.list(device_id, since=since, limit=limit)
+                if location_history.configured()
+                else coordinator.location_history(device_id, since=since, limit=limit)
+            )
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        except LocationHistoryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse({"locations": points, "retention_days": RETENTION_DAYS}, headers=NO_STORE)
 
     return router

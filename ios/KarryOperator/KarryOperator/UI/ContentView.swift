@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @ObservedObject var model: OperatorViewModel
     @ObservedObject var prompts: PromptCoordinator
+    @ObservedObject var location: BackgroundLocationService
     @State private var ownerToken = ""
     @State private var manualDeviceToken = ""
     @State private var photoSelection: [PhotosPickerItem] = []
@@ -16,6 +17,7 @@ struct ContentView: View {
                 connectionSection
                 if model.hasToken {
                     operationSection
+                    locationSection
                 } else {
                     enrollmentSection
                 }
@@ -137,7 +139,31 @@ struct ContentView: View {
             }
             .accessibilityIdentifier("checkNow")
             Toggle("自動確認（アプリ表示中・10秒ごと）", isOn: $model.autoCheck)
-            Button("登録を解除", role: .destructive) { model.unenroll() }
+            Button("登録を解除", role: .destructive) {
+                location.setEnabled(false)
+                model.unenroll()
+            }
+        }
+    }
+
+    private var locationSection: some View {
+        Section {
+            Toggle(
+                "位置履歴をバックグラウンドで記録",
+                isOn: Binding(
+                    get: { location.enabled },
+                    set: { location.setEnabled($0) }
+                )
+            )
+            .accessibilityIdentifier("locationSharing")
+            LabeledContent("状態", value: location.status)
+            if let date = location.lastSentAt {
+                LabeledContent("最終送信", value: date.formatted(date: .omitted, time: .standard))
+            }
+        } header: {
+            Text("位置履歴")
+        } footer: {
+            Text("オンの間だけ、移動地点を記録します。iPhoneの設定で位置情報を「常に」にする必要があり、いつでもここで停止できます。")
         }
     }
 

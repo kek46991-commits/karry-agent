@@ -60,7 +60,7 @@ enum SetupStatus {
             "file_picker: yes (system picker, no permission)",
             "messages_compose: \(yn(s.messagesCompose))",
             "auto_check: \(yn(s.autoCheck && s.enrolled)) (10s, app in foreground" + (s.enrolled ? ")" : ", starts after enroll)"),
-            "background_actions: no (iOS: foreground or Shortcut only)",
+            "background_actions: no (iOS: foreground or Shortcut only; opt-in location history only)",
             "ready: \(yn(ready(s, skipped: skipped)))",
         ]
     }

@@ -16,6 +16,7 @@ The bridge does not execute shell commands, read device-wide content, scrape mes
 5. The iPhone companion app claims one pending action with its device token.
 6. The companion app executes the matching App Intent and reports success or failure.
 7. A failed event produces a redacted diagnostic visible through owner-authenticated endpoints or the observer token scoped to that operation device.
+8. If the owner enables location history and grants iOS "Always" access, the operator reports significant location changes while the app is closed. Turning the switch off stops reporting.
 
 ## Allowed actions
 
@@ -36,7 +37,15 @@ Unknown actions and payload fields are rejected. File and photo selection always
 
 Owner routes require the existing `KARRY_API_TOKEN`. Device claim and report routes use the device-scoped `X-Device-Token`; the owner token does not need to be stored on the iPhone.
 
-Enrollment tokens are memory-only in the current prototype. A production deployment should persist only token hashes in the configured private database and provide owner-controlled token revocation.
+Enrollment tokens are memory-only in the current prototype. Location history is stored in PostgreSQL when `DATABASE_URL` is configured, retained for 30 days, and returned newest-first with a maximum of 1,000 points per request. Without PostgreSQL it remains process-local and is lost at restart. A production deployment should also persist only enrollment token hashes in the configured private database and provide owner-controlled token revocation.
+
+Location routes:
+
+- `POST /api/mobile-agent/devices/{device_id}/location`: operation-device token only.
+- `GET /api/mobile-agent/devices/{device_id}/location/history`: owner authentication.
+- `GET /api/mobile-agent/observers/{observer_id}/devices/{device_id}/location/history`: observer token scoped to that operation device.
+
+The operator uses iOS significant-change location monitoring instead of continuous GPS to limit battery use. iOS decides the exact sampling frequency. The app keeps a visible on/off control and status, and does not bypass system permission indicators.
 
 ## iPhone companion app contract
 
@@ -49,6 +58,7 @@ The companion app should:
 - poll only while background execution is permitted by iOS;
 - map each action to a fixed App Intent implementation;
 - use EventKit, Core Location, document picker, and photo picker permission prompts;
+- record location only while the owner-visible location-history switch is on and iOS "Always" permission remains granted;
 - never interpret payload text as code or a shell command;
 - report bounded, non-sensitive summaries rather than file contents or private application data.
 

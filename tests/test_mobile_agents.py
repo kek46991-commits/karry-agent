@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 import app as web
@@ -249,6 +250,70 @@ def test_android_observer_token_is_scoped_to_one_operation_device(monkeypatch):
         headers=operation_token,
     )
     assert wrong_role.status_code == 401
+
+
+def test_operation_device_can_share_only_its_latest_location(monkeypatch):
+    api, headers = client(monkeypatch)
+    operation_headers = enroll(api, headers, "operation-iphone")
+    observer = api.post(
+        "/api/mobile-agent/devices/enroll",
+        headers=headers,
+        json={"device_id": "observer-android", "role": "observer", "observed_device_id": "operation-iphone"},
+    )
+    observer_headers = {"X-Device-Token": observer.json()["device_token"]}
+    now = mobile_agents.time.time()
+    reported = api.post(
+        "/api/mobile-agent/devices/operation-iphone/location",
+        headers=operation_headers,
+        json={"latitude": 35.681236, "longitude": 139.767125, "accuracy_m": 18.4, "collected_at": now},
+    )
+    assert reported.status_code == 200
+    assert reported.json()["location"]["latitude"] == 35.681236
+    second = api.post(
+        "/api/mobile-agent/devices/operation-iphone/location",
+        headers=operation_headers,
+        json={"latitude": 35.6895, "longitude": 139.6917, "accuracy_m": 12, "collected_at": now + 1},
+    )
+    assert second.status_code == 200
+
+    visible = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/operation-iphone/location",
+        headers=observer_headers,
+    )
+    assert visible.status_code == 200
+    assert visible.json()["location"]["longitude"] == 139.6917
+    history = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/operation-iphone/location/history",
+        headers=observer_headers,
+    )
+    assert history.status_code == 200
+    assert [point["latitude"] for point in history.json()["locations"]] == [35.6895, 35.681236]
+    assert history.json()["retention_days"] == 30
+    assert api.get("/api/mobile-agent/devices/operation-iphone/location", headers=headers).status_code == 200
+    assert api.get(
+        "/api/mobile-agent/observers/observer-android/devices/other-iphone/location",
+        headers=observer_headers,
+    ).status_code == 401
+    assert api.post(
+        "/api/mobile-agent/devices/operation-iphone/location",
+        headers={"X-Device-Token": "wrong"},
+        json={"latitude": 0, "longitude": 0, "accuracy_m": 1, "collected_at": now},
+    ).status_code == 401
+
+
+def test_location_reports_are_bounded_and_expire():
+    clock = [1_000_000.0]
+    coordinator = mobile_agents.MobileAgentCoordinator(clock=lambda: clock[0])
+    token = coordinator.enroll("iphone")
+    coordinator.authenticate_device("iphone", token, role="operation")
+    with pytest.raises(mobile_agents.MobileAgentError):
+        coordinator.report_location("iphone", latitude=91, longitude=0, accuracy_m=1, collected_at=clock[0])
+    location = coordinator.report_location(
+        "iphone", latitude=35.0, longitude=139.0, accuracy_m=10, collected_at=clock[0],
+    )
+    assert location["latitude"] == 35.0
+    clock[0] += mobile_agents.LOCATION_TTL_SECONDS + 1
+    assert coordinator.latest_location("iphone") is None
 
 
 def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):

@@ -11,7 +11,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1"
     # Override on the xcodebuild command line or in Xcode (Build Settings) for your own Apple team.
-    KARRY_SERVER_URL: https://karry-agent-1.onrender.com
+    KARRY_MONITOR_URL: https://karry-agent-1.onrender.com
+    KARRY_WORKER_URL: https://karry-agent-1.onrender.com
     KARRY_BUNDLE_PREFIX: com.kek46991.karry
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -34,7 +35,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         KarryRole: monitor
         KarryStartPath: /monitor
-        KarryServerURL: $(KARRY_SERVER_URL)
+        KarryServerURL: $(KARRY_MONITOR_URL)
         KarryAppGroup: ""
         UILaunchScreen: {}
         UIRequiresFullScreen: true
@@ -85,7 +86,7 @@ targets:
         CFBundleDisplayName: Karry 作業用
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        KarryServerURL: $(KARRY_SERVER_URL)
+        KarryServerURL: $(KARRY_WORKER_URL)
         KarryAppGroup: group.$(KARRY_BUNDLE_PREFIX).worker
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload

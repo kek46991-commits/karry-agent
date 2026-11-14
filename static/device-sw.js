@@ -1,8 +1,9 @@
-// Installable shell for /monitor and /companion. API responses are never cached.
-const CACHE = 'karry-device-v2';
+// Installable shell for the monitor and worker apps. API responses are never cached.
+const CACHE = 'karry-device-v3';
 self.addEventListener('install', (event) => {
   // Offline copy is best-effort: a failed fetch must not keep the worker from activating.
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(['/monitor', '/companion'].filter((p) => self.registration.scope.endsWith(p)))).catch(() => {}));
+  const shell = new URL(self.registration.scope).pathname;
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.add(shell)).catch(() => {}));
   self.skipWaiting();
 });
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
