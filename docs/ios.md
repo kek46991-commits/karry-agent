@@ -35,7 +35,7 @@ Apple Developer Program（有料）が必要です。
    - `APPLE_TEAM_ID`
    - `ASC_KEY_ID`
    - `ASC_ISSUER_ID`
-   - `ASC_KEY_P8_BASE64`（`.p8` ファイルを base64 にした値）
+   - `ASC_KEY_P8`（ダウンロードした `.p8` ファイルの中身を、そのまま全部貼る）
 4. Actions の **iOS apps** を「Run workflow」で実行し、`testflight` にチェックを入れます。
 5. 使う人の iPhone に TestFlight を入れ、招待メールから2つのアプリを入れます。
 
