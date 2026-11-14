@@ -1,0 +1,633 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
+		058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
+		09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
+		0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
+		116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
+		1A050F19C1DA26116A813726 /* BackendIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */; };
+		1ACC94EC67EE08D0C42F806D /* ActionPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */; };
+		269CEF43A2E30EC6861F8C45 /* CheckActionsIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */; };
+		32B55CD2935A16CA2211850C /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */; };
+		359F3CFFF2BCDA18457D9DA4 /* BackendClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */; };
+		381C0D90B3845E8BB44E8519 /* OperatorViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839E5CA41F48BED8F94ED309 /* OperatorViewModelTests.swift */; };
+		3946DA0FE1FEF780002698E6 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
+		3D101E652197D5BCABC1705D /* MobileAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E990197197DC6C0137B6B13 /* MobileAction.swift */; };
+		44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */; };
+		485D20E6C076FFE1C717DCD7 /* SetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */; };
+		4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
+		53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
+		56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
+		58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */; };
+		649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */; };
+		7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
+		862A60AF0AEF788BA96F3CAD /* SetupStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD004016D0F7694FD7908657 /* SetupStatusTests.swift */; };
+		A8952D69F006DE12346C829B /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
+		ABEFDFF13C42F46C00AAD086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129DDEBB06671EAB865927D4 /* ContentView.swift */; };
+		BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */; };
+		BDE2793E0CDED2C5C148269E /* KeychainTokenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */; };
+		C3F39B6530365987B2F9EF57 /* AppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DB5F5AC2469900838C8502 /* AppIdentity.swift */; };
+		D0A524F4A907CC93A602D053 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129DDEBB06671EAB865927D4 /* ContentView.swift */; };
+		D308C2D3C72B45D43D4F869C /* MobileAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E990197197DC6C0137B6B13 /* MobileAction.swift */; };
+		D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
+		D98040714272902C63C269D3 /* AppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DB5F5AC2469900838C8502 /* AppIdentity.swift */; };
+		DE3B57201155ABD7055B7F4E /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22DA6B08B307CED723CCC71E /* BackendClient.swift */; };
+		DE72B264F81A4A4B6837ECAF /* CheckActionsIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */; };
+		DF1EAD762407028C4E874790 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22DA6B08B307CED723CCC71E /* BackendClient.swift */; };
+		EB16280D93568D8A34154030 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
+		F9FA97B09C1C89330B85CABB /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
+		FE6F5CD150681D760A4CA15B /* AppIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7402113E0F36E32A8371046 /* AppIdentityTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F10A7F4848E1BC312F4A82A2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 636A086A1EDE327B170689E4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5922F59BF24A252B0A61CC21;
+			remoteInfo = KarryOperator;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		02DB5F5AC2469900838C8502 /* AppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentity.swift; sourceTree = "<group>"; };
+		129DDEBB06671EAB865927D4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KarryOperator4.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		22DA6B08B307CED723CCC71E /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
+		3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KarryOperatorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4102C6D98F0810FA0C15677D /* SystemPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPermissions.swift; sourceTree = "<group>"; };
+		5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendIntegrationTests.swift; sourceTree = "<group>"; };
+		6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTokenStoreTests.swift; sourceTree = "<group>"; };
+		6E990197197DC6C0137B6B13 /* MobileAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAction.swift; sourceTree = "<group>"; };
+		7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
+		7F002364F589EE702FB476BE /* MessageComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposeView.swift; sourceTree = "<group>"; };
+		7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorViewModel.swift; sourceTree = "<group>"; };
+		839E5CA41F48BED8F94ED309 /* OperatorViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorViewModelTests.swift; sourceTree = "<group>"; };
+		8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
+		962F924F15C18565976B2848 /* KarryOperatorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KarryOperatorApp.swift; sourceTree = "<group>"; };
+		9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActionExecutorTests.swift; sourceTree = "<group>"; };
+		A76520F348F1A1ECA7A0E0F5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B7402113E0F36E32A8371046 /* AppIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentityTests.swift; sourceTree = "<group>"; };
+		D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemServices.swift; sourceTree = "<group>"; };
+		D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupStatus.swift; sourceTree = "<group>"; };
+		DD004016D0F7694FD7908657 /* SetupStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupStatusTests.swift; sourceTree = "<group>"; };
+		E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPlannerTests.swift; sourceTree = "<group>"; };
+		EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClientTests.swift; sourceTree = "<group>"; };
+		EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPlan.swift; sourceTree = "<group>"; };
+		F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckActionsIntent.swift; sourceTree = "<group>"; };
+		FB456697091CCE4A3216E1F7 /* KarryOperator.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KarryOperator.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		5B853B685D5FF3EFC1640DB0 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				962F924F15C18565976B2848 /* KarryOperatorApp.swift */,
+				7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5CCBDCC1AF515998B0CC1EBD /* Execution */ = {
+			isa = PBXGroup;
+			children = (
+				8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */,
+				4102C6D98F0810FA0C15677D /* SystemPermissions.swift */,
+				D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */,
+			);
+			path = Execution;
+			sourceTree = "<group>";
+		};
+		68955550735E29BEE2C67F3D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FB456697091CCE4A3216E1F7 /* KarryOperator.app */,
+				1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */,
+				3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7733E6C909B636437D251395 /* KarryOperatorTests */ = {
+			isa = PBXGroup;
+			children = (
+				E1893E9AE29850D9C275AF82 /* ActionPlannerTests.swift */,
+				B7402113E0F36E32A8371046 /* AppIdentityTests.swift */,
+				EAC7129CB8A3178D68C48C36 /* BackendClientTests.swift */,
+				5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */,
+				6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */,
+				839E5CA41F48BED8F94ED309 /* OperatorViewModelTests.swift */,
+				DD004016D0F7694FD7908657 /* SetupStatusTests.swift */,
+				9679A81D068FBA28E6E2EAA7 /* SystemActionExecutorTests.swift */,
+				F2B3D32F416A66D51EFDC0B7 /* TestSupport.swift */,
+			);
+			path = KarryOperatorTests;
+			sourceTree = "<group>";
+		};
+		87962BD4B4A2CEEB62C20A8B /* KarryOperator */ = {
+			isa = PBXGroup;
+			children = (
+				A76520F348F1A1ECA7A0E0F5 /* Info.plist */,
+				5B853B685D5FF3EFC1640DB0 /* App */,
+				A5869AE2C74C6C3BEACC7080 /* Core */,
+				5CCBDCC1AF515998B0CC1EBD /* Execution */,
+				88E5C0F924FF9B5E84DD8223 /* Intents */,
+				D194269DD55D6FEBE9812724 /* UI */,
+			);
+			path = KarryOperator;
+			sourceTree = "<group>";
+		};
+		88E5C0F924FF9B5E84DD8223 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				F5CD72D22B0B81AA982F6AC8 /* CheckActionsIntent.swift */,
+			);
+			path = Intents;
+			sourceTree = "<group>";
+		};
+		A5869AE2C74C6C3BEACC7080 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */,
+				02DB5F5AC2469900838C8502 /* AppIdentity.swift */,
+				22DA6B08B307CED723CCC71E /* BackendClient.swift */,
+				6E990197197DC6C0137B6B13 /* MobileAction.swift */,
+				D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */,
+				7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		BEB818F0EAFD6E247C6BDB34 = {
+			isa = PBXGroup;
+			children = (
+				87962BD4B4A2CEEB62C20A8B /* KarryOperator */,
+				7733E6C909B636437D251395 /* KarryOperatorTests */,
+				68955550735E29BEE2C67F3D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D194269DD55D6FEBE9812724 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				129DDEBB06671EAB865927D4 /* ContentView.swift */,
+				7F002364F589EE702FB476BE /* MessageComposeView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		296FA13831139E748EBF52A8 /* KarryOperator4 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 057E2E2A5ABEA1B6C8C59DA0 /* Build configuration list for PBXNativeTarget "KarryOperator4" */;
+			buildPhases = (
+				E8EA75BD7A24D429F81F7C07 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KarryOperator4;
+			packageProductDependencies = (
+			);
+			productName = KarryOperator4;
+			productReference = 1499B9FB0E3C7A69AF9B93AA /* KarryOperator4.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5922F59BF24A252B0A61CC21 /* KarryOperator */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 70BFA13902C865CF22A6C183 /* Build configuration list for PBXNativeTarget "KarryOperator" */;
+			buildPhases = (
+				2CCC91942D2BEC3520D15C55 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KarryOperator;
+			packageProductDependencies = (
+			);
+			productName = KarryOperator;
+			productReference = FB456697091CCE4A3216E1F7 /* KarryOperator.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8CB9164159971EF689CB1F2C /* KarryOperatorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FFCDAE8FB1C15BDEFFC4879D /* Build configuration list for PBXNativeTarget "KarryOperatorTests" */;
+			buildPhases = (
+				D6B53B94D4ABC7B3CE806426 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				28EA3CFBE1C560C7C9A55B52 /* PBXTargetDependency */,
+			);
+			name = KarryOperatorTests;
+			packageProductDependencies = (
+			);
+			productName = KarryOperatorTests;
+			productReference = 3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		636A086A1EDE327B170689E4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					296FA13831139E748EBF52A8 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					5922F59BF24A252B0A61CC21 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					8CB9164159971EF689CB1F2C = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 7F6CF2B730E45C79CF8753BF /* Build configuration list for PBXProject "KarryOperator" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BEB818F0EAFD6E247C6BDB34;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 68955550735E29BEE2C67F3D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5922F59BF24A252B0A61CC21 /* KarryOperator */,
+				296FA13831139E748EBF52A8 /* KarryOperator4 */,
+				8CB9164159971EF689CB1F2C /* KarryOperatorTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2CCC91942D2BEC3520D15C55 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				32B55CD2935A16CA2211850C /* ActionExecutor.swift in Sources */,
+				7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */,
+				D98040714272902C63C269D3 /* AppIdentity.swift in Sources */,
+				DF1EAD762407028C4E874790 /* BackendClient.swift in Sources */,
+				269CEF43A2E30EC6861F8C45 /* CheckActionsIntent.swift in Sources */,
+				D0A524F4A907CC93A602D053 /* ContentView.swift in Sources */,
+				F9FA97B09C1C89330B85CABB /* KarryOperatorApp.swift in Sources */,
+				0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */,
+				3D101E652197D5BCABC1705D /* MobileAction.swift in Sources */,
+				3946DA0FE1FEF780002698E6 /* OperatorViewModel.swift in Sources */,
+				649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */,
+				058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */,
+				4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */,
+				09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D6B53B94D4ABC7B3CE806426 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1ACC94EC67EE08D0C42F806D /* ActionPlannerTests.swift in Sources */,
+				FE6F5CD150681D760A4CA15B /* AppIdentityTests.swift in Sources */,
+				359F3CFFF2BCDA18457D9DA4 /* BackendClientTests.swift in Sources */,
+				1A050F19C1DA26116A813726 /* BackendIntegrationTests.swift in Sources */,
+				BDE2793E0CDED2C5C148269E /* KeychainTokenStoreTests.swift in Sources */,
+				381C0D90B3845E8BB44E8519 /* OperatorViewModelTests.swift in Sources */,
+				862A60AF0AEF788BA96F3CAD /* SetupStatusTests.swift in Sources */,
+				BB400D3D04535A9C15557165 /* SystemActionExecutorTests.swift in Sources */,
+				44AC88F60371355848F7BE45 /* TestSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E8EA75BD7A24D429F81F7C07 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */,
+				A8952D69F006DE12346C829B /* ActionPlan.swift in Sources */,
+				C3F39B6530365987B2F9EF57 /* AppIdentity.swift in Sources */,
+				DE3B57201155ABD7055B7F4E /* BackendClient.swift in Sources */,
+				DE72B264F81A4A4B6837ECAF /* CheckActionsIntent.swift in Sources */,
+				ABEFDFF13C42F46C00AAD086 /* ContentView.swift in Sources */,
+				53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */,
+				0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */,
+				D308C2D3C72B45D43D4F869C /* MobileAction.swift in Sources */,
+				116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */,
+				485D20E6C076FFE1C717DCD7 /* SetupStatus.swift in Sources */,
+				56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */,
+				D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */,
+				EB16280D93568D8A34154030 /* TokenStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		28EA3CFBE1C560C7C9A55B52 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5922F59BF24A252B0A61CC21 /* KarryOperator */;
+			targetProxy = F10A7F4848E1BC312F4A82A2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		33E5CAEF5782A77A4A07131C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperatorTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KarryOperator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KarryOperator";
+			};
+			name = Debug;
+		};
+		4222209163B1A1CEC6FD18BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		61D982BE48C0651D7E0A31E7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator/Info.plist;
+				KARRY_BUNDLE_ID = io.github.kek46991.KarryOperator;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY_BUNDLE_ID)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		81A5AADDF0EE522FB1F4BFF5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				KARRY4_BUNDLE_ID = io.github.kek46991.KarryOperator4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY4_BUNDLE_ID)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		9EAC11662242237C4C8C433B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator/Info.plist;
+				KARRY_BUNDLE_ID = io.github.kek46991.KarryOperator;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY_BUNDLE_ID)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D04940086D295280ED84BCA5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		F4BBA65BA7EB5A931431130B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kek46991.KarryOperatorTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KarryOperator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KarryOperator";
+			};
+			name = Release;
+		};
+		F60FFC73A5FFEE98C9412DAD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KarryOperator4/Info.plist;
+				KARRY4_BUNDLE_ID = io.github.kek46991.KarryOperator4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KARRY4_BUNDLE_ID)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) KARRY_AGENT_4";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		057E2E2A5ABEA1B6C8C59DA0 /* Build configuration list for PBXNativeTarget "KarryOperator4" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				81A5AADDF0EE522FB1F4BFF5 /* Debug */,
+				F60FFC73A5FFEE98C9412DAD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		70BFA13902C865CF22A6C183 /* Build configuration list for PBXNativeTarget "KarryOperator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EAC11662242237C4C8C433B /* Debug */,
+				61D982BE48C0651D7E0A31E7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7F6CF2B730E45C79CF8753BF /* Build configuration list for PBXProject "KarryOperator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D04940086D295280ED84BCA5 /* Debug */,
+				4222209163B1A1CEC6FD18BE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FFCDAE8FB1C15BDEFFC4879D /* Build configuration list for PBXNativeTarget "KarryOperatorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33E5CAEF5782A77A4A07131C /* Debug */,
+				F4BBA65BA7EB5A931431130B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 636A086A1EDE327B170689E4 /* Project object */;
+}

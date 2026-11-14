@@ -1,0 +1,11 @@
+<resources>
+    <string name="server_url">Gimmy-Agent URL</string>
+    <string name="owner_token">初回登録用オーナートークン</string>
+    <string name="observer_id">Android観察端末ID</string>
+    <string name="operation_id">iPhone操作端末ID</string>
+    <string name="enroll">観察端末を登録</string>
+    <string name="refresh">今すぐ更新</string>
+    <string name="clear_registration">登録を解除</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+</resources>

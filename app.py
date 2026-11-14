@@ -56,6 +56,7 @@ from karry_agent.auth_token import configured_token, owner_credential_ok
 from karry_agent import user_login
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
+from karry_agent import mobile_agents, ota_enrollment
 
 logger = logging.getLogger(__name__)
 
@@ -457,6 +458,8 @@ def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None
     require_api_auth(credentials)
 
 
+app.include_router(mobile_agents.build_router(require_tool_auth))
+app.include_router(ota_enrollment.build_router(require_tool_auth))
 video_projects.install(app, require_tool_auth)
 
 

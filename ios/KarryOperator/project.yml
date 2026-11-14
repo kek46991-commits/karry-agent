@@ -1,0 +1,102 @@
+name: KarryOperator
+options:
+  bundleIdPrefix: io.github.kek46991
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+targets:
+  KarryOperator:
+    type: application
+    platform: iOS
+    sources:
+      - KarryOperator
+    settings:
+      base:
+        KARRY_BUNDLE_ID: io.github.kek46991.KarryOperator
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_ID)
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: KarryOperator/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: KarryOperator/Info.plist
+      properties:
+        CFBundleDisplayName: Karry-Agent 2
+        CFBundleDevelopmentRegion: ja
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCalendarsWriteOnlyAccessUsageDescription: Karryから承認済みの予定を、あなたのカレンダーに追加するために使います。既存の予定は読み取りません。
+        NSRemindersFullAccessUsageDescription: Karryから承認済みのリマインダーを作成するために使います。作成以外の目的には使いません。
+        NSLocationWhenInUseUsageDescription: Karryから承認済みの位置情報リクエストを実行するときだけ使います。座標そのものはサーバーへ送信しません。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  KarryOperator4:
+    type: application
+    platform: iOS
+    sources:
+      - path: KarryOperator
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        KARRY4_BUNDLE_ID: io.github.kek46991.KarryOperator4
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY4_BUNDLE_ID)
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: KarryOperator4/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) KARRY_AGENT_4"
+    info:
+      path: KarryOperator4/Info.plist
+      properties:
+        CFBundleDisplayName: Karry-Agent 4
+        CFBundleDevelopmentRegion: ja
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCalendarsWriteOnlyAccessUsageDescription: Karryから承認済みの予定を、あなたのカレンダーに追加するために使います。既存の予定は読み取りません。
+        NSRemindersFullAccessUsageDescription: Karryから承認済みのリマインダーを作成するために使います。作成以外の目的には使いません。
+        NSLocationWhenInUseUsageDescription: Karryから承認済みの位置情報リクエストを実行するときだけ使います。座標そのものはサーバーへ送信しません。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  KarryOperatorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - KarryOperatorTests
+    dependencies:
+      - target: KarryOperator
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kek46991.KarryOperatorTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/KarryOperator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KarryOperator"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  KarryOperator:
+    build:
+      targets:
+        KarryOperator: all
+        KarryOperatorTests: [test]
+    test:
+      targets:
+        - KarryOperatorTests
+      gatherCoverageData: true
+  KarryOperator4:
+    build:
+      targets:
+        KarryOperator4: all

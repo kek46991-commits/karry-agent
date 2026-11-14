@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="karry-ui-version" content="manual-cost-20261107">
-  <title>karry-agent | 自律型 AI エージェント</title>
+  <title>gimmy-agent | 自律型 AI エージェント</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#263451;--text:#edf3ff;--muted:#91a0bd;--accent:#65a8ff;--good:#55d6a2}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0,#17264b 0,#0b1020 42%);color:var(--text);font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -43,7 +43,7 @@
 </head>
 <body>
   <main class="shell">
-    <header><div class="brand"><div class="logo">k</div><div><h1>karry-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a> <a href="/admin">⚖ 法務・AIダッシュボード（管理者）</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
+    <header><div class="brand"><div class="logo">g</div><div><h1>gimmy-agent</h1><p class="subtitle">日本語 自律型 AI エージェント</p><div class="feature-jump"><a href="#chatTools">入力・🔒 シークレット・マイク設定へ ↓</a> <a href="/admin">⚖ 法務・AIダッシュボード（管理者）</a></div></div></div><div class="status" aria-live="polite"><span id="statusLamp" class="dot lamp" data-lamp="idle" role="img" aria-label="未接続"></span><span id="status">タスク未接続</span></div></header>
     <div class="auth" id="connectionPanel"><label for="apiToken">1. 所有者APIトークンを入力して接続</label><input id="apiToken" type="password" autocomplete="off" aria-label="APIトークン" placeholder="APIトークン" aria-describedby="connectionNotice"><button id="loadTasks" type="button">接続・タスク読み込み</button><div class="email-login" id="emailLogin"><label for="loginEmail">またはメールアドレスでログイン</label><input id="loginEmail" type="email" autocomplete="username" placeholder="メールアドレス" maxlength="254"><input id="loginPassword" type="password" autocomplete="current-password" placeholder="パスワード" maxlength="1024"><button id="loginButton" type="button">ログイン</button><button id="logoutButton" type="button" hidden>ログアウト</button></div><p id="connectionNotice" class="connection-notice" role="status" aria-live="polite">トークンを入力して接続してください。トークンは端末に保存しません。</p></div>
     <section class="grid">
       <nav class="panel tasks" aria-label="タスク一覧">
@@ -252,7 +252,7 @@
   function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function addMessage(kind,text){
     $('empty')?.remove();const el=document.createElement('div');el.className=`message ${kind}`;
-    el.innerHTML=`<span class="label">${kind==='user'?'あなた':'karry-agent'}</span>${escapeHtml(text)}`;
+    el.innerHTML=`<span class="label">${kind==='user'?'あなた':'gimmy-agent'}</span>${escapeHtml(text)}`;
     $('messages').appendChild(el);if(kind==='agent'){addSpeakButton(el,text);if(typeof attachChatVideo==='function')attachChatVideo(el,text);if(typeof attachChatWebtoon==='function')attachChatWebtoon(el,text);if(typeof attachChatProduct==='function')attachChatProduct(el,text);}$('messages').scrollTop=$('messages').scrollHeight;return el;
   }
   const SECRET_PATTERNS=[/\b(sk-(?:ant-|proj-)?)[A-Za-z0-9_-]{16,}/g,/\b(AIza)[0-9A-Za-z_-]{30,}/g,/\b(github_pat_)[A-Za-z0-9_]{20,}/g,/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g,/\b(xox[abpr]-)[A-Za-z0-9-]{10,}/g,/\b(rnd_)[A-Za-z0-9]{16,}/g,/\b(r8_)[A-Za-z0-9]{16,}/g,/\b(AKIA)[0-9A-Z]{16}\b/g,/\b(ya29\.)[A-Za-z0-9_-]{20,}/g];
