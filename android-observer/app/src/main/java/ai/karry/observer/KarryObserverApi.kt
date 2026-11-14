@@ -40,9 +40,14 @@ class KarryObserverApi {
             "${registration.serverUrl}$path/diagnostics?limit=30",
             deviceToken = registration.deviceToken,
         ).getJSONArray("diagnostics")
+        val locations = request(
+            "${registration.serverUrl}$path/location/history?limit=50",
+            deviceToken = registration.deviceToken,
+        ).getJSONArray("locations")
         ObserverSnapshot(
             actions = parseActions(actions),
             diagnostics = parseDiagnostics(diagnostics),
+            locations = parseLocations(locations),
         )
     }
 
@@ -130,6 +135,20 @@ class KarryObserverApi {
             }
         }
 
+        internal fun parseLocations(items: JSONArray): List<LocationPoint> = buildList {
+            for (index in 0 until items.length()) {
+                val item = items.getJSONObject(index)
+                add(
+                    LocationPoint(
+                        latitude = item.getDouble("latitude"),
+                        longitude = item.getDouble("longitude"),
+                        accuracyM = item.optDouble("accuracy_m", 0.0),
+                        collectedAt = item.getDouble("collected_at"),
+                    ),
+                )
+            }
+        }
+
         private fun parseDiagnostics(items: JSONArray): List<DiagnosticStatus> = buildList {
             for (index in 0 until items.length()) {
                 val item = items.getJSONObject(index)
@@ -155,6 +174,14 @@ class ObserverApiException(message: String) : Exception(message)
 data class ObserverSnapshot(
     val actions: List<ActionStatus>,
     val diagnostics: List<DiagnosticStatus>,
+    val locations: List<LocationPoint> = emptyList(),
+)
+
+data class LocationPoint(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double,
+    val collectedAt: Double,
 )
 
 data class ActionStatus(

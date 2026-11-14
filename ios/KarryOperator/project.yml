@@ -38,7 +38,9 @@ targets:
           - UIInterfaceOrientationPortrait
         NSCalendarsWriteOnlyAccessUsageDescription: Karryから承認済みの予定を、あなたのカレンダーに追加するために使います。既存の予定は読み取りません。
         NSRemindersFullAccessUsageDescription: Karryから承認済みのリマインダーを作成するために使います。作成以外の目的には使いません。
-        NSLocationWhenInUseUsageDescription: Karryから承認済みの位置情報リクエストを実行するときだけ使います。座標そのものはサーバーへ送信しません。
+        NSLocationWhenInUseUsageDescription: 承認済みの位置情報リクエストと、本人が有効にした位置履歴の記録に使います。
+        NSLocationAlwaysAndWhenInUseUsageDescription: 位置履歴をオンにしている間、アプリを閉じていても移動地点を記録するために使います。
+        UIBackgroundModes: [location]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
   KarryOperator4:
@@ -70,7 +72,9 @@ targets:
           - UIInterfaceOrientationPortrait
         NSCalendarsWriteOnlyAccessUsageDescription: Karryから承認済みの予定を、あなたのカレンダーに追加するために使います。既存の予定は読み取りません。
         NSRemindersFullAccessUsageDescription: Karryから承認済みのリマインダーを作成するために使います。作成以外の目的には使いません。
-        NSLocationWhenInUseUsageDescription: Karryから承認済みの位置情報リクエストを実行するときだけ使います。座標そのものはサーバーへ送信しません。
+        NSLocationWhenInUseUsageDescription: 承認済みの位置情報リクエストと、本人が有効にした位置履歴の記録に使います。
+        NSLocationAlwaysAndWhenInUseUsageDescription: 位置履歴をオンにしている間、アプリを閉じていても移動地点を記録するために使います。
+        UIBackgroundModes: [location]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
   KarryOperatorTests:

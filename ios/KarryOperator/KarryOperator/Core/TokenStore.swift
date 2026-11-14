@@ -73,6 +73,7 @@ struct OperatorSettings {
     private static let baseURLKey = "\(AppIdentity.storageNamespace).baseURL"
     private static let deviceIDKey = "\(AppIdentity.storageNamespace).deviceID"
     private static let autoCheckKey = "\(AppIdentity.storageNamespace).autoCheck"
+    private static let locationSharingKey = "\(AppIdentity.storageNamespace).locationSharing"
 
     let defaults: UserDefaults
 
@@ -99,5 +100,10 @@ struct OperatorSettings {
     var autoCheck: Bool {
         get { defaults.object(forKey: Self.autoCheckKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.autoCheckKey) }
+    }
+
+    var locationSharing: Bool {
+        get { defaults.object(forKey: Self.locationSharingKey) as? Bool ?? false }
+        nonmutating set { defaults.set(newValue, forKey: Self.locationSharingKey) }
     }
 }

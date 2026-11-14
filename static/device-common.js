@@ -1,4 +1,4 @@
-// Shared by /monitor and /companion: one-time enrollment, install prompt, safe DOM helpers.
+// Shared by the independently deployed monitor and worker apps.
 const API = '/api/autonomy';
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -41,7 +41,7 @@ function setupDevice({role, onReady}) {
     if (data.device.role !== role) throw Object.assign(new Error('role'), {status: 401});
     app.hidden = false; onReady(data.device);
   }).catch(() => { setup.hidden = false; });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/device-sw.js', {scope: location.pathname}).catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/device-sw.js', {scope: window.KARRY_DEVICE_SCOPE || location.pathname}).catch(() => {});
   let deferred = null;
   const install = document.getElementById('installButton');
   addEventListener('beforeinstallprompt', (event) => { event.preventDefault(); deferred = event; install.hidden = false; });

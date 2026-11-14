@@ -20,4 +20,17 @@ class KarryObserverApiTest {
             KarryObserverApi.validateServerUrl("https://owner:secret@agent.example")
         }
     }
+
+    @Test
+    fun parsesLocationHistoryNewestFirst() {
+        val points = KarryObserverApi.parseLocations(
+            org.json.JSONArray(
+                """[{"latitude":35.6895,"longitude":139.6917,"accuracy_m":12,"collected_at":2000},""" +
+                    """{"latitude":35.681236,"longitude":139.767125,"accuracy_m":20,"collected_at":1000}]""",
+            ),
+        )
+        assertEquals(2, points.size)
+        assertEquals(35.6895, points[0].latitude, 0.0)
+        assertEquals(1000.0, points[1].collectedAt, 0.0)
+    }
 }

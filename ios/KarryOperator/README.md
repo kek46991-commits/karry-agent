@@ -17,6 +17,10 @@
 | `create_calendar_event` | EventKit 書き込み専用アクセス（既存予定は読まない） | 作成したことのみ |
 | `create_reminder` | EventKit リマインダー（作成のみ） | 作成したことのみ |
 | `request_location` | Core Location `requestWhenInUseAuthorization` + `requestLocation` | 精度のみ（座標は送らない） |
+
+### 位置履歴（オプトイン）
+
+「位置履歴をバックグラウンドで記録」をオンにし、iOSの位置情報を「常に」にすると、アプリを閉じていても Core Location の大幅変更位置サービス（おおむね数百m〜の移動ごと）で座標を `POST /api/mobile-agent/devices/{id}/location` へ送ります。オフにする、登録解除する、またはiOS設定で許可を外すと停止します。iOSのステータスバーに位置情報の利用表示が出ます。サーバーは `DATABASE_URL` があれば PostgreSQL の `mobile_location_history` に30日間（取得は最大1000件）保存し、なければメモリ保持です。監視用Androidの「位置履歴」で時系列に確認でき、タップで地図アプリを開きます。
 | `choose_file` | システムのドキュメントピッカー（`fileImporter`） | 件数と拡張子のみ（名前・内容は読まない） |
 | `choose_photo` | システムの写真ピッカー（`PhotosPicker`、ライブラリ権限不要） | 件数と形式のみ |
 | `draft_message` | `MFMessageComposeViewController`（送信はユーザーが行う） | 送信/キャンセルのみ |

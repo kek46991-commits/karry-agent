@@ -1,6 +1,8 @@
 package ai.karry.observer
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.Editable
@@ -40,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var liveCard: TextView
     private lateinit var actionContainer: LinearLayout
     private lateinit var diagnosticContainer: LinearLayout
+    private lateinit var locationContainer: LinearLayout
     private var registration: Registration? = null
     private var blink = false
 
@@ -92,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         liveCard = findViewById(R.id.liveCard)
         actionContainer = findViewById(R.id.actionContainer)
         diagnosticContainer = findViewById(R.id.diagnosticContainer)
+        locationContainer = findViewById(R.id.locationContainer)
     }
 
     private fun restoreRegistration() {
@@ -188,6 +192,31 @@ class MainActivity : AppCompatActivity() {
         renderLiveCard(snapshot.actions)
         renderActions(snapshot.actions)
         renderDiagnostics(snapshot.diagnostics)
+        renderLocations(snapshot.locations)
+    }
+
+    private fun renderLocations(locations: List<LocationPoint>) {
+        locationContainer.removeAllViews()
+        if (locations.isEmpty()) {
+            locationContainer.addView(emptyCard("位置履歴はありません（iPhone側でオフ、または未取得）"))
+            return
+        }
+        locations.forEach { point ->
+            val row = timelineRow(
+                Color.parseColor("#22C55E"),
+                DateUtils.formatDateTime(
+                    this,
+                    (point.collectedAt * 1000).toLong(),
+                    DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME,
+                ),
+                "%.5f, %.5f ・ 誤差約%dm".format(point.latitude, point.longitude, point.accuracyM.toInt()),
+            )
+            row.setOnClickListener {
+                val uri = Uri.parse("geo:${point.latitude},${point.longitude}?q=${point.latitude},${point.longitude}")
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+            }
+            locationContainer.addView(row)
+        }
     }
 
     private fun renderLiveCard(actions: List<ActionStatus>) {
@@ -308,6 +337,7 @@ class MainActivity : AppCompatActivity() {
         ownerToken.text.clear()
         actionContainer.removeAllViews()
         diagnosticContainer.removeAllViews()
+        locationContainer.removeAllViews()
         actionContainer.addView(emptyCard("まだ操作はありません"))
         diagnosticContainer.addView(emptyCard("エラーはありません"))
         liveCard.text = "● 待機中"

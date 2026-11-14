@@ -17,7 +17,7 @@ final class SetupStatusTests: XCTestCase {
         XCTAssertTrue(lines.contains("enrolled: no -> enter owner token below"))
         XCTAssertTrue(lines.contains("calendar_write: granted"))
         XCTAssertTrue(lines.contains("location_when_in_use: not_determined"))
-        XCTAssertTrue(lines.contains("background_actions: no (iOS: foreground or Shortcut only)"))
+        XCTAssertTrue(lines.contains("background_actions: no (iOS: foreground or Shortcut only; opt-in location history only)"))
         XCTAssertTrue(lines.contains("auto_check: no (10s, app in foreground, starts after enroll)"))
         XCTAssertTrue(SetupStatus.lines(snapshot()).contains("auto_check: yes (10s, app in foreground)"))
         XCTAssertEqual(lines.last, "ready: no")
