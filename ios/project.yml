@@ -1,0 +1,93 @@
+name: KarryDevices
+options:
+  bundleIdPrefix: com.kek46991.karry
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Override on the xcodebuild command line or in Xcode (Build Settings) for your own Apple team.
+    KARRY_SERVER_URL: https://karry-agent-1.onrender.com
+    KARRY_BUNDLE_PREFIX: com.kek46991.karry
+    CODE_SIGN_STYLE: Automatic
+targets:
+  KarryMonitor:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_PREFIX).monitor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: App/Monitor-Info.plist
+      properties: &appinfo
+        CFBundleDisplayName: Karry 監視用
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        KarryRole: monitor
+        KarryStartPath: /monitor
+        KarryServerURL: $(KARRY_SERVER_URL)
+        KarryAppGroup: ""
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        ITSAppUsesNonExemptEncryption: false
+  KarryWorker:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    dependencies:
+      - target: KarryWorkerBroadcast
+    entitlements:
+      path: App/Worker.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(KARRY_BUNDLE_PREFIX).worker]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_PREFIX).worker
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: App/Worker-Info.plist
+      properties:
+        <<: *appinfo
+        CFBundleDisplayName: Karry 作業用
+        KarryRole: worker
+        KarryStartPath: /companion
+        KarryAppGroup: group.$(KARRY_BUNDLE_PREFIX).worker
+  KarryWorkerBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Broadcast
+      - Shared
+    entitlements:
+      path: Broadcast/Broadcast.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(KARRY_BUNDLE_PREFIX).worker]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KARRY_BUNDLE_PREFIX).worker.broadcast
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Broadcast/Info.plist
+      properties:
+        CFBundleDisplayName: Karry 作業用
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        KarryServerURL: $(KARRY_SERVER_URL)
+        KarryAppGroup: group.$(KARRY_BUNDLE_PREFIX).worker
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
