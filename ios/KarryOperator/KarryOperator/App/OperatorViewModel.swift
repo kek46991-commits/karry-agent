@@ -51,10 +51,16 @@ final class OperatorViewModel: ObservableObject {
     @Published private(set) var isBusy = false
     @Published private(set) var hasToken: Bool
     @Published var baseURL: String {
-        didSet { settings.baseURL = baseURL }
+        didSet {
+            settings.baseURL = baseURL
+            syncScreenShareStore()
+        }
     }
     @Published var deviceID: String {
-        didSet { settings.deviceID = deviceID }
+        didSet {
+            settings.deviceID = deviceID
+            syncScreenShareStore()
+        }
     }
     @Published var autoCheck: Bool {
         didSet {
@@ -92,6 +98,7 @@ final class OperatorViewModel: ObservableObject {
         let hasToken = tokenStore.readToken() != nil
         self.hasToken = hasToken
         connection = hasToken ? .ready : .notEnrolled
+        syncScreenShareStore()
         refreshSetup()
     }
 
@@ -154,6 +161,7 @@ final class OperatorViewModel: ObservableObject {
             hasToken = true
             pendingReport = nil
             connection = .ready
+            syncScreenShareStore()
         } catch let error as BackendError {
             connection = .error(error.localizedMessage)
         } catch {
@@ -173,6 +181,7 @@ final class OperatorViewModel: ObservableObject {
             try tokenStore.saveToken(trimmed)
             hasToken = true
             connection = .ready
+            syncScreenShareStore()
         } catch {
             connection = .error("端末トークンをキーチェーンに保存できませんでした")
         }
@@ -183,6 +192,7 @@ final class OperatorViewModel: ObservableObject {
         stopPolling()
         try? tokenStore.deleteToken()
         hasToken = false
+        ScreenShareStore.clear()
         pendingReport = nil
         claimed = nil
         connection = .notEnrolled
@@ -286,5 +296,13 @@ final class OperatorViewModel: ObservableObject {
     private func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+    }
+
+    private func syncScreenShareStore() {
+        ScreenShareStore.configure(
+            serverURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            deviceID: deviceID,
+            token: tokenStore.readToken()
+        )
     }
 }

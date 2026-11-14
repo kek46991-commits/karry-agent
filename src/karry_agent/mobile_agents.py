@@ -12,8 +12,8 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .self_healing import redact
@@ -23,6 +23,12 @@ NO_STORE = {"Cache-Control": "private, no-store"}
 MAX_EVENTS = 200
 MAX_RESULT_TEXT = 2000
 CLAIM_LEASE_SECONDS = 30
+MAX_FRAME_BYTES = 600 * 1024
+FRAME_STALE_SECONDS = 10
+_FRAME_TYPES = {
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+}
 
 ActionName = Literal[
     "open_app",
@@ -132,6 +138,7 @@ class MobileAgentCoordinator:
         self._max_events = max(1, min(max_events, 1000))
         self._order: deque[str] = deque()
         self._device_tokens: dict[str, dict[str, str | None]] = {}
+        self._frames: dict[str, tuple[bytes, str, float]] = {}
         self._lock = threading.RLock()
         self._clock = clock
 
@@ -140,6 +147,7 @@ class MobileAgentCoordinator:
             self._events.clear()
             self._order.clear()
             self._device_tokens.clear()
+            self._frames.clear()
 
     def _check_device_id(self, device_id: str) -> None:
         if not _DEVICE_ID.fullmatch(device_id):
@@ -354,6 +362,34 @@ class MobileAgentCoordinator:
             for event in self.list_events(device_id, status=status, limit=limit)
         ]
 
+    def put_frame(self, device_id: str, data: bytes, content_type: str) -> None:
+        self._check_device_id(device_id)
+        if not data or len(data) > MAX_FRAME_BYTES:
+            raise MobileAgentError("screen frame is empty or too large")
+        detected = next((mime for magic, mime in _FRAME_TYPES.items() if data.startswith(magic)), None)
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            detected = "image/webp"
+        if detected is None or content_type.split(";", 1)[0].strip().lower() != detected:
+            raise MobileAgentError("screen frame must be JPEG, PNG, or WebP")
+        with self._lock:
+            self._frames[device_id] = (bytes(data), detected, self._clock())
+
+    def frame(self, device_id: str) -> tuple[bytes, str, float] | None:
+        self._check_device_id(device_id)
+        with self._lock:
+            frame = self._frames.get(device_id)
+            if frame is None or self._clock() - frame[2] > FRAME_STALE_SECONDS:
+                return None
+            return frame
+
+    def screen_status(self, device_id: str) -> dict[str, Any]:
+        frame = self.frame(device_id)
+        return {
+            "device_id": device_id,
+            "sharing": frame is not None,
+            "frame_at": frame[2] if frame is not None else None,
+        }
+
 
 class ActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -468,6 +504,27 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
             raise handle_error(exc) from exc
         return JSONResponse(event, headers=NO_STORE)
 
+    @router.put("/devices/{device_id}/frame")
+    async def upload_frame(
+        device_id: str,
+        request: Request,
+        x_device_token: Annotated[str | None, Header()] = None,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(device_id, x_device_token or "", role="operation")
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        data = b""
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_FRAME_BYTES:
+                raise HTTPException(status_code=413, detail="screen frame is too large", headers=NO_STORE)
+        try:
+            coordinator.put_frame(device_id, data, request.headers.get("content-type", ""))
+        except MobileAgentError as exc:
+            raise handle_error(exc) from exc
+        return JSONResponse({"ok": True}, headers=NO_STORE)
+
     @router.get("/devices/{device_id}/actions", dependencies=[Depends(require_auth)])
     def list_actions(
         device_id: str,
@@ -528,5 +585,48 @@ def build_router(require_auth: Callable[..., None]) -> APIRouter:
         except MobileAgentError as exc:
             raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
         return JSONResponse({"diagnostics": diagnostics}, headers=NO_STORE)
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/screen")
+    def observer_screen_status(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+    ) -> JSONResponse:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            status = coordinator.screen_status(device_id)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        return JSONResponse(status, headers=NO_STORE)
+
+    @router.get("/observers/{observer_id}/devices/{device_id}/frame")
+    def observer_frame(
+        observer_id: str,
+        device_id: str,
+        x_device_token: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        try:
+            coordinator.authenticate_device(
+                observer_id,
+                x_device_token or "",
+                role="observer",
+                observed_device_id=device_id,
+            )
+            frame = coordinator.frame(device_id)
+        except MobileAgentError as exc:
+            raise HTTPException(status_code=401, detail=str(exc), headers=NO_STORE) from exc
+        if frame is None:
+            raise HTTPException(status_code=404, detail="screen is not being shared", headers=NO_STORE)
+        data, mime, captured_at = frame
+        return Response(
+            data,
+            media_type=mime,
+            headers={**NO_STORE, "X-Frame-At": str(captured_at), "X-Content-Type-Options": "nosniff"},
+        )
 
     return router

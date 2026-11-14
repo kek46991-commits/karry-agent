@@ -251,6 +251,68 @@ def test_android_observer_token_is_scoped_to_one_operation_device(monkeypatch):
     assert wrong_role.status_code == 401
 
 
+def test_screen_frames_are_visible_only_to_the_paired_observer(monkeypatch):
+    api, headers = client(monkeypatch)
+    operation = enroll(api, headers, "operation-iphone")
+    observer = api.post(
+        "/api/mobile-agent/devices/enroll",
+        headers=headers,
+        json={
+            "device_id": "observer-android",
+            "role": "observer",
+            "observed_device_id": "operation-iphone",
+        },
+    ).json()
+    observer_headers = {"X-Device-Token": observer["device_token"]}
+    jpeg = b"\xff\xd8\xff" + b"screen" * 100
+
+    uploaded = api.put(
+        "/api/mobile-agent/devices/operation-iphone/frame",
+        headers={**operation, "Content-Type": "image/jpeg"},
+        content=jpeg,
+    )
+    assert uploaded.status_code == 200
+    status = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/operation-iphone/screen",
+        headers=observer_headers,
+    )
+    assert status.status_code == 200
+    assert status.json()["sharing"] is True
+    frame = api.get(
+        "/api/mobile-agent/observers/observer-android/devices/operation-iphone/frame",
+        headers=observer_headers,
+    )
+    assert frame.status_code == 200
+    assert frame.content == jpeg
+    assert frame.headers["content-type"] == "image/jpeg"
+    assert frame.headers["cache-control"] == "private, no-store"
+
+    assert api.get(
+        "/api/mobile-agent/observers/other/devices/operation-iphone/frame",
+        headers=observer_headers,
+    ).status_code == 401
+    assert api.put(
+        "/api/mobile-agent/devices/operation-iphone/frame",
+        headers={**observer_headers, "Content-Type": "image/jpeg"},
+        content=jpeg,
+    ).status_code == 401
+
+
+def test_screen_frame_rejects_invalid_or_oversized_content(monkeypatch):
+    api, headers = client(monkeypatch)
+    operation = enroll(api, headers, "operation-iphone")
+    assert api.put(
+        "/api/mobile-agent/devices/operation-iphone/frame",
+        headers={**operation, "Content-Type": "image/jpeg"},
+        content=b"<script>alert(1)</script>",
+    ).status_code == 400
+    assert api.put(
+        "/api/mobile-agent/devices/operation-iphone/frame",
+        headers={**operation, "Content-Type": "image/jpeg"},
+        content=b"\xff\xd8\xff" + b"x" * mobile_agents.MAX_FRAME_BYTES,
+    ).status_code == 413
+
+
 def test_two_mobile_agent_pairs_do_not_mix_events(monkeypatch):
     api, headers = client(monkeypatch)
     pairs = (

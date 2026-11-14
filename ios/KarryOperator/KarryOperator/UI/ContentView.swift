@@ -15,6 +15,7 @@ struct ContentView: View {
                 setupSection
                 connectionSection
                 if model.hasToken {
+                    screenShareSection
                     operationSection
                 } else {
                     enrollmentSection
@@ -138,6 +139,34 @@ struct ContentView: View {
             .accessibilityIdentifier("checkNow")
             Toggle("自動確認（アプリ表示中・10秒ごと）", isOn: $model.autoCheck)
             Button("登録を解除", role: .destructive) { model.unenroll() }
+        }
+    }
+
+    private var screenShareSection: some View {
+        Section {
+            HStack(spacing: 16) {
+                BroadcastPicker(preferredExtension: AppIdentity.bundleIdentifier + ".broadcast")
+                    .frame(width: 52, height: 52)
+                    .accessibilityIdentifier("screenBroadcastPicker")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("左の丸いボタンを押す")
+                        .font(.headline)
+                    Text("「ブロードキャストを開始」の後は、別のアプリを操作してもAndroidへ画面を送り続けます。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            TimelineView(.periodic(from: .now, by: 2)) { _ in
+                Label(
+                    ScreenShareStore.isSharing ? "画面共有中" : "画面共有は停止中",
+                    systemImage: ScreenShareStore.isSharing ? "record.circle.fill" : "record.circle"
+                )
+                .foregroundStyle(ScreenShareStore.isSharing ? .red : .secondary)
+            }
+        } header: {
+            Text("AndroidへiPhone画面を共有")
+        } footer: {
+            Text("iOSの仕様により、画面共有の開始だけはiPhoneで1回押す必要があります。赤い収録表示が出ている間だけ共有されます。")
         }
     }
 
