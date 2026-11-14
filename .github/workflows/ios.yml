@@ -53,7 +53,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
-      KARRY_BUNDLE_PREFIX: ${{ vars.KARRY_BUNDLE_PREFIX || 'com.karry.device' }}
+      KARRY_BUNDLE_PREFIX: ${{ vars.KARRY_BUNDLE_PREFIX || 'com.kek46991.karry' }}
     steps:
       - uses: actions/checkout@v4
       - name: Check secrets

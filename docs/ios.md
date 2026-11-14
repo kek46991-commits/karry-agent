@@ -20,7 +20,7 @@ Android版（`android/`）と同じ2つのアプリを iPhone 向けに作るた
 
 1. Xcode 16 以降と [XcodeGen](https://github.com/yonaskolb/XcodeGen) を入れます（`brew install xcodegen`）。
 2. `cd ios && xcodegen generate` を実行し、`KarryDevices.xcodeproj` を開きます。
-3. 3つのターゲット（KarryMonitor / KarryWorker / KarryWorkerBroadcast）の Signing & Capabilities で Team を選びます。バンドルIDが使えない場合は、Build Settings の `KARRY_BUNDLE_PREFIX`（初期値 `com.karry.device`）を自分用に変えます。App Group は `group.<prefix>.worker` です。
+3. 3つのターゲット（KarryMonitor / KarryWorker / KarryWorkerBroadcast）の Signing & Capabilities で Team を選びます。バンドルIDが使えない場合は、Build Settings の `KARRY_BUNDLE_PREFIX`（初期値 `com.kek46991.karry`）を自分用に変えます。App Group は `group.<prefix>.worker` です。
 4. iPhone を USB でつなぎ、スキームを選んで実行します。初回だけ、iPhone の「設定 → 一般 → VPNとデバイス管理」で開発者を信頼します。
 
 接続先は Build Settings の `KARRY_SERVER_URL`（初期値 `https://karry-agent-1.onrender.com`）で変えられます。
@@ -30,7 +30,7 @@ Android版（`android/`）と同じ2つのアプリを iPhone 向けに作るた
 Apple Developer Program（有料）が必要です。
 
 1. App Store Connect で、`<prefix>.monitor` と `<prefix>.worker` の2つのアプリを作ります。
-2. App Store Connect API キー（App Manager 以上）を作ります。
+2. App Store Connect API キーを「Admin」の権限で作ります（署名用の証明書を自動で作るために必要です）。
 3. GitHub の Secrets に、次の4つを登録します。値はチャットに貼らないでください。
    - `APPLE_TEAM_ID`
    - `ASC_KEY_ID`
