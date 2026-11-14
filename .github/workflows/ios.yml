@@ -1,0 +1,88 @@
+name: iOS apps
+
+on:
+  pull_request:
+    paths: [ 'ios/**', '.github/workflows/ios.yml' ]
+  push:
+    branches: [ main ]
+    paths: [ 'ios/**', '.github/workflows/ios.yml' ]
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: 'Sign and upload both apps to TestFlight (needs the APPLE_* / ASC_* secrets)'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: brew install xcodegen && cd ios && xcodegen generate
+      - name: Build for the iOS Simulator
+        run: |
+          for scheme in KarryMonitor KarryWorker; do
+            xcodebuild -project ios/KarryDevices.xcodeproj -scheme "$scheme" -configuration Debug \
+              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build | tail -n 20
+            test "${PIPESTATUS[0]}" -eq 0
+          done
+      - name: Build unsigned device apps
+        run: |
+          for scheme in KarryMonitor KarryWorker; do
+            xcodebuild -project ios/KarryDevices.xcodeproj -scheme "$scheme" -configuration Release \
+              -sdk iphoneos -destination 'generic/platform=iOS' \
+              -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build | tail -n 20
+            test "${PIPESTATUS[0]}" -eq 0
+            rm -rf Payload && mkdir Payload
+            cp -R "ios/build/Build/Products/Release-iphoneos/$scheme.app" Payload/
+            zip -qry "$scheme-unsigned.ipa" Payload
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: karry-ios-unsigned
+          path: '*-unsigned.ipa'
+
+  testflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.testflight
+    needs: build
+    runs-on: macos-15
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      KARRY_BUNDLE_PREFIX: ${{ vars.KARRY_BUNDLE_PREFIX || 'com.karry.device' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        run: |
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64; do
+            if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set"; exit 1; fi
+          done
+      - name: Generate Xcode project
+        run: brew install xcodegen && cd ios && xcodegen generate
+      - name: Archive and upload
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$key"
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+          </dict></plist>
+          PLIST
+          for scheme in KarryMonitor KarryWorker; do
+            xcodebuild -project ios/KarryDevices.xcodeproj -scheme "$scheme" -configuration Release \
+              -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
+              DEVELOPMENT_TEAM="$APPLE_TEAM_ID" KARRY_BUNDLE_PREFIX="$KARRY_BUNDLE_PREFIX" \
+              CURRENT_PROJECT_VERSION="${{ github.run_number }}" "${auth[@]}" archive
+            xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}"
+          done
