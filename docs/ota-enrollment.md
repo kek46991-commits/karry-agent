@@ -45,3 +45,11 @@ Actions で **OTA Karry-Agent 2** を「Run workflow」すると、macOS ラン�
 3. `ota/app.ipa` / `ota/provisioned_devices.json` / `ota/build.json` を `main` にコミット。Render は `main` を自動デプロイし、`KARRY_OTA_DIR=/app/ota` からそのまま配信します。
 
 新しい iPhone が `/ota/` で登録されるたびに、このワークフローをもう一度実行すれば、その端末も「インストール」に切り替わります。秘密鍵はランナーの一時ファイルにのみ書き、ビルド後に削除します。
+
+### 登録と同時に自動実行する
+
+Render に `KARRY_GITHUB_TOKEN`（対象リポジトリに Actions: write を持つ fine-grained PAT）を置くと、
+`/api/register-udid` が UDID を受け取った直後にサーバーが同じワークフローを `workflow_dispatch` で起動します
+（`KARRY_GITHUB_REPO` 既定 `kek46991-commits/karry-agent`、`KARRY_OTA_WORKFLOW` 既定 `ota-karry-agent-2.yml`）。
+Render のディスクは再デプロイで消えるため、台帳に頼らずこの経路で UDID を GitHub 側へ渡します。
+現在のビルドが既にその端末を含む場合は起動しません。トークンが無い場合は従来どおり手動で「Run workflow」します。

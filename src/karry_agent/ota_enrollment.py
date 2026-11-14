@@ -9,6 +9,7 @@ Flow: ``GET /ota/`` → tap the button → ``GET /ota/profile`` returns a one-ti
 from __future__ import annotations
 
 import json
+import logging
 import os
 import plistlib
 import re
@@ -17,6 +18,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 import zipfile
 from html import escape
@@ -35,6 +38,46 @@ _UDID = re.compile(r"^(?:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40})$")
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 _SAFE_TEXT = re.compile(r"[^A-Za-z0-9 ._,()-]")
 NO_STORE = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex"}
+_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
+_WORKFLOW = re.compile(r"^[\w.-]+\.ya?ml$")
+log = logging.getLogger(__name__)
+
+
+def dispatch_signing(udid: str, covered: bool) -> str:
+    """Start the GitHub signing workflow for a newly enrolled UDID (best effort, never raises).
+
+    Needs ``KARRY_GITHUB_TOKEN`` (fine-grained PAT with Actions: write on the repo); without it the
+    device stays in the registry and the workflow must be run by hand. The UDID is never logged.
+    """
+    token = os.getenv("KARRY_GITHUB_TOKEN", "").strip()
+    repo = os.getenv("KARRY_GITHUB_REPO", "kek46991-commits/karry-agent").strip()
+    workflow = os.getenv("KARRY_OTA_WORKFLOW", "ota-karry-agent-2.yml").strip()
+    ref = os.getenv("KARRY_OTA_WORKFLOW_REF", "main").strip()
+    if not token:
+        return "skipped: KARRY_GITHUB_TOKEN not set"
+    if covered:
+        return "skipped: current build already covers this device"
+    if not _REPO.match(repo) or not _WORKFLOW.match(workflow) or not re.fullmatch(r"[\w./-]{1,100}", ref):
+        return "skipped: invalid KARRY_GITHUB_REPO / KARRY_OTA_WORKFLOW / KARRY_OTA_WORKFLOW_REF"
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches",
+        data=json.dumps({"ref": ref, "inputs": {"udids": udid}}).encode(), method="POST",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json",
+                 "User-Agent": "karry-agent-ota"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return f"dispatched: HTTP {response.status}"
+    except urllib.error.HTTPError as exc:
+        return f"failed: HTTP {exc.code}"
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return "failed: network error"
+
+
+def _notify_signing(udid: str, covered: bool) -> None:
+    def run() -> None:
+        log.info("ota signing workflow for %s: %s", mask_udid(udid), dispatch_signing(udid, covered))
+    threading.Thread(target=run, name="ota-dispatch", daemon=True).start()
 
 
 def enabled() -> bool:
@@ -328,9 +371,11 @@ def build_router(require_owner, registry: DeviceRegistry | None = None, build: S
         body = await request.body()
         try:
             attributes = extract_plist(body)
-            reg().register(token, attributes)
+            udid = reg().register(token, attributes)
         except (KeyError, ValueError):
             pass  # the status page explains; never echo device data back
+        else:
+            _notify_signing(udid, signed().covers(udid))
         return RedirectResponse(f"/ota/status/{token}", status_code=301, headers=NO_STORE)
 
     @router.get("/ota/status/{token}", response_class=HTMLResponse, include_in_schema=False)

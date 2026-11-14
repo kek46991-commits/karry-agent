@@ -19,6 +19,10 @@ on:
         description: 'Commit ota/ to main (Render redeploys and serves the build)'
         type: boolean
         default: true
+      force:
+        description: 'Rebuild even when every known UDID is already covered by ota/app.ipa'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -58,11 +62,29 @@ jobs:
               | python3 -c 'import json,sys; print(",".join(d["udid"] for d in json.load(sys.stdin)["devices"]))') || enrolled=""
             list="$list,$enrolled"
           fi
-          echo "count=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import asc_devices; print(len(asc_devices.parse_udids(sys.argv[1])))' "$list")" >> "$GITHUB_OUTPUT"
-          echo "list=$list" >> "$GITHUB_OUTPUT"
+          python3 - "$list" "${{ inputs.force }}" <<'PY' >> "$GITHUB_OUTPUT"
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts"); import asc_devices
+          wanted = set(asc_devices.parse_udids(sys.argv[1]))
+          covered_file = pathlib.Path("ota/provisioned_devices.json")
+          covered = set(json.loads(covered_file.read_text())) if covered_file.exists() else set()
+          new = wanted - covered
+          skip = not new and pathlib.Path("ota/app.ipa").exists() and sys.argv[2] != "true"
+          print(f"list={','.join(sorted(wanted | covered))}")
+          print(f"count={len(wanted | covered)}")
+          print(f"skip={'true' if skip else 'false'}")
+          print(f"::notice::{len(new)} new UDID(s), {len(covered)} already provisioned, skip={skip}", file=sys.stderr)
+          PY
+      - name: Require at least one device
+        if: steps.udids.outputs.count == '0'
+        run: |
+          echo "::error::No UDIDs to provision. Enroll an iPhone at $BASE_URL/ota/ first (the registry resets on redeploy), or pass udids."
+          exit 1
       - name: Register devices with Apple
+        if: steps.udids.outputs.skip != 'true'
         run: python3 scripts/asc_devices.py register --udids "${{ steps.udids.outputs.list }}"
       - name: Sign ad hoc build
+        if: steps.udids.outputs.skip != 'true'
         run: |
           key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
           printf '%s\n' "$ASC_KEY_P8" > "$key"
@@ -83,7 +105,17 @@ jobs:
               print("::error::ad hoc signing did not produce an installable IPA"); sys.exit(1)
           PY
           test "$status" -eq 0
+      - name: Keep build logs
+        if: always() && steps.udids.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-build-logs
+          path: |
+            ${{ runner.temp }}/out/**/logs/**
+            ${{ runner.temp }}/out/**/result.json
+          if-no-files-found: ignore
       - name: Stage ota/ for the server
+        if: steps.udids.outputs.skip != 'true'
         run: |
           rm -rf ota && mkdir ota
           cp "$RUNNER_TEMP"/out/ota/*.ipa ota/app.ipa
@@ -98,11 +130,12 @@ jobs:
           print(open("ota/build.json").read())
           PY
       - uses: actions/upload-artifact@v4
+        if: steps.udids.outputs.skip != 'true'
         with:
           name: karry-agent-2-ota
           path: ota/
       - name: Publish to main
-        if: ${{ inputs.publish }}
+        if: inputs.publish && steps.udids.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
