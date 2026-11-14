@@ -80,6 +80,13 @@ def _notify_signing(udid: str, covered: bool) -> None:
     threading.Thread(target=run, name="ota-dispatch", daemon=True).start()
 
 
+def android_apk_url() -> str:
+    """Public HTTPS URL of the Karry-Agent 1 APK (GitHub Release asset by default)."""
+    url = os.getenv("KARRY_ANDROID_APK_URL",
+                    "https://github.com/kek46991-commits/karry-agent/releases/latest/download/karry-agent-1.apk").strip()
+    return url if url.startswith("https://") and not re.search(r"[\s\x00-\x1f\"'<>]", url) else ""
+
+
 def enabled() -> bool:
     return os.getenv("KARRY_OTA_ENROLLMENT", "").strip() == "1"
 
@@ -320,12 +327,32 @@ def build_router(require_owner, registry: DeviceRegistry | None = None, build: S
         expected = os.getenv("KARRY_OTA_INVITE_CODE", "")
         return not expected or secrets.compare_digest((code or "").strip(), expected)
 
+    @router.get("/ota/android", response_class=HTMLResponse, include_in_schema=False)
+    async def android_page(request: Request) -> HTMLResponse:
+        _require_enabled()
+        apk = android_apk_url()
+        base = public_base(request)
+        download = f'<a class="btn" href="{escape(apk)}">Karry-Agent 1 (APK) をダウンロード</a>' if apk else \
+            '<div class="box warn">APKの配布URLがまだ設定されていません（KARRY_ANDROID_APK_URL）。</div>'
+        return _page("Karry-Agent 1 をこのAndroidに入れる", (
+            "<h1>Karry-Agent 1 をこのAndroidに入れる</h1>"
+            "<p>iPhone（Karry-Agent 2）の操作状況・失敗・診断だけを観察する監視用アプリです。"
+            "要求する権限はインターネットのみです。</p>" + download +
+            '<div class="box"><p>1. ダウンロード後に開く → 「不明なアプリのインストール」を許可 → インストール。</p>'
+            f'<p>2. アプリを開き、Karry-Agent URL に <code>{escape(base)}</code> を入力。</p>'
+            "<p>3. 初回登録用オーナートークンを入力（所有者だけが持つ値。共有しないでください）。</p>"
+            "<p>4. Android観察端末ID は <code>observer-android</code>、iPhone操作端末ID は iPhone側の Karry-Agent 2 に表示される端末ID"
+            "（既定 <code>operation-iphone</code>）に末尾まで合わせます。</p>"
+            "<p>5. <code>enroll: register this observer now?</code> に Yes → 接続後は2秒ごとに更新されます。</p></div>"
+            '<p>iPhone側のアプリは <a href="/ota/" style="color:#93c5fd">iPhone登録ページ</a> から入れてください。</p>'
+        ))
+
     @router.get("/ota/", response_class=HTMLResponse, include_in_schema=False)
     def register_page(request: Request) -> HTMLResponse:
         needs_code = bool(os.getenv("KARRY_OTA_INVITE_CODE", ""))
         browser = classify_browser(request.headers.get("user-agent", ""))
         if browser != "ios_safari":
-            reason = {"android": "この端末はAndroidです。構成プロファイルはiPhone専用のため、ボタンを押しても何も起きません。",
+            reason = {"android": "この端末はAndroidです。構成プロファイルはiPhone専用のため、ボタンを押しても何も起きません。監視用アプリ（Karry-Agent 1）は <a href=\"/ota/android\" style=\"color:#93c5fd\">こちら</a> から入れられます。",
                       "ios_other": "iPhoneですがSafari以外のブラウザ（アプリ内ブラウザ・Chromeなど）です。プロファイルを受け取れるのはSafariだけです。",
                       }.get(browser, "iPhone以外の環境です。構成プロファイルはiPhoneのSafariでのみ受け取れます。")
             body = ('<h1 class="warn">この画面はiPhoneのSafariで開いてください</h1>'

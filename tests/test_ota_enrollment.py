@@ -262,3 +262,12 @@ def test_dispatch_signing_requires_token_and_posts_workflow_inputs(monkeypatch):
     assert seen["url"] == "https://api.github.com/repos/owner/repo/actions/workflows/ota-karry-agent-2.yml/dispatches"
     assert seen["body"] == {"ref": "main", "inputs": {"udids": UDID}}
     assert seen["auth"] == "Bearer ghp_test"
+
+
+def test_android_page_links_apk_and_pairing_ids(api, monkeypatch):
+    page = api.get("/ota/android").text
+    assert "releases/latest/download/karry-agent-1.apk" in page
+    assert "observer-android" in page and "operation-iphone" in page
+    monkeypatch.setenv("KARRY_ANDROID_APK_URL", "http://insecure.example/app.apk")
+    assert "KARRY_ANDROID_APK_URL" in api.get("/ota/android").text
+    assert '/ota/android' in api.get("/ota/", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130 Mobile"}).text
