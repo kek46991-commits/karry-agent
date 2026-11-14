@@ -1,0 +1,112 @@
+name: OTA Karry-Agent 2
+
+# Signs the Karry-Agent 2/4 operator app as an ad hoc build with the team's App Store Connect
+# API key, registers the requested UDIDs first, and publishes ota/app.ipa to main so the
+# production /ota/ pages can install it. Needs secrets APPLE_TEAM_ID, ASC_KEY_ID,
+# ASC_ISSUER_ID, ASC_KEY_P8 (optional KARRY_API_TOKEN to pull UDIDs from /api/ota/devices).
+on:
+  workflow_dispatch:
+    inputs:
+      udids:
+        description: 'Extra UDIDs to register (comma separated). UDIDs already enrolled via /ota/ are added automatically when KARRY_API_TOKEN is set.'
+        default: ''
+      scheme:
+        description: 'App to sign'
+        type: choice
+        default: KarryOperator
+        options: [KarryOperator, KarryOperator4]
+      publish:
+        description: 'Commit ota/ to main (Render redeploys and serves the build)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ota-karry-agent-2
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: macos-15
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      KARRY_API_TOKEN: ${{ secrets.KARRY_API_TOKEN }}
+      BASE_URL: ${{ vars.KARRY_PUBLIC_BASE_URL || 'https://karry-agent-1.onrender.com' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        run: |
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set"; exit 1; fi
+          done
+      - name: Install Python deps
+        run: python3 -m pip install --quiet --user cryptography
+      - name: Collect UDIDs
+        id: udids
+        run: |
+          list="${{ inputs.udids }}"
+          if [ -n "$KARRY_API_TOKEN" ]; then
+            enrolled=$(curl -fsS -H "Authorization: Bearer $KARRY_API_TOKEN" "$BASE_URL/api/ota/devices" \
+              | python3 -c 'import json,sys; print(",".join(d["udid"] for d in json.load(sys.stdin)["devices"]))') || enrolled=""
+            list="$list,$enrolled"
+          fi
+          echo "count=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import asc_devices; print(len(asc_devices.parse_udids(sys.argv[1])))' "$list")" >> "$GITHUB_OUTPUT"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+      - name: Register devices with Apple
+        run: python3 scripts/asc_devices.py register --udids "${{ steps.udids.outputs.list }}"
+      - name: Sign ad hoc build
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          set +e
+          python3 scripts/mobile_release.py --platform ios --ios-mode adhoc --ios-scheme "${{ inputs.scheme }}" \
+            --signing-mode automatic --team-id "$APPLE_TEAM_ID" --api-key-path "$key" \
+            --api-key-id "$ASC_KEY_ID" --api-issuer-id "$ASC_ISSUER_ID" \
+            --ota-base-url "$BASE_URL/ota" --output "$RUNNER_TEMP/out"
+          status=$?
+          set -e
+          rm -f "$key"
+          python3 - "$RUNNER_TEMP/out" <<'PY'
+          import json, pathlib, sys
+          out = pathlib.Path(sys.argv[1])
+          ios = json.loads((out / "ios/result.json").read_text())
+          print(json.dumps({k: ios.get(k) for k in ("status", "mode", "bundle_id", "blockers")}, ensure_ascii=False))
+          if ios.get("status") != "succeeded" or not (out / "ota").is_dir():
+              print("::error::ad hoc signing did not produce an installable IPA"); sys.exit(1)
+          PY
+          test "$status" -eq 0
+      - name: Stage ota/ for the server
+        run: |
+          rm -rf ota && mkdir ota
+          cp "$RUNNER_TEMP"/out/ota/*.ipa ota/app.ipa
+          cp "$RUNNER_TEMP"/out/ota/provisioned_devices.json ota/provisioned_devices.json
+          python3 - <<'PY'
+          import json, pathlib, datetime
+          devices = json.loads(pathlib.Path("ota/provisioned_devices.json").read_text())
+          pathlib.Path("ota/build.json").write_text(json.dumps({
+              "scheme": "${{ inputs.scheme }}", "run": ${{ github.run_number }}, "commit": "${{ github.sha }}",
+              "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+              "provisioned_device_count": len(devices)}, indent=2) + "\n")
+          print(open("ota/build.json").read())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: karry-agent-2-ota
+          path: ota/
+      - name: Publish to main
+        if: ${{ inputs.publish }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ota/app.ipa ota/provisioned_devices.json ota/build.json
+          git commit -m "chore(ota): publish signed ${{ inputs.scheme }} build #${{ github.run_number }}" || exit 0
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git fetch origin main && git rebase origin/main
+          done
+          exit 1

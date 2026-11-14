@@ -34,3 +34,14 @@
 - 取得するのはUDID・機種・iOSバージョンのみ。端末内データや他の識別子は要求しません。
 - `itms-services` はHTTPSでのみ動作します。本番のTLS証明書、ドメイン、ホスティングは別途必要です。
 - 構成プロファイルは登録後に削除できます（設定 → 一般 → VPNとデバイス管理）。
+
+## 署名済みビルドの自動公開（GitHub Actions「OTA Karry-Agent 2」）
+
+Apple の資格情報は GitHub Secrets（`APPLE_TEAM_ID` / `ASC_KEY_ID` / `ASC_ISSUER_ID` / `ASC_KEY_P8`）だけに置きます。
+Actions で **OTA Karry-Agent 2** を「Run workflow」すると、macOS ランナーが次を無人で行います。
+
+1. `/ota/` で登録済みの UDID（`KARRY_API_TOKEN` シークレットがある場合に `GET /api/ota/devices` から取得）と入力欄の UDID を、`scripts/asc_devices.py` で Apple Developer に端末登録（既知の端末はそのまま）。
+2. `scripts/mobile_release.py --ios-mode adhoc --signing-mode automatic` で Ad Hoc 署名 IPA を作成（Xcode 自動署名がプロファイルを再生成し、登録端末を含めます）。
+3. `ota/app.ipa` / `ota/provisioned_devices.json` / `ota/build.json` を `main` にコミット。Render は `main` を自動デプロイし、`KARRY_OTA_DIR=/app/ota` からそのまま配信します。
+
+新しい iPhone が `/ota/` で登録されるたびに、このワークフローをもう一度実行すれば、その端末も「インストール」に切り替わります。秘密鍵はランナーの一時ファイルにのみ書き、ビルド後に削除します。
