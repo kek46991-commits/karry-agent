@@ -257,7 +257,7 @@ def build_router(owner_auth: Callable[..., None], runner: Callable[[], Autonomou
             state = current.signal(run_id, body.action, body.reason, actor)
         except RunStateError as exc:
             raise _error(exc) from exc
-        if body.action == "resume" and state.status in {"paused", "running", "pending"}:
+        if body.action == "resume" and state.status in {"paused", "running"}:
             current.start_background(run_id)
         return JSONResponse(view(state), headers=NO_STORE)
 
