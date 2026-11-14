@@ -261,13 +261,27 @@ class AgentCore:
         self, private_mode: bool = False, final_only: bool = False,
         max_output_tokens: int | None = None, timeout_ms: int | None = None,
     ) -> types.GenerateContentConfig:
-        declarations = [tool.declaration for tool in self.registry.tools.values()]
+        from .hack_task_mode import PENTEST_TOOL_NAME, current as hack_task_context
+
+        hack_context = hack_task_context()
+        declarations = [
+            tool.declaration for name, tool in self.registry.tools.items()
+            if name != PENTEST_TOOL_NAME or hack_context.enabled
+        ]
         memory = getattr(self, "core_memory", None) or load_core_memory()
         instruction = SYSTEM_INSTRUCTION
         if secret_runtime.is_active():
             instruction = "あなたはシークレットのテキスト会話アシスタントです。日本語で返答してください。今回の会話を永続保存・公開していません。外部ツール、ファイル保存、画像生成、公開処理はこのモードでは実行できません。実行できないことを実行済みと説明しないでください。外部LLMまでゼロ保持であるとは保証しないでください。"
+        hack_instruction = ""
+        if hack_context.enabled:
+            hack_instruction = (
+                "\n現在は題名が「ハック」の専用タスクです。run_authorized_pentest は、"
+                "今回のユーザーメッセージに対象URLが明記された場合だけ使えます。"
+                "任意シェル、ガード解除、破壊的操作、認証情報の送信は行わず、"
+                "非破壊の検証結果を事実に基づいて説明してください。"
+            )
         return types.GenerateContentConfig(
-            system_instruction=instruction + "\n" + core_memory_instruction(memory)
+            system_instruction=instruction + "\n" + core_memory_instruction(memory) + hack_instruction
                 + ("\n" + private_system_instruction() if private_mode else "")
                 + ("\n" + synced if (synced := _SYNCED_CONTEXT.get()) and not secret_runtime.is_active() else ""),
             temperature=0.2,

@@ -30,9 +30,18 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 
 from karry_agent.calendar_secrets import calendar_secret_status
 from karry_agent.core import AgentCore, AgentMetrics, AgentResult, gemini_status as _gemini_status
+from karry_agent.hack_task_mode import (
+    is_hack_task,
+    requested_target as requested_hack_target,
+    scope as hack_task_scope,
+)
 from karry_agent.memory import ConversationMemory
 from karry_agent.privacy import PrivateModeSession, has_passphrase
-from karry_agent.tools import add_calendar_event, build_default_registry
+from karry_agent.tools import add_calendar_event, build_default_registry, run_authorized_pentest
+from karry_agent.two_factor_simulation import (
+    render_markdown as render_two_factor_simulation,
+    requested as two_factor_simulation_requested,
+)
 from karry_agent.agent_core import dispatch_tool
 from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
@@ -52,6 +61,7 @@ from karry_agent import knowledge_engine
 from karry_agent import knowledge_sync_api
 from karry_agent import chat_product, video_suite_api, video_projects
 from karry_agent import feature_flags, chat_video, chat_webtoon
+from karry_agent import domain_authorization
 from karry_agent.auth_token import configured_token, owner_credential_ok
 from karry_agent import user_login
 from karry_agent.secret_masking import mask_secrets, mask_text
@@ -381,6 +391,16 @@ class InstantWebsiteConfirmation(BaseModel):
     approval_id: str = Field(..., min_length=32, max_length=32)
     sha256: str = Field(..., pattern=r"^[a-f0-9]{64}$")
     confirmed: bool
+
+
+class DomainAuthorizationCreate(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    target_url: str = Field(min_length=8, max_length=2048)
+
+
+class DomainAuthorizationVerify(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    method: str = Field(pattern=r"^(dns|file)$")
 
 
 class RunResponse(BaseModel):
@@ -819,23 +839,119 @@ def _run_agent(agent: AgentCore, prompt: str, private_mode: bool, current_prompt
     return agent.run(prompt)
 
 
-def _execute_secret(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
+def _selected_task_title(session_id: str) -> str | None:
+    with _STATE_LOCK:
+        return _SESSION_META.get(session_id, {}).get("title")
+
+
+def _remember_task_title(session_id: str, title: str) -> None:
+    with _STATE_LOCK:
+        meta = _SESSION_META.setdefault(
+            session_id, {"title": title, "latest_url": "", "latest_run_id": ""}
+        )
+        meta["title"] = title
+
+
+def _secret_hack_result(
+    title: str | None,
+    prompt: str,
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not is_hack_task(title):
+        return None
+    if two_factor_simulation_requested(prompt):
+        return {
+            "status": "completed",
+            "text": render_two_factor_simulation(),
+            "tool_calls": 1,
+        }
+    try:
+        target = requested_hack_target(prompt)
+    except ValueError as exc:
+        return {"status": "needs_user_action", "text": str(exc), "tool_calls": 0}
+    if target is None:
+        return None
+    verified = (
+        frozenset({target})
+        if domain_authorization.target_is_authorized(target, session_id=session_id)
+        else frozenset()
+    )
+    if not verified:
+        return {
+            "status": "needs_user_action",
+            "text": "対象ドメインの所有者承認とDNSまたは確認ファイルによる検証が必要です。",
+            "tool_calls": 0,
+        }
+    with hack_task_scope(
+        title,
+        prompt,
+        verified_targets=verified,
+        require_verification=True,
+    ):
+        result = run_authorized_pentest(target)
+    if result.get("status") != "completed":
+        return {
+            "status": "needs_user_action",
+            "text": str(result.get("error") or "脆弱性検証を実行できませんでした。"),
+            "tool_calls": 0,
+        }
+    return {
+        "status": "completed",
+        "text": result["report_markdown"],
+        "tool_calls": 1,
+    }
+
+
+def _execute_secret(request: RunRequest, agent: AgentCore | None, *, task_mode: bool = False):
     if not configured_token():
         raise HTTPException(status_code=503, detail="シークレットには所有者認証の設定が必要です。")
     if request.image_ids:
         raise HTTPException(status_code=400, detail="シークレットでは画像保存を行わないため、テキストだけを送信してください。")
     request.session_id = request.session_id or uuid.uuid4().hex
+    task_title = _selected_task_title(request.session_id) if task_mode else None
     with secret_runtime.scope():
         try:
             with secret_chat.store.claim(request.session_id, request.secret_session_id) as (sid, entry):
                 cached = entry.replay(request.request_id, request.prompt)
                 if cached is not None:
                     return {**cached, "replayed": True} if task_mode else RunResponse.model_validate(cached)
+                hack_result = _secret_hack_result(
+                    task_title,
+                    request.prompt,
+                    session_id=request.session_id,
+                )
+                if hack_result is not None:
+                    response = RunResponse(
+                        run_id=uuid.uuid4().hex,
+                        session_id=request.session_id,
+                        status=hack_result["status"],
+                        text=mask_text(hack_result["text"]),
+                        steps=1,
+                        tool_calls=hack_result["tool_calls"],
+                        private_mode=False,
+                        metrics=asdict(AgentMetrics(tool_calls=hack_result["tool_calls"])),
+                        is_secret=True,
+                        isSecret=True,
+                        secret_session_id=sid,
+                    )
+                    payload = entry.complete(request.request_id, request.prompt, {
+                        **response.model_dump(),
+                        "response": response.text,
+                        "title": "シークレットチャット",
+                        "persistence": "none",
+                        "latest_url": "",
+                        "pending_images": [],
+                        "image_assets": {},
+                    })
+                    return payload if task_mode else response
                 prompt = request.prompt
                 if entry.history:
                     context = "\n".join(f"{row['role']}: {row['content']}" for row in entry.history[-6:])
                     prompt = f"シークレット内の会話履歴:\n{context}\n\n今回の依頼:\n{request.prompt}"
                 private_mode = entry.private.authenticate(request.prompt)
+                if agent is None:
+                    agent = app.dependency_overrides.get(get_agent, get_agent)()
                 run = getattr(agent, "run_secret", None)
                 if not callable(run):
                     raise HTTPException(status_code=503, detail="シークレット生成に対応するモデル実装が必要です。")
@@ -979,7 +1095,24 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
         if result is None:
             if agent is None:
                 agent = app.dependency_overrides.get(get_agent, get_agent)()
-            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
+            with _STATE_LOCK:
+                task_title = _SESSION_META.get(session_id or "", {}).get("title")
+            explicit_target = requested_hack_target(request.prompt) if is_hack_task(task_title) else None
+            verified_targets = (
+                frozenset({explicit_target})
+                if explicit_target and domain_authorization.target_is_authorized(
+                    explicit_target,
+                    session_id=session_id,
+                )
+                else frozenset()
+            )
+            with hack_task_scope(
+                task_title,
+                request.prompt,
+                verified_targets=verified_targets,
+                require_verification=True,
+            ):
+                result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"
@@ -1022,7 +1155,7 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _stream_chat(request: RunRequest, agent: AgentCore, *, task_mode: bool = False):
+def _stream_chat(request: RunRequest, agent: AgentCore | None, *, task_mode: bool = False):
     """実行開始後にトレースを SSE として返す最小ストリーミング基盤。"""
     try:
         yield _sse("started", {"isSecret": True} if request.is_secret else {"prompt": mask_text(request.prompt)})
@@ -1204,6 +1337,7 @@ def create_session(data: SessionCreate):
     if task_persistence.mode() == "s3":
         sid = uuid.uuid4().hex
         document = task_persistence.repository().create(sid, data.title)
+        _remember_task_title(sid, document["title"])
         return JSONResponse({"session_id": sid, "title": document["title"], "persistence": "durable"}, headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         if len(_SESSIONS) >= _MAX_SESSIONS:
@@ -1283,7 +1417,10 @@ app.include_router(cloning_api.router)
 @app.get("/api/sessions", dependencies=[Depends(require_tool_auth)])
 def list_sessions():
     if task_persistence.mode() == "s3":
-        return JSONResponse(task_persistence.repository().list(), headers={"Cache-Control": "no-store"})
+        rows = task_persistence.repository().list()
+        for row in rows:
+            _remember_task_title(row["session_id"], row["title"])
+        return JSONResponse(rows, headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         rows = [{"session_id": sid, "title": _SESSION_META.get(sid, {}).get("title", "新しいタスク")} for sid in _SESSIONS]
     return JSONResponse(rows, headers={"Cache-Control": "no-store"})
@@ -1294,6 +1431,7 @@ def task_session(session_id: str):
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().reconcile(session_id, _verify_publication)
         document = _image_service(session_id).reconcile(document)
+        _remember_task_title(session_id, document["title"])
         return JSONResponse(_durable_task_details(document), headers={"Cache-Control": "no-store"})
     with _STATE_LOCK:
         details = _session_detail_locked(session_id)
@@ -1660,13 +1798,11 @@ def detach_image(image_id: str, session_id: Annotated[str, Query(min_length=1, m
 @app.post("/api/chat", response_model=None, dependencies=[Depends(require_tool_auth)])
 def task_chat(request: MessageRequest):
     if request.is_secret:
-        agent_factory = app.dependency_overrides.get(get_agent, get_agent)
-        agent = agent_factory()
         run_request = RunRequest(prompt=request.prompt, session_id=request.session_id, stream=request.stream,
             request_id=request.request_id, image_ids=request.image_ids, is_secret=True, secret_session_id=request.secret_session_id)
         if request.stream:
-            return StreamingResponse(_stream_chat(run_request, agent, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
-        return JSONResponse(_execute(run_request, agent, task_mode=True), headers={"Cache-Control": "private, no-store"})
+            return StreamingResponse(_stream_chat(run_request, None, task_mode=True), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
+        return JSONResponse(_execute(run_request, None, task_mode=True), headers={"Cache-Control": "private, no-store"})
     if task_persistence.mode() == "s3":
         document = task_persistence.repository().load(request.session_id)
         if document.get("image_uploads"):
@@ -1714,6 +1850,111 @@ def forget_secret(request: SecretForgetRequest):
     except secret_chat.SecretChatError:
         raise HTTPException(status_code=409, detail="処理中のシークレット会話は消去できません。") from None
     return JSONResponse({"success": True, "persistence": "none"}, headers={"Cache-Control": "private, no-store"})
+
+
+def _require_hack_session(session_id: str) -> None:
+    title = _selected_task_title(session_id)
+    if title is None and task_persistence.mode() == "s3":
+        document = task_persistence.repository().load(session_id)
+        title = str(document.get("title", ""))
+        _remember_task_title(session_id, title)
+    if not is_hack_task(title):
+        raise HTTPException(status_code=403, detail="題名が「ハック」のタスクでのみ利用できます。")
+
+
+@app.post("/api/hack/domain-authorizations", dependencies=[Depends(require_tool_auth)])
+def create_domain_authorization(payload: DomainAuthorizationCreate, request: Request):
+    _require_hack_session(payload.session_id)
+    try:
+        record, token = domain_authorization.create(payload.session_id, payload.target_url)
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    approval_url = str(request.base_url).rstrip("/") + (
+        f"/api/hack/domain-authorizations/{record.id}/approve?token={token}"
+    )
+    return JSONResponse(
+        {**record.public(), "approval_url": approval_url},
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@app.get("/api/hack/domain-authorizations", dependencies=[Depends(require_tool_auth)])
+def list_domain_authorizations(session_id: Annotated[str, Query(min_length=1, max_length=100)]):
+    _require_hack_session(session_id)
+    return JSONResponse(
+        {"authorizations": domain_authorization.list_for_session(session_id)},
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@app.get("/api/hack/domain-authorizations/{authorization_id}/approve", response_class=HTMLResponse)
+def domain_authorization_approval(
+    authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
+    token: Annotated[str, Query(min_length=20, max_length=100)],
+):
+    try:
+        record = domain_authorization.get(authorization_id)
+        if not secrets.compare_digest(record.approval_hash, hashlib.sha256(token.encode()).hexdigest()):
+            raise domain_authorization.AuthorizationError("承認リンクが無効です。")
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return HTMLResponse(
+        domain_authorization.approval_page(record, token),
+        headers={"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
+@app.get("/api/hack/domain-authorizations/{authorization_id}/verification-file")
+def domain_authorization_verification_file(
+    authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
+    token: Annotated[str, Query(min_length=20, max_length=100)],
+):
+    try:
+        record = domain_authorization.get(authorization_id)
+        if not secrets.compare_digest(record.approval_hash, hashlib.sha256(token.encode()).hexdigest()):
+            raise domain_authorization.AuthorizationError("承認リンクが無効です。")
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=record.challenge,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+            "Content-Disposition": 'attachment; filename="karry-agent-verification.txt"',
+        },
+    )
+
+
+@app.post("/api/hack/domain-authorizations/{authorization_id}/approve", response_class=HTMLResponse)
+def approve_domain_authorization(
+    authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
+    token: Annotated[str, Form(min_length=20, max_length=100)],
+):
+    try:
+        record = domain_authorization.approve(authorization_id, token)
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return HTMLResponse(
+        domain_authorization.approval_page(record, token, approved=True),
+        headers={"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
+@app.post(
+    "/api/hack/domain-authorizations/{authorization_id}/verify",
+    dependencies=[Depends(require_tool_auth)],
+)
+def verify_domain_authorization(
+    authorization_id: Annotated[str, Path_(pattern=r"^[a-f0-9]{32}$")],
+    payload: DomainAuthorizationVerify,
+):
+    _require_hack_session(payload.session_id)
+    try:
+        record = domain_authorization.verify(authorization_id, payload.session_id, payload.method)
+    except domain_authorization.AuthorizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(record.public(), headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/api/agent/tools", dependencies=[Depends(require_tool_auth)])

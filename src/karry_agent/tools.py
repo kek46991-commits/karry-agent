@@ -238,6 +238,29 @@ def run_local_script(path: str, args: list[str] | None = None, timeout: int = 30
     }
 
 
+def run_authorized_pentest(target_url: str) -> dict[str, Any]:
+    """Run bounded probes against a target explicitly named in the current hack task message."""
+    from .hack_task_mode import authorize_target
+    from .pentest_orchestra import PentestError, run_authorized_pentest as run_pentest
+
+    try:
+        target = authorize_target(target_url)
+        report = run_pentest(target)
+        return {
+            "status": "completed",
+            **report.to_dict(),
+            "report_markdown": render_pentest_markdown(report),
+        }
+    except (PermissionError, ValueError, PentestError) as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+def render_pentest_markdown(report: Any) -> str:
+    from .pentest_orchestra import render_markdown
+
+    return render_markdown(report)
+
+
 def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """DuckDuckGo Instant Answer API。外部サービスへの送信は検索語だけ。"""
     if not query.strip():
@@ -603,6 +626,21 @@ def build_default_registry() -> ToolRegistry:
         run_github_repository,
     )
     registry.register("run_local_script", "ワークスペース内の Python スクリプトを実行する", {"type": "object", "properties": {"path": string_param, "args": {"type": "array", "items": string_param}, "timeout": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["path"]}, run_local_script)
+    registry.register(
+        "run_authorized_pentest",
+        "題名が「ハック」のタスク専用。今回のユーザーメッセージに明記された認可済み対象URLへ、既存ガードを維持した非破壊の脆弱性プローブを実行する。任意コマンド、ガード解除、認証情報送信は行わない",
+        {
+            "type": "object",
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": "今回のユーザーメッセージに明記された http(s) 対象URL",
+                },
+            },
+            "required": ["target_url"],
+        },
+        run_authorized_pentest,
+    )
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
     registry.register("fetch_and_summarize_url", "公開URLのページを1回取得し、タイトル・本文3000文字・見出し・構造を抽出する。URLの解析・改善提案は検索や再取得を繰り返さずこの結果から回答する", {"type": "object", "properties": {"url": string_param}, "required": ["url"]}, fetch_and_summarize_url)
     registry.register("deploy_instant_website", "HTML成果物の即時URL公開を準備する。生成HTML全文・公開先・persistenceを提示し所有者が確認後に公開する。既定は管理者設定済みR2/S3への永続保存。Git push不要。設定不足時はエラー。localの明示一時モードは再起動で消える", {"type": "object", "properties": {"html_content": string_param, "filename": string_param}, "required": ["html_content"]}, prepare_instant_website)
