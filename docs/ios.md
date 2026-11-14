@@ -29,15 +29,18 @@ Android版（`android/`）と同じ2つのアプリを iPhone 向けに作るた
 
 Apple Developer Program（有料）が必要です。
 
-1. App Store Connect で、`<prefix>.monitor` と `<prefix>.worker` の2つのアプリを作ります。
-2. App Store Connect API キーを「Admin」の権限で作ります（署名用の証明書を自動で作るために必要です）。
-3. GitHub の Secrets に、次の4つを登録します。値はチャットに貼らないでください。
+1. App Store Connect API キーを「Admin」の権限で作ります（署名用の証明書を自動で作るために必要です）。
+2. GitHub の Secrets に、次の4つを登録します。値はチャットに貼らないでください。
    - `APPLE_TEAM_ID`
    - `ASC_KEY_ID`
    - `ASC_ISSUER_ID`
    - `ASC_KEY_P8`（ダウンロードした `.p8` ファイルの中身を、そのまま全部貼る）
-4. Actions の **iOS apps** を「Run workflow」で実行し、`testflight` にチェックを入れます。
+3. Actions の **iOS apps** を「Run workflow」で実行し、`testflight` にチェックを入れます。最初の実行で、3つの Bundle ID（`<prefix>.monitor` / `.worker` / `.worker.broadcast`）が自動で登録されます。
+4. App Store Connect で、`<prefix>.monitor` と `<prefix>.worker` の2つのアプリを作り、もう一度実行します（アプリがないと、アップロードは「Error Downloading App Information」で止まります）。
 5. 使う人の iPhone に TestFlight を入れ、招待メールから2つのアプリを入れます。
+
+- ビルドは Xcode 26 で行います。App Store Connect は、iOS 26 SDK より古いビルドを受け付けません。
+- 登録済みの iPhone がなくても配れるように、アーカイブは署名なしで作り、書き出し（export）のときに配布用の署名をします。
 
 会社の端末をまとめて管理する場合は、Apple Business Manager と MDM で配る方法もあります。
 

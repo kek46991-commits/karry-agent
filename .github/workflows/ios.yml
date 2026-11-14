@@ -18,6 +18,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        # App Store Connect only accepts builds made with the iOS 26 SDK or later.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then echo "::error::No Xcode 26 on this runner:"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode" && xcodebuild -version
       - name: Generate Xcode project
         run: brew install xcodegen && cd ios && xcodegen generate
       - name: Build for the iOS Simulator
@@ -56,6 +62,12 @@ jobs:
       KARRY_BUNDLE_PREFIX: ${{ vars.KARRY_BUNDLE_PREFIX || 'com.kek46991.karry' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        # App Store Connect only accepts builds made with the iOS 26 SDK or later.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then echo "::error::No Xcode 26 on this runner:"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode" && xcodebuild -version
       - name: Check secrets
         run: |
           for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
@@ -63,10 +75,71 @@ jobs:
           done
       - name: Generate Xcode project
         run: brew install xcodegen && cd ios && xcodegen generate
-      - name: Archive and upload
+      - name: Write API key
         run: |
           key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
-          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          python3 - "$key" <<'PY'
+          import base64, os, re, sys
+          raw = os.environ["ASC_KEY_P8"].strip().replace("\\n", "\n")
+          if "BEGIN" not in raw:
+              try:
+                  decoded = base64.b64decode(re.sub(r"\s", "", raw), validate=True).decode()
+                  if "BEGIN" in decoded:
+                      raw = decoded
+              except Exception:
+                  pass
+          body = re.sub(r"-----[A-Z ]+-----|\s", "", raw)
+          if not body or not re.fullmatch(r"[A-Za-z0-9+/=]+", body):
+              sys.exit("ASC_KEY_P8 is not a .p8 key: paste the whole AuthKey_XXXX.p8 file contents")
+          lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+          with open(sys.argv[1], "w") as f:
+              label = "PRIVATE" + " KEY"
+              f.write(f"-----BEGIN {label}-----\n" + "\n".join(lines) + f"\n-----END {label}-----\n")
+          PY
+          openssl pkey -in "$key" -noout || { echo "::error::ASC_KEY_P8 is not a valid private key. Re-paste the whole AuthKey_XXXX.p8 file contents."; exit 1; }
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Register bundle IDs
+        run: |
+          pip3 install --quiet --break-system-packages pyjwt cryptography
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          import jwt
+          token = jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()), "exp": int(time.time()) + 900,
+                              "aud": "appstoreconnect-v1"}, open(os.environ["ASC_KEY_PATH"]).read(), algorithm="ES256",
+                             headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          def api(method, path, body=None):
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/" + path, method=method,
+                                           data=json.dumps(body).encode() if body else None,
+                                           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.load(r)
+              except urllib.error.HTTPError as e:
+                  raise SystemExit(f"App Store Connect API {method} {path}: {e.code} {e.read().decode()[:500]}")
+          prefix = os.environ["KARRY_BUNDLE_PREFIX"]
+          ids = {"monitor": ("Karry Monitor", False), "worker": ("Karry Worker", True), "worker.broadcast": ("Karry Worker Broadcast", True)}
+          for suffix, (name, groups) in ids.items():
+              ident = f"{prefix}.{suffix}"
+              found = api("GET", "bundleIds?" + urllib.parse.urlencode({"filter[identifier]": ident, "include": "bundleIdCapabilities"}))
+              match = [d for d in found["data"] if d["attributes"]["identifier"] == ident]
+              if match:
+                  bundle = match[0]
+                  caps = {c["attributes"]["capabilityType"] for c in found.get("included", [])}
+                  print(f"{ident}: already registered")
+              else:
+                  bundle = api("POST", "bundleIds", {"data": {"type": "bundleIds", "attributes": {
+                      "identifier": ident, "name": name, "platform": "IOS"}}})["data"]
+                  caps = set()
+                  print(f"{ident}: registered")
+              if groups and "APP_GROUPS" not in caps:
+                  api("POST", "bundleIdCapabilities", {"data": {"type": "bundleIdCapabilities",
+                      "attributes": {"capabilityType": "APP_GROUPS"},
+                      "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}}}}})
+                  print(f"{ident}: App Groups enabled")
+          PY
+      - name: Archive and upload
+        run: |
+          key="$ASC_KEY_PATH"
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
           cat > "$RUNNER_TEMP/export.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -78,11 +151,15 @@ jobs:
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
           </dict></plist>
           PLIST
+          # Archive without a provisioning profile (Xcode would need a registered device for its
+          # development profile) and let -exportArchive sign it for App Store distribution.
           for scheme in KarryMonitor KarryWorker; do
-            xcodebuild -project ios/KarryDevices.xcodeproj -scheme "$scheme" -configuration Release \
-              -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
-              DEVELOPMENT_TEAM="$APPLE_TEAM_ID" KARRY_BUNDLE_PREFIX="$KARRY_BUNDLE_PREFIX" \
-              CURRENT_PROJECT_VERSION="${{ github.run_number }}" "${auth[@]}" archive
+            common=(-project ios/KarryDevices.xcodeproj -scheme "$scheme" -configuration Release
+              -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/$scheme.xcarchive"
+              DEVELOPMENT_TEAM="$APPLE_TEAM_ID" KARRY_BUNDLE_PREFIX="$KARRY_BUNDLE_PREFIX"
+              CURRENT_PROJECT_VERSION="${{ github.run_number }}")
+            xcodebuild "${common[@]}" CODE_SIGNING_ALLOWED=NO archive
             xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
-              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}"
+              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}" \
+              || { echo "::error::Upload of $scheme failed. If the log says 'Error Downloading App Information', create the app for its bundle ID in App Store Connect first."; exit 1; }
           done
