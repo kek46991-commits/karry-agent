@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0148C84D81E869D72862D5BF /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
 		058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
+		B10CA710C0A7100000000002 /* BackgroundLocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10CA710C0A7100000000001 /* BackgroundLocationService.swift */; };
 		09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CCBE363C7308CC6AD39F4D3 /* TokenStore.swift */; };
 		0DE3154D3BC020DB76961FB2 /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F002364F589EE702FB476BE /* MessageComposeView.swift */; };
 		116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F07F2A75977065E2830EF7C /* OperatorViewModel.swift */; };
@@ -25,6 +26,7 @@
 		4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */; };
 		53AC1F94F819FE35FB065369 /* KarryOperatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F924F15C18565976B2848 /* KarryOperatorApp.swift */; };
 		56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4102C6D98F0810FA0C15677D /* SystemPermissions.swift */; };
+		B10CA710C0A7100000000003 /* BackgroundLocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10CA710C0A7100000000001 /* BackgroundLocationService.swift */; };
 		58CCC1C2AE18F256DE073584 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */; };
 		649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44793DAA023016FBBC3A7D0 /* SetupStatus.swift */; };
 		7182A171BD0C5BFB691B8B5E /* ActionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5BACB9CEF5D0EA05744DB5 /* ActionPlan.swift */; };
@@ -63,6 +65,7 @@
 		22DA6B08B307CED723CCC71E /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
 		3DCF18D52E54CBDBA6C339A7 /* KarryOperatorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KarryOperatorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4102C6D98F0810FA0C15677D /* SystemPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPermissions.swift; sourceTree = "<group>"; };
+		B10CA710C0A7100000000001 /* BackgroundLocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundLocationService.swift; sourceTree = "<group>"; };
 		5A4A0D92EF0AD5830F562A2D /* BackendIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendIntegrationTests.swift; sourceTree = "<group>"; };
 		6CE780814EEC650835855F62 /* KeychainTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTokenStoreTests.swift; sourceTree = "<group>"; };
 		6E990197197DC6C0137B6B13 /* MobileAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAction.swift; sourceTree = "<group>"; };
@@ -101,6 +104,7 @@
 			children = (
 				8F22E3BD9A7CADDA140F47C3 /* ActionExecutor.swift */,
 				4102C6D98F0810FA0C15677D /* SystemPermissions.swift */,
+				B10CA710C0A7100000000001 /* BackgroundLocationService.swift */,
 				D2BBF1E672A1B12CB1EF4024 /* SystemServices.swift */,
 			);
 			path = Execution;
@@ -300,6 +304,7 @@
 				3946DA0FE1FEF780002698E6 /* OperatorViewModel.swift in Sources */,
 				649CE6701C0001788B3A342B /* SetupStatus.swift in Sources */,
 				058FB2B8C7BBF22E4EF9865C /* SystemPermissions.swift in Sources */,
+				B10CA710C0A7100000000002 /* BackgroundLocationService.swift in Sources */,
 				4F1A0688FD0B5BD1B7CFBF3C /* SystemServices.swift in Sources */,
 				09B95394772D8ACB7B5FE644 /* TokenStore.swift in Sources */,
 			);
@@ -337,6 +342,7 @@
 				116479704F1FA1B4192AB863 /* OperatorViewModel.swift in Sources */,
 				485D20E6C076FFE1C717DCD7 /* SetupStatus.swift in Sources */,
 				56D909AE26226313E0FB2527 /* SystemPermissions.swift in Sources */,
+				B10CA710C0A7100000000003 /* BackgroundLocationService.swift in Sources */,
 				D86BFA5EF56DBEFB1519E4F4 /* SystemServices.swift in Sources */,
 				EB16280D93568D8A34154030 /* TokenStore.swift in Sources */,
 			);

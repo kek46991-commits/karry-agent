@@ -104,6 +104,39 @@ struct BackendClient: BackendServing {
         _ = try await send(request, expecting: 200)
     }
 
+    func reportLocation(
+        deviceID: String,
+        deviceToken: String,
+        latitude: Double,
+        longitude: Double,
+        accuracyM: Double,
+        collectedAt: Date
+    ) async throws {
+        guard Self.isValidDeviceID(deviceID),
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude),
+              (0...100_000).contains(accuracyM) else {
+            throw BackendError.invalidIdentifier
+        }
+        struct LocationBody: Encodable {
+            let latitude: Double
+            let longitude: Double
+            let accuracy_m: Double
+            let collected_at: Double
+        }
+        var request = makeRequest(path: ["devices", deviceID, "location"])
+        request.setValue(deviceToken, forHTTPHeaderField: "X-Device-Token")
+        request.httpBody = try JSONEncoder().encode(
+            LocationBody(
+                latitude: latitude,
+                longitude: longitude,
+                accuracy_m: accuracyM,
+                collected_at: collectedAt.timeIntervalSince1970
+            )
+        )
+        _ = try await send(request, expecting: 200)
+    }
+
     private func makeRequest(path: [String]) -> URLRequest {
         var url = baseURL.appendingPathComponent("api").appendingPathComponent("mobile-agent")
         for component in path {

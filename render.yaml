@@ -6,7 +6,7 @@ services:
     branch: main
     autoDeploy: true
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt && pip install .
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m karry_agent.location_history --migrate && uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: GEMINI_API_KEY
