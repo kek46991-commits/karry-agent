@@ -44,8 +44,11 @@ jobs:
           for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
             if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set"; exit 1; fi
           done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install Python deps
-        run: python3 -m pip install --quiet --user cryptography
+        run: python3 -m pip install --quiet cryptography
       - name: Collect UDIDs
         id: udids
         run: |
