@@ -63,7 +63,7 @@ jobs:
           done
       - name: Generate Xcode project
         run: brew install xcodegen && cd ios && xcodegen generate
-      - name: Archive and upload
+      - name: Write API key
         run: |
           key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
           python3 - "$key" <<'PY'
@@ -85,6 +85,49 @@ jobs:
               f.write(f"-----BEGIN {label}-----\n" + "\n".join(lines) + f"\n-----END {label}-----\n")
           PY
           openssl pkey -in "$key" -noout || { echo "::error::ASC_KEY_P8 is not a valid private key. Re-paste the whole AuthKey_XXXX.p8 file contents."; exit 1; }
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Register bundle IDs
+        run: |
+          pip3 install --quiet --break-system-packages pyjwt cryptography
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          import jwt
+          token = jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()), "exp": int(time.time()) + 900,
+                              "aud": "appstoreconnect-v1"}, open(os.environ["ASC_KEY_PATH"]).read(), algorithm="ES256",
+                             headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          def api(method, path, body=None):
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/" + path, method=method,
+                                           data=json.dumps(body).encode() if body else None,
+                                           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.load(r)
+              except urllib.error.HTTPError as e:
+                  raise SystemExit(f"App Store Connect API {method} {path}: {e.code} {e.read().decode()[:500]}")
+          prefix = os.environ["KARRY_BUNDLE_PREFIX"]
+          ids = {"monitor": ("Karry Monitor", False), "worker": ("Karry Worker", True), "worker.broadcast": ("Karry Worker Broadcast", True)}
+          for suffix, (name, groups) in ids.items():
+              ident = f"{prefix}.{suffix}"
+              found = api("GET", "bundleIds?" + urllib.parse.urlencode({"filter[identifier]": ident, "include": "bundleIdCapabilities"}))
+              match = [d for d in found["data"] if d["attributes"]["identifier"] == ident]
+              if match:
+                  bundle = match[0]
+                  caps = {c["attributes"]["capabilityType"] for c in found.get("included", [])}
+                  print(f"{ident}: already registered")
+              else:
+                  bundle = api("POST", "bundleIds", {"data": {"type": "bundleIds", "attributes": {
+                      "identifier": ident, "name": name, "platform": "IOS"}}})["data"]
+                  caps = set()
+                  print(f"{ident}: registered")
+              if groups and "APP_GROUPS" not in caps:
+                  api("POST", "bundleIdCapabilities", {"data": {"type": "bundleIdCapabilities",
+                      "attributes": {"capabilityType": "APP_GROUPS"},
+                      "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}}}}})
+                  print(f"{ident}: App Groups enabled")
+          PY
+      - name: Archive and upload
+        run: |
+          key="$ASC_KEY_PATH"
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
           cat > "$RUNNER_TEMP/export.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -106,5 +149,6 @@ jobs:
             xcodebuild "${common[@]}" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- PROVISIONING_PROFILE_SPECIFIER= archive \
               || xcodebuild "${common[@]}" CODE_SIGNING_ALLOWED=NO archive
             xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
-              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}"
+              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}" \
+              || { echo "::error::Upload of $scheme failed. If the log says 'Error Downloading App Information', create the app for its bundle ID in App Store Connect first."; exit 1; }
           done
