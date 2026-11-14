@@ -1391,9 +1391,15 @@ def _autonomy_prompt(task: Subtask, context: dict[str, Any]) -> str:
     return "\n\n".join(parts + [f"このサブタスク:\n{task.prompt}"])
 
 
+_AUTONOMY_FAILED = {"failed", "error", "limit_reached", "needs_user_action"}
+
+
 def _autonomy_agent_handler(task: Subtask, context: dict[str, Any]) -> str:
     agent = app.dependency_overrides.get(get_agent, get_agent)()
-    return _run_agent(agent, _autonomy_prompt(task, context), False).text
+    result = _run_agent(agent, _autonomy_prompt(task, context), False)
+    if getattr(result, "status", "completed") in _AUTONOMY_FAILED:
+        raise RuntimeError(result.text[:500])
+    return result.text
 
 
 def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
@@ -1403,7 +1409,9 @@ def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
         raise ValueError("画像・動画のサブタスクには session_id（タスクID）が必要です。")
     agent = app.dependency_overrides.get(get_agent, get_agent)()
     with _AUTONOMY_MEDIA_LOCK:
-        response = _execute(RunRequest(prompt=task.prompt, session_id=session_id), agent)
+        response = _execute(RunRequest(prompt=_autonomy_prompt(task, context), session_id=session_id), agent)
+    if response.status in _AUTONOMY_FAILED:
+        raise RuntimeError(response.text[:500])
     text = response.text
     if response.generated_images:
         text += "\n生成画像ID: " + ", ".join(response.generated_images)
