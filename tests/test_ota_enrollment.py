@@ -1,5 +1,6 @@
 import json
 import plistlib
+import threading
 import zipfile
 
 import pytest
@@ -222,3 +223,51 @@ def test_app_wiring_is_disabled_without_flag(monkeypatch):
     client = TestClient(web.app)
     assert client.get("/ota/").status_code == 404
     assert client.get("/api/ota/devices", headers={"Authorization": "Bearer owner-token-for-test"}).status_code == 404
+
+
+def test_enrollment_dispatches_signing_workflow(api, monkeypatch):
+    calls, done = [], threading.Event()
+
+    def fake(udid, covered):
+        calls.append((udid, covered)); done.set(); return "dispatched: HTTP 204"
+
+    monkeypatch.setattr(ota, "dispatch_signing", fake)
+    token, _ = issue(api)
+    api.post(f"/api/register-udid/{token}", content=attributes(), follow_redirects=False)
+    assert done.wait(5)
+    assert calls == [(UDID, False)]
+
+
+def test_dispatch_signing_requires_token_and_posts_workflow_inputs(monkeypatch):
+    monkeypatch.delenv("KARRY_GITHUB_TOKEN", raising=False)
+    assert ota.dispatch_signing(UDID, False).startswith("skipped: KARRY_GITHUB_TOKEN")
+    monkeypatch.setenv("KARRY_GITHUB_TOKEN", "ghp_test")
+    assert ota.dispatch_signing(UDID, True).startswith("skipped: current build")
+    monkeypatch.setenv("KARRY_GITHUB_REPO", "bad repo name")
+    assert ota.dispatch_signing(UDID, False).startswith("skipped: invalid")
+    monkeypatch.setenv("KARRY_GITHUB_REPO", "owner/repo")
+    seen = {}
+
+    class Resp:
+        status = 204
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(request, timeout):
+        seen["url"] = request.full_url; seen["body"] = json.loads(request.data)
+        seen["auth"] = request.get_header("Authorization"); return Resp()
+
+    monkeypatch.setattr(ota.urllib.request, "urlopen", urlopen)
+    assert ota.dispatch_signing(UDID, False) == "dispatched: HTTP 204"
+    assert seen["url"] == "https://api.github.com/repos/owner/repo/actions/workflows/ota-karry-agent-2.yml/dispatches"
+    assert seen["body"] == {"ref": "main", "inputs": {"udids": UDID}}
+    assert seen["auth"] == "Bearer ghp_test"
+
+
+def test_android_page_links_apk_and_pairing_ids(api, monkeypatch):
+    page = api.get("/ota/android").text
+    assert "releases/latest/download/karry-agent-1.apk" in page
+    assert "observer-android" in page and "operation-iphone" in page
+    monkeypatch.setenv("KARRY_ANDROID_APK_URL", "http://insecure.example/app.apk")
+    assert "KARRY_ANDROID_APK_URL" in api.get("/ota/android").text
+    assert '/ota/android' in api.get("/ota/", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130 Mobile"}).text
