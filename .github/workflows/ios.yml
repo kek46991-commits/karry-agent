@@ -163,3 +163,5 @@ jobs:
               -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/$scheme" "${auth[@]}" \
               || { echo "::error::Upload of $scheme failed. If the log says 'Error Downloading App Information', create the app for its bundle ID in App Store Connect first."; exit 1; }
           done
+      - name: Create TestFlight public links
+        run: python3 .github/scripts/testflight_public_links.py
