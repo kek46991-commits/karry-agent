@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#102a43"><meta name="robots" content="noindex">
-<title>見守り端末 | Karry</title>
+<title>監視用 | Karry</title>
 <link rel="manifest" href="/static/monitor.webmanifest"><link rel="apple-touch-icon" href="/static/icons/device-192.png">
 <link rel="stylesheet" href="/static/device-common.css">
 </head>
 <body>
-<header><h1>見守り端末</h1><span id="conn" class="muted" style="color:#cbd2d9"></span><button id="installButton" class="ghost" hidden>ホーム画面に追加</button></header>
+<header><h1>監視用</h1><span id="conn" class="muted" style="color:#cbd2d9"></span><button id="installButton" class="ghost" hidden>ホーム画面に追加</button></header>
 <main>
   <section id="setup" class="card" hidden>
     <h2>はじめての設定</h2>
     <p>会社から伝えられたパスワードを入れて「利用開始」を押してください。設定は1回だけで、次からは開くだけで使えます。</p>
     <form id="enrollForm">
-      <label for="name">この端末の名前</label><input id="name" name="name" value="見守り端末" maxlength="40" autocomplete="off">
+      <label for="name">この端末の名前</label><input id="name" name="name" value="監視用" maxlength="40" autocomplete="off">
       <label for="password">パスワード</label><input id="password" name="password" type="password" required autocomplete="current-password">
       <button class="big" type="submit">利用開始</button>
       <p id="enrollError" class="error" role="alert"></p>

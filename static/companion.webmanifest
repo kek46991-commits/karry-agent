@@ -1,6 +1,6 @@
 {
-  "name": "Karry 作業端末",
-  "short_name": "作業端末",
+  "name": "Karry 作業用",
+  "short_name": "作業用",
   "start_url": "/companion",
   "scope": "/companion",
   "display": "standalone",

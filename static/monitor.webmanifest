@@ -1,6 +1,6 @@
 {
-  "name": "Karry 見守り",
-  "short_name": "見守り",
+  "name": "Karry 監視用",
+  "short_name": "監視用",
   "start_url": "/monitor",
   "scope": "/monitor",
   "display": "standalone",

@@ -116,8 +116,8 @@ Render のディスクは再デプロイで消えます。本番で長期保存�
 
 `/monitor` と `/companion` をそのまま開く Android アプリです。1つのプロジェクトから2つの APK を作ります。
 
-- `monitor` フレーバー（`com.karry.device.monitor`）: 見守り端末用。`/monitor` を開くだけ。
-- `worker` フレーバー（`com.karry.device.worker`）: 作業端末用。`/companion` に `window.KarryNative` を渡し、
+- `monitor` フレーバー（`com.karry.device.monitor`、アプリ名「Karry 監視用」）: 見守る側。`/monitor` を開くだけ。
+- `worker` フレーバー（`com.karry.device.worker`、アプリ名「Karry 作業用」）: 作業する側。`/companion` に `window.KarryNative` を渡し、
   「画面の共有を始める」で Android の MediaProjection 許可を出します。許可後は前面サービスが 3 秒ごとに
   720px 幅の JPEG を `PUT /api/autonomy/device/frame` へ送るので、アプリを閉じてもほかのアプリの画面が見守り端末に届きます。
   共有中は常駐通知が出て、通知の「共有をやめる」で止まります。

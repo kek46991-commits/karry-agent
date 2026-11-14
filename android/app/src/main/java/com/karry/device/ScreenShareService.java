@@ -90,7 +90,7 @@ public class ScreenShareService extends Service {
                 PendingIntent.FLAG_IMMUTABLE);
         Notification notice = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_view)
-                .setContentTitle("画面を見守り端末に共有中")
+                .setContentTitle("画面を監視用に共有中")
                 .setContentText("タップで共有をやめます")
                 .setContentIntent(stop)
                 .addAction(new Notification.Action.Builder(null, "共有をやめる", stop).build())
@@ -131,7 +131,7 @@ public class ScreenShareService extends Service {
 
     private void heartbeat(boolean sharing) {
         BatteryManager battery = getSystemService(BatteryManager.class);
-        String body = "{\"sharing\":" + sharing + ",\"visible\":true,\"app\":\"作業端末アプリ\",\"platform\":\"Android "
+        String body = "{\"sharing\":" + sharing + ",\"visible\":true,\"app\":\"作業用アプリ\",\"platform\":\"Android "
                 + Build.VERSION.RELEASE + "\",\"battery\":" + battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 + ",\"charging\":" + battery.isCharging() + "}";
         send("POST", "/api/autonomy/device/heartbeat", "application/json", body.getBytes(StandardCharsets.UTF_8));
