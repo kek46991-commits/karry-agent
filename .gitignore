@@ -21,3 +21,4 @@ __pycache__/
 progress.md
 static/instant/
 node_modules/
+data/autonomy/
