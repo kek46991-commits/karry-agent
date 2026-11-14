@@ -18,6 +18,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        # App Store Connect only accepts builds made with the iOS 26 SDK or later.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then echo "::error::No Xcode 26 on this runner:"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode" && xcodebuild -version
       - name: Generate Xcode project
         run: brew install xcodegen && cd ios && xcodegen generate
       - name: Build for the iOS Simulator
@@ -56,6 +62,12 @@ jobs:
       KARRY_BUNDLE_PREFIX: ${{ vars.KARRY_BUNDLE_PREFIX || 'com.kek46991.karry' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        # App Store Connect only accepts builds made with the iOS 26 SDK or later.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then echo "::error::No Xcode 26 on this runner:"; ls -d /Applications/Xcode*.app; exit 1; fi
+          sudo xcode-select -s "$xcode" && xcodebuild -version
       - name: Check secrets
         run: |
           for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
