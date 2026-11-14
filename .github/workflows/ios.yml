@@ -66,7 +66,24 @@ jobs:
       - name: Archive and upload
         run: |
           key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
-          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          python3 - "$key" <<'PY'
+          import base64, os, re, sys
+          raw = os.environ["ASC_KEY_P8"].strip().replace("\\n", "\n")
+          if "BEGIN" not in raw:
+              try:
+                  decoded = base64.b64decode(re.sub(r"\s", "", raw), validate=True).decode()
+                  if "BEGIN" in decoded:
+                      raw = decoded
+              except Exception:
+                  pass
+          body = re.sub(r"-----[A-Z ]+-----|\s", "", raw)
+          if not body or not re.fullmatch(r"[A-Za-z0-9+/=]+", body):
+              sys.exit("ASC_KEY_P8 is not a .p8 key: paste the whole AuthKey_XXXX.p8 file contents")
+          lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+          with open(sys.argv[1], "w") as f:
+              f.write("-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n")
+          PY
+          openssl pkey -in "$key" -noout || { echo "::error::ASC_KEY_P8 is not a valid private key. Re-paste the whole AuthKey_XXXX.p8 file contents."; exit 1; }
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
           cat > "$RUNNER_TEMP/export.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
