@@ -83,14 +83,26 @@ Render のディスクは再デプロイで消えます。本番で長期保存�
 | GET | `/api/autonomy/runs/{id}/audit` | 所有者または見守り端末が監査ログを取得する |
 | GET | `/api/autonomy/monitor` | 見守り設定の有無（秘密値は返さない） |
 
-## 2台構成（作業端末＋見守り端末）
+## 3サービス構成（本体＋作業用＋監視用）
 
-会社が管理する端末の第1フェーズでは、司令塔を入れず、作業端末と見守り端末だけをつなぎます。
+本体 API、作業用 UI、監視用 UI は同じリポジトリから別々にデプロイできます。作業用と監視用は
+`device_app.py` の共通シェルを使い、`KARRY_DEVICE_ROLE` で役割固有の画面だけを配信します。
+端末登録、Cookie、画面フレーム、監査 API は同一オリジンのプロキシを通って本体へ送られるため、
+UI を分離しても認証情報を JavaScript へ露出しません。
+
+| サービス | 起動 | 設定 |
+| --- | --- | --- |
+| 本体 | `uvicorn app:app` | 従来の本体設定 |
+| 監視用 | `uvicorn device_app:app` | `KARRY_DEVICE_ROLE=monitor`、`KARRY_BACKEND_URL=https://本体` |
+| 作業用 | `uvicorn device_app:app` | `KARRY_DEVICE_ROLE=worker`、`KARRY_BACKEND_URL=https://本体` |
+
+`render.yaml` は `karry-agent`、`karry-monitor`、`karry-worker` の3サービスを定義します。監視用・作業用の
+デプロイ先ではルート `/` がそれぞれのアプリになり、`/api/autonomy/*` だけを本体へ転送します。
 
 | 画面 | URL | できること |
 | --- | --- | --- |
-| 見守り端末 | `/monitor` | 作業端末の接続状態（最終応答・電池・画面が表か裏か）、共有中の画面プレビュー、タスクの進み具合と最終出力、監査ログ（改ざん検証付き）、一時停止・再開・停止、端末の登録解除 |
-| 作業端末 | `/companion` | 15 秒ごとに状態を送信、タスクの状況表示、本人が押したときだけ画面共有（共有中は赤い帯を常時表示し、いつでもやめられる） |
+| 見守り端末 | 監視用サービスの `/` | 作業端末の接続状態（最終応答・電池・画面が表か裏か）、共有中の画面プレビュー、タスクの進み具合と最終出力、監査ログ（改ざん検証付き）、一時停止・再開・停止、端末の登録解除 |
+| 作業端末 | 作業用サービスの `/` | 15 秒ごとに状態を送信、タスクの状況表示、本人が押したときだけ画面共有（共有中は赤い帯を常時表示し、いつでもやめられる） |
 
 - **初回設定は1回だけ：** URL を開き、パスワード（`KARRY_DEVICE_ENROLL_PASSWORD`）を入れて「利用開始」を押すと端末登録が終わります。
   - 端末には HttpOnly Cookie（約 400 日）が保存されます。サーバー側には SHA-256 ハッシュだけを `KARRY_AUTONOMY_DIR/devices.json`（0600）に保存します。
@@ -128,6 +140,9 @@ Render のディスクは再デプロイで消えます。本番で長期保存�
 cd android
 gradle assembleDebug                                    # つなぎ先は https://karry-agent-1.onrender.com
 gradle assembleDebug -PkarryServerUrl=https://example.com  # 別のサーバーにつなぐ場合
+gradle assembleDebug \
+  -PkarryMonitorUrl=https://監視用.example.com \
+  -PkarryWorkerUrl=https://作業用.example.com             # 役割ごとに分ける場合
 ```
 
 APK は `app/build/outputs/apk/{monitor,worker}/debug/` に出ます。今は開発用署名です。

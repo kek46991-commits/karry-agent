@@ -85,3 +85,51 @@ services:
         sync: false
       - key: KARRY_MEDIA_GENERATION_ENABLED
         value: "0"
+  - type: web
+    name: karry-monitor
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn device_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - device_app.py
+        - requirements.txt
+        - static/device-common.*
+        - static/device-sw.js
+        - static/monitor.html
+        - static/monitor.webmanifest
+        - static/icons/**
+        - render.yaml
+    envVars:
+      - key: KARRY_DEVICE_ROLE
+        value: monitor
+      - key: KARRY_BACKEND_URL
+        value: https://karry-agent-1.onrender.com
+  - type: web
+    name: karry-worker
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn device_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - device_app.py
+        - requirements.txt
+        - static/device-common.*
+        - static/device-sw.js
+        - static/companion.html
+        - static/companion.webmanifest
+        - static/icons/**
+        - render.yaml
+    envVars:
+      - key: KARRY_DEVICE_ROLE
+        value: worker
+      - key: KARRY_BACKEND_URL
+        value: https://karry-agent-1.onrender.com

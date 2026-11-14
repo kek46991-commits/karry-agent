@@ -1,6 +1,8 @@
 plugins { id "com.android.application" }
 
-def serverUrl = (project.findProperty("karryServerUrl") ?: "https://karry-agent-1.onrender.com").toString()
+def legacyServerUrl = (project.findProperty("karryServerUrl") ?: "https://karry-agent-1.onrender.com").toString()
+def monitorServerUrl = (project.findProperty("karryMonitorUrl") ?: legacyServerUrl).toString()
+def workerServerUrl = (project.findProperty("karryWorkerUrl") ?: legacyServerUrl).toString()
 
 android {
     namespace "com.karry.device"
@@ -10,8 +12,6 @@ android {
         targetSdk 36
         versionCode 1
         versionName "0.1.0"
-        buildConfigField "String", "SERVER_URL", "\"${serverUrl}\""
-        manifestPlaceholders = [cleartext: serverUrl.startsWith("http://").toString()]
     }
     buildFeatures { buildConfig true }
     flavorDimensions "role"
@@ -19,14 +19,18 @@ android {
         monitor {
             dimension "role"
             applicationId "com.karry.device.monitor"
+            buildConfigField "String", "SERVER_URL", "\"${monitorServerUrl}\""
             buildConfigField "String", "START_PATH", "\"/monitor\""
             buildConfigField "boolean", "WORKER", "false"
+            manifestPlaceholders = [cleartext: monitorServerUrl.startsWith("http://").toString()]
         }
         worker {
             dimension "role"
             applicationId "com.karry.device.worker"
+            buildConfigField "String", "SERVER_URL", "\"${workerServerUrl}\""
             buildConfigField "String", "START_PATH", "\"/companion\""
             buildConfigField "boolean", "WORKER", "true"
+            manifestPlaceholders = [cleartext: workerServerUrl.startsWith("http://").toString()]
         }
     }
     compileOptions {
