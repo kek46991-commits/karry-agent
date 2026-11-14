@@ -42,7 +42,7 @@ Actions で **OTA Karry-Agent 2** を「Run workflow」すると、macOS ラン�
 
 1. `/ota/` で登録済みの UDID（`KARRY_API_TOKEN` シークレットがある場合に `GET /api/ota/devices` から取得）と入力欄の UDID を、`scripts/asc_devices.py` で Apple Developer に端末登録（既知の端末はそのまま）。
 2. `scripts/mobile_release.py --ios-mode adhoc --signing-mode automatic` で Ad Hoc 署名 IPA を作成（Xcode 自動署名がプロファイルを再生成し、登録端末を含めます）。
-3. `ota/app.ipa` / `ota/provisioned_devices.json` / `ota/build.json` を `main` にコミット。Render は `main` を自動デプロイし、`KARRY_OTA_DIR=/app/ota` からそのまま配信します。
+3. `karry-agent-2.ipa` / `provisioned_devices.json` / `build.json` を GitHub Release の固定タグ `ota-latest` に更新します。Render は再デプロイせず、`KARRY_OTA_RELEASE_BASE`（既定はその固定タグ）からメタデータとIPAを読みます。
 
 新しい iPhone が `/ota/` で登録されるたびに、このワークフローをもう一度実行すれば、その端末も「インストール」に切り替わります。秘密鍵はランナーの一時ファイルにのみ書き、ビルド後に削除します。
 

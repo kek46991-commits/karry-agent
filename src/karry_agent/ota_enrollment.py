@@ -83,7 +83,7 @@ def _notify_signing(udid: str, covered: bool) -> None:
 def android_apk_url() -> str:
     """Public HTTPS URL of the Karry-Agent 1 APK (GitHub Release asset by default)."""
     url = os.getenv("KARRY_ANDROID_APK_URL",
-                    "https://github.com/kek46991-commits/karry-agent/releases/latest/download/karry-agent-1.apk").strip()
+                    "https://github.com/kek46991-commits/karry-agent/releases/download/android-v0.1.0/karry-agent-1.apk").strip()
     return url if url.startswith("https://") and not re.search(r"[\s\x00-\x1f\"'<>]", url) else ""
 
 
@@ -217,10 +217,32 @@ class SignedBuild:
         ipas = sorted(self.directory.glob("*.ipa"))
         return ipas[0] if len(ipas) == 1 else None
 
+    @staticmethod
+    def remote_base() -> str:
+        value = os.getenv("KARRY_OTA_RELEASE_BASE",
+            "https://github.com/kek46991-commits/karry-agent/releases/download/ota-latest").strip().rstrip("/")
+        return value if value.startswith("https://") and not re.search(r"[\s\x00-\x1f\"'<>]", value) else ""
+
+    def _remote_info(self) -> dict[str, Any] | None:
+        base = self.remote_base()
+        if not base:
+            return None
+        try:
+            with urllib.request.urlopen(base + "/build.json", timeout=5) as response:
+                data = json.loads(response.read(64 * 1024))
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError, ValueError):
+            return None
+        required = ("bundle_id", "version", "title", "devices")
+        if not all(key in data for key in required) or not isinstance(data["devices"], list):
+            return None
+        return {"bundle_id": str(data["bundle_id"]), "version": str(data["version"]),
+                "title": str(data["title"]), "devices": {str(d).upper() for d in data["devices"]},
+                "ipa_url": base + "/karry-agent-2.ipa"}
+
     def info(self) -> dict[str, Any] | None:
         ipa = self.ipa()
         if ipa is None:
-            return None
+            return self._remote_info()
         with zipfile.ZipFile(ipa) as archive:
             infos = [n for n in archive.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info.plist", n)]
             if len(infos) != 1:
@@ -242,6 +264,7 @@ class SignedBuild:
             "version": str(info.get("CFBundleVersion", "")),
             "title": str(info.get("CFBundleDisplayName") or info.get("CFBundleName") or "Karry-Agent 2"),
             "devices": {str(d).upper() for d in devices if isinstance(d, str)},
+            "ipa_url": None,
         }
 
     def covers(self, udid: str) -> bool:
@@ -439,18 +462,21 @@ def build_router(require_owner, registry: DeviceRegistry | None = None, build: S
         if info is None:
             raise HTTPException(status_code=404, detail="No signed build is published")
         data = {"items": [{
-            "assets": [{"kind": "software-package", "url": public_base(request) + "/ota/app.ipa"}],
+            "assets": [{"kind": "software-package", "url": info.get("ipa_url") or public_base(request) + "/ota/app.ipa"}],
             "metadata": {"bundle-identifier": info["bundle_id"], "bundle-version": info["version"],
                          "kind": "software", "title": info["title"]},
         }]}
         return Response(plistlib.dumps(data), media_type="application/xml", headers=NO_STORE)
 
     @router.get("/ota/app.ipa", include_in_schema=False)
-    def ipa() -> FileResponse:
+    def ipa() -> Response:
         path = signed().ipa()
-        if path is None:
-            raise HTTPException(status_code=404, detail="No signed build is published")
-        return FileResponse(path, media_type="application/octet-stream", filename=path.name, headers=NO_STORE)
+        if path is not None:
+            return FileResponse(path, media_type="application/octet-stream", filename=path.name, headers=NO_STORE)
+        info = signed().info()
+        if info and info.get("ipa_url"):
+            return RedirectResponse(info["ipa_url"], status_code=307, headers=NO_STORE)
+        raise HTTPException(status_code=404, detail="No signed build is published")
 
     @router.get("/api/ota/devices", dependencies=[Depends(require_owner)])
     def list_devices() -> dict[str, Any]:
