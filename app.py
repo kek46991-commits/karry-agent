@@ -1402,6 +1402,10 @@ def _autonomy_agent_handler(task: Subtask, context: dict[str, Any]) -> str:
     return result.text
 
 
+def _autonomy_routed(prompt: str) -> tuple[bool, bool]:
+    return bool(_chat_video_request(prompt)), bool(_chat_webtoon_request(prompt))
+
+
 def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
     """Image/video subtasks go through the normal task chat path, so generation and storage work as before."""
     session_id = context.get("session_id")
@@ -1409,7 +1413,10 @@ def _autonomy_media_handler(task: Subtask, context: dict[str, Any]) -> str:
         raise ValueError("画像・動画のサブタスクには session_id（タスクID）が必要です。")
     agent = app.dependency_overrides.get(get_agent, get_agent)()
     with _AUTONOMY_MEDIA_LOCK:
-        response = _execute(RunRequest(prompt=_autonomy_prompt(task, context), session_id=session_id), agent)
+        prompt = _autonomy_prompt(task, context)
+        if _autonomy_routed(prompt) != _autonomy_routed(task.prompt):
+            prompt = task.prompt  # context must not switch the chat router (e.g. an image task into video generation)
+        response = _execute(RunRequest(prompt=prompt, session_id=session_id), agent)
     if response.status in _AUTONOMY_FAILED:
         raise RuntimeError(response.text[:500])
     text = response.text
