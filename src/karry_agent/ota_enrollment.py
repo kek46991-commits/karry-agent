@@ -199,6 +199,18 @@ class SignedBuild:
         return bool(info and udid.upper() in info["devices"])
 
 
+def classify_browser(user_agent: str) -> str:
+    """ios_safari | ios_other | android | other — only iOS Safari can receive a profile."""
+    ua = user_agent or ""
+    if "Android" in ua:
+        return "android"
+    if not re.search(r"iPhone|iPad|iPod", ua):
+        return "other"
+    if re.search(r"CriOS|FxiOS|EdgiOS|OPiOS|Line/|FBAN|FBAV|Instagram|Twitter|GSA/|DuckDuckGo", ua) or "Safari" not in ua:
+        return "ios_other"
+    return "ios_safari"
+
+
 def public_base(request: Request) -> str:
     configured = os.getenv("KARRY_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if configured:
@@ -266,8 +278,19 @@ def build_router(require_owner, registry: DeviceRegistry | None = None, build: S
         return not expected or secrets.compare_digest((code or "").strip(), expected)
 
     @router.get("/ota/", response_class=HTMLResponse, include_in_schema=False)
-    def register_page() -> HTMLResponse:
+    def register_page(request: Request) -> HTMLResponse:
         needs_code = bool(os.getenv("KARRY_OTA_INVITE_CODE", ""))
+        browser = classify_browser(request.headers.get("user-agent", ""))
+        if browser != "ios_safari":
+            reason = {"android": "この端末はAndroidです。構成プロファイルはiPhone専用のため、ボタンを押しても何も起きません。",
+                      "ios_other": "iPhoneですがSafari以外のブラウザ（アプリ内ブラウザ・Chromeなど）です。プロファイルを受け取れるのはSafariだけです。",
+                      }.get(browser, "iPhone以外の環境です。構成プロファイルはiPhoneのSafariでのみ受け取れます。")
+            body = ('<h1 class="warn">この画面はiPhoneのSafariで開いてください</h1>'
+                    f'<div class="box"><p>{escape(reason)}</p>'
+                    "<p>iPhoneのSafariでこのURLを開き直してください（共有 → 「Safariで開く」、またはURLをコピーしてSafariに貼り付け）。</p></div>"
+                    '<p><a class="btn" href="/ota/?force=1">それでも続ける</a></p>')
+            if request.query_params.get("force") != "1":
+                return _page("Karry-Agent 2 端末登録", body)
         form = (
             '<form method="get" action="/ota/profile">'
             + ('<p><input name="code" placeholder="招待コード" autocomplete="off" required></p>' if needs_code else "")
@@ -280,7 +303,11 @@ def build_router(require_owner, registry: DeviceRegistry | None = None, build: S
             "3. 端末のUDIDだけが自動送信され、インストール画面に戻ります。</p>"
             "<p>送信されるのは UDID・機種・iOSバージョンのみです。連絡先・写真・位置情報などは送信しません。プロファイルは登録後に削除できます。</p></div>"
             + form
-            + "<p>Safariで開いてください。他のブラウザではプロファイルを受け取れません。</p>"
+            + '<p id="after" hidden class="box">ダウンロードの許可が出たら「許可」→ 設定アプリ →「プロファイルがダウンロード済み」→ インストール。'
+            '何も出ない場合は、Safariで開いているか確認してください。</p>'
+            "<p>Safariで開いてください。他のブラウザではプロファイルを受け取れません。</p>"
+            "<script>document.querySelector('form').addEventListener('submit',function(){"
+            "setTimeout(function(){document.getElementById('after').hidden=false},1500)})</script>"
         )
         return _page("Karry-Agent 2 端末登録", body)
 

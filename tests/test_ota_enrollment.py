@@ -70,7 +70,7 @@ def test_disabled_by_default_returns_404(tmp_path, monkeypatch):
 
 
 def test_profile_requests_only_udid_product_version_and_points_at_token_url(api):
-    page = api.get("/ota/")
+    page = api.get("/ota/", headers={"User-Agent": IOS_SAFARI})
     assert page.status_code == 200 and "デバイスを登録して進む" in page.text and 'action="/ota/profile"' in page.text
     token, profile = issue(api)
     assert profile["PayloadType"] == "Profile Service"
@@ -78,6 +78,29 @@ def test_profile_requests_only_udid_product_version_and_points_at_token_url(api)
     assert profile["PayloadContent"]["URL"] == f"https://agent.example/api/register-udid/{token}"
     assert "IMEI" not in profile["PayloadContent"]["DeviceAttributes"]
     assert "attachment" in api.get("/ota/profile").headers["content-disposition"]
+
+
+IOS_SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+
+
+@pytest.mark.parametrize(("agent", "kind"), [
+    (IOS_SAFARI, "ios_safari"),
+    ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/130.0 Mobile/15E148 Safari/604.1", "ios_other"),
+    ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Line/14.0", "ios_other"),
+    ("Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36", "android"),
+    ("Mozilla/5.0 (Windows NT 10.0) Chrome/130.0", "other"), ("", "other"),
+])
+def test_browser_classification(agent, kind):
+    assert ota.classify_browser(agent) == kind
+
+
+def test_register_page_explains_non_safari_and_allows_force(api):
+    android = api.get("/ota/", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130.0 Mobile Safari/537.36"})
+    assert "Androidです" in android.text and 'action="/ota/profile"' not in android.text
+    forced = api.get("/ota/?force=1", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130.0 Mobile Safari/537.36"})
+    assert 'action="/ota/profile"' in forced.text
+    safari = api.get("/ota/", headers={"User-Agent": IOS_SAFARI})
+    assert 'action="/ota/profile"' in safari.text and 'id="after"' in safari.text
 
 
 def test_public_base_url_override_and_forwarded_proto(api, monkeypatch):
@@ -176,7 +199,7 @@ def test_invite_code_gates_profile_download(api, monkeypatch):
     assert api.get("/ota/profile").status_code == 403
     assert api.get("/ota/profile", params={"code": "wrong"}).status_code == 403
     assert api.get("/ota/profile", params={"code": "team-2026"}).status_code == 200
-    assert 'name="code"' in api.get("/ota/").text
+    assert 'name="code"' in api.get("/ota/", headers={"User-Agent": IOS_SAFARI}).text
 
 
 def test_registry_survives_reload_and_memory_mode(tmp_path):
