@@ -10,7 +10,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -43,11 +45,37 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW, url));
                 return true;
             }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                if (request.isForMainFrame()) showProblem(response.getStatusCode());
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) showProblem(0);
+            }
         });
         if (BuildConfig.WORKER) web.addJavascriptInterface(new Bridge(), "KarryNative");
         setContentView(web);
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl(BuildConfig.SERVER_URL + BuildConfig.START_PATH);
+    }
+
+    /** Replaces raw server errors (e.g. {"detail":"Not Found"}) with a plain explanation and a retry button. */
+    private void showProblem(int status) {
+        String message = status == 404
+                ? "サーバーで見守り機能がまだ有効になっていません。<br>管理者に「KARRY_EXPERIMENTAL_FEATURES=1」の設定を頼んでください。"
+                : status == 0
+                ? "インターネットにつながっていないか、サーバーに届きませんでした。<br>電波を確認してください。"
+                : "サーバーが起動中か、混み合っています（" + status + "）。<br>1分ほど待ってからもう一度お試しください。";
+        String html = "<!doctype html><html lang=ja><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                + "<body style='font-family:sans-serif;padding:32px 20px;line-height:1.7;color:#1f2933'>"
+                + "<h2 style='margin-top:0'>" + getString(R.string.app_name) + "</h2><p style='font-size:18px'>" + message + "</p>"
+                + "<p><a href='" + BuildConfig.SERVER_URL + BuildConfig.START_PATH + "' style='display:block;text-align:center;padding:16px;"
+                + "background:#1f6feb;color:#fff;border-radius:12px;font-size:20px;text-decoration:none'>もう一度試す</a></p>"
+                + "<p style='color:#616e7c;font-size:14px'>つなぎ先: " + BuildConfig.SERVER_URL + "</p></body></html>";
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
 
     private boolean sameOrigin(Uri url) {
