@@ -631,6 +631,81 @@ test('secret switch is beside composer with visible setup guidance before connec
   assert.match(s.doc.getElementById('secretModeStatus').textContent,/ON・保存しない/);s.dom.window.close();
 });
 
+test('hack task starts with owner approval link before DNS or file verification',async()=>{
+  const authorization={id:'a'.repeat(32),origin:'https://authorized.example',consented:false,verified:false,
+    dns_name:'_karry-agent-verification.authorized.example',challenge:'karry-agent=challenge',
+    file_url:'https://authorized.example/.well-known/karry-agent-verification.txt',
+    expires_at:Date.now()/1000+1800,
+    approval_url:'https://example.onrender.com/api/hack/domain-authorizations/'+('a'.repeat(32))+'/approve?token=owner-link'};
+  const s=setup({sessions:[['hack',record('hack','ハック')]],fetch:async(url,request)=>{
+    if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[]});
+    if(url==='/api/hack/domain-authorizations'&&request.method==='POST')return json(authorization);
+  }});
+  s.authenticate();await s.win.connectSessions();
+  assert.equal(s.doc.getElementById('domainAuth').hidden,false);
+  s.doc.getElementById('domainTarget').value='https://authorized.example/api';
+  await s.win.createDomainAuthorization();
+  const body=JSON.parse(s.calls.find(call=>call.url==='/api/hack/domain-authorizations').request.body);
+  assert.equal(body.session_id,'hack');assert.equal(body.target_url,'https://authorized.example/api');
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者へ送る承認リンク/);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/owner-link/);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者の承認: 待機中/);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/有効期限:/);
+  s.dom.window.close();
+});
+
+test('domain authorization controls stay hidden outside exact hack task',async()=>{
+  const s=setup({sessions:[['normal',record('normal','ハック作業')],['hack',record('hack','ハック')]],fetch:async url=>{
+    if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[]});
+  }});
+  s.authenticate();await s.win.connectSessions();
+  assert.equal(s.doc.getElementById('domainAuth').hidden,true);
+  await s.win.selectSession('hack');assert.equal(s.doc.getElementById('domainAuth').hidden,false);
+  await s.win.selectSession('normal');assert.equal(s.doc.getElementById('domainAuth').hidden,true);
+  s.dom.window.close();
+});
+
+test('returning to a hack task restores its existing authorization state',async()=>{
+  const authorization={id:'b'.repeat(32),origin:'https://authorized.example',consented:true,verified:false,
+    dns_name:'_karry-agent-verification.authorized.example',challenge:'karry-agent=challenge',
+    file_url:'https://authorized.example/.well-known/karry-agent-verification.txt',expires_at:Date.now()/1000+1800};
+  const s=setup({saved:'hack',sessions:[['normal',record('normal','通常')],['hack',record('hack','ハック')]],fetch:async url=>{
+    if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[authorization]});
+    if(url.endsWith('/verify'))return json({detail:'先にドメイン所有者の承認が必要です。'},400);
+  }});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者の承認: 済み/);
+  await s.win.selectSession('normal');assert.equal(s.doc.getElementById('domainAuth').hidden,true);
+  await s.win.selectSession('hack');await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(s.doc.getElementById('domainAuthActions').hidden,false);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/DNS TXT/);
+  authorization.consented=false;await s.win.verifyDomainAuthorization('dns');
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/先にドメイン所有者の承認が必要/);
+  s.dom.window.close();
+});
+
+test('owner consent automatically checks DNS then the confirmation file',async()=>{
+  const authorization={id:'c'.repeat(32),origin:'https://authorized.example',consented:false,verified:false,
+    dns_name:'_karry-agent-verification.authorized.example',challenge:'karry-agent=challenge',
+    file_url:'https://authorized.example/.well-known/karry-agent-verification.txt',expires_at:Date.now()/1000+1800};
+  const verified={...authorization,consented:true,verified:true,method:'file'};
+  const s=setup({saved:'hack',sessions:[['hack',record('hack','ハック')]],fetch:async(url,request)=>{
+    if(url.startsWith('/api/hack/domain-authorizations?'))return json({authorizations:[authorization]});
+    if(url.endsWith('/verify')){
+      const body=JSON.parse(request.body);
+      if(body.method==='dns')return json({detail:'DNS確認コードを確認できませんでした。'},400);
+      return json(verified);
+    }
+  }});
+  s.authenticate();await s.win.connectSessions();await new Promise(resolve=>setTimeout(resolve,0));
+  authorization.consented=true;await s.win.autoAdvanceDomainAuthorization();
+  const verificationMethods=s.calls.filter(call=>call.url.endsWith('/verify')).map(call=>JSON.parse(call.request.body).method);
+  assert.deepEqual(verificationMethods,['dns','file']);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/ドメイン確認: 済み/);
+  assert.match(s.doc.getElementById('domainAuthResult').textContent,/所有者の承認: 済み/);
+  s.dom.window.close();
+});
+
 test('stored microphone denial shows permission steps and retries only after user changes permission',async()=>{
   let mediaCalls=0;const permission={state:'denied'};const microphone={getUserMedia:async()=>{mediaCalls++;return {getTracks:()=>microphone.tracks};}};
   const s=setup({permission,microphone,sessions:[['a',record('a','A')]]});s.authenticate();await s.win.connectSessions();await s.win.startMicrophone();
