@@ -18,6 +18,8 @@ def test_dockerfile_uses_render_port_and_web_command():
     text = Path("Dockerfile").read_text(encoding="utf-8")
     assert "EXPOSE 8000" in text
     assert "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}" in text
+    # Agent file tools must not resolve relative paths inside the app image.
+    assert "KARRY_WORKSPACE=/tmp/karry-agent" in text
 
 
 def test_compose_keeps_cli_override_and_secret_variable():
