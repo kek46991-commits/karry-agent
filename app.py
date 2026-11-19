@@ -56,7 +56,7 @@ from karry_agent.auth_token import configured_token, owner_credential_ok
 from karry_agent import user_login
 from karry_agent.secret_masking import mask_secrets, mask_text
 from karry_agent import secret_chat, secret_runtime
-from karry_agent import mobile_agents
+from karry_agent import mobile_agents, monitoring
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +467,8 @@ def require_tool_auth(credentials: Annotated[HTTPAuthorizationCredentials | None
 
 
 app.include_router(mobile_agents.build_router(require_tool_auth))
+app.include_router(monitoring.build_router(require_tool_auth))
+monitoring.install_log_capture()
 video_projects.install(app, require_tool_auth)
 
 
@@ -1437,6 +1439,11 @@ def operator_page():
                                                                "Permissions-Policy": "geolocation=(self)"})
 
 
+@app.get("/monitor", include_in_schema=False)
+def monitor_page():
+    return monitoring.page_response(STATIC_DIR / "monitor.html")
+
+
 @app.get("/operator.webmanifest", include_in_schema=False)
 def operator_manifest():
     return JSONResponse(OPERATOR_MANIFEST, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
@@ -1912,6 +1919,22 @@ def _public_openapi() -> dict[str, Any]:
 
 
 app.openapi = _public_openapi
+
+
+def _run_state() -> dict[str, Any]:
+    with _STATE_LOCK:
+        runs = list(_RUNS.values())[-10:]
+        running = sum(lock.locked() for lock in _SESSION_LOCKS.values())
+    return {"running_sessions": running, "recent_runs": [
+        {key: run.get(key) for key in ("run_id", "status", "steps", "tool_calls")} for run in runs]}
+
+
+monitoring.hub.register_state("agent", _run_state)
+monitoring.hub.register_state("clones", lambda: {"clones": [
+    {key: clone[key] for key in ("clone_id", "name", "specialist", "runs", "last_status")}
+    for clone in _OPTIMUS.clones.list()], "max_clones": _OPTIMUS.clones.limit()})
+monitoring.hub.register_state("mobile", mobile_agents.coordinator.summary)
+app.add_middleware(monitoring.MonitorMiddleware)
 # Added last so it wraps every other middleware (video/image guards included).
 app.add_middleware(feature_flags.ExperimentalFeatureGate)
 

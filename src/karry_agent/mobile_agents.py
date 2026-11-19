@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import monitoring
 from .self_healing import redact
 
 NO_STORE = {"Cache-Control": "private, no-store"}
@@ -198,6 +199,7 @@ class MobileAgentCoordinator:
                 self._events.pop(oldest, None)
             self._events[event["id"]] = event
             self._order.append(event["id"])
+        self._publish(event, "操作を登録しました")
         return self._copy(event)
 
     def confirm(self, event_id: str, device_id: str) -> dict[str, Any]:
@@ -207,7 +209,9 @@ class MobileAgentCoordinator:
                 raise MobileAgentError("mobile action is not awaiting confirmation")
             event["status"] = "pending"
             event["updated_at"] = self._clock()
-            return self._copy(event)
+            copied = self._copy(event)
+        self._publish(copied, "操作が承認されました")
+        return copied
 
     def claim_next(self, device_id: str) -> dict[str, Any] | None:
         self._check_device_id(device_id)
@@ -218,8 +222,12 @@ class MobileAgentCoordinator:
                     event["status"] = "claimed"
                     event["claimed_at"] = self._clock()
                     event["updated_at"] = event["claimed_at"]
-                    return self._copy(event)
-        return None
+                    copied = self._copy(event)
+                    break
+            else:
+                return None
+        self._publish(copied, "端末が操作を受け取りました")
+        return copied
 
     def report(
         self,
@@ -240,7 +248,21 @@ class MobileAgentCoordinator:
             event["result"] = {"success": success, "output": safe_output, "error_code": safe_code}
             event["diagnostic"] = None if success else _diagnose(safe_code, str(safe_output))
             event["updated_at"] = self._clock()
-            return self._copy(event)
+            copied = self._copy(event)
+        self._publish(copied, "端末が結果を報告しました", level="info" if success else "warning")
+        return copied
+
+    @staticmethod
+    def _publish(event: dict[str, Any], summary: str, level: monitoring.Level = "info") -> None:
+        monitoring.hub.publish("mobile", f"{summary}: {event['action']} ({event['status']})", {
+            key: event[key] for key in ("id", "device_id", "action", "status", "result", "diagnostic")
+        }, level=level, source=f"device:{event['device_id']}")
+
+    def summary(self) -> dict[str, Any]:
+        with self._lock:
+            statuses = [event["status"] for event in self._events.values()]
+            devices = len(self._device_tokens)
+        return {"devices": devices, "actions": {status: statuses.count(status) for status in sorted(set(statuses))}}
 
     def list_events(
         self,

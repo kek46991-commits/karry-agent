@@ -9,6 +9,7 @@ import logging
 import re
 import shlex
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +17,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from karry_agent import monitoring
 from karry_agent.self_healing import healing_engine
 from karry_agent.calendar_secrets import (
     CREDENTIALS_ENV,
@@ -48,11 +50,17 @@ class ToolRegistry:
         )
 
     def execute(self, name: str, args: dict[str, Any]) -> Any:
+        started = time.perf_counter()
+        monitoring.hub.publish("tool", f"ツール開始: {name}", {"tool": name, "arguments": args}, source="tool_registry")
         result = self._execute(name, args)
         if isinstance(result, dict) and "healing_status" not in result:
             healing = healing_engine.observe_result(result, {"source": "tool_registry", "tool_name": name})
             if healing and name in self.tools:
                 result = {**result, "healing_status": healing}
+        failed = isinstance(result, dict) and bool(result.get("error") or result.get("status") == "error")
+        monitoring.hub.publish("tool", f"ツール{'失敗' if failed else '完了'}: {name}",
+                               {"tool": name, "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                                "result": monitoring.outline(result)}, level="warning" if failed else "info", source="tool_registry")
         return result
 
     def _execute(self, name: str, args: dict[str, Any]) -> Any:

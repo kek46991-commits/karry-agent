@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import monitoring
 from .repair_pipeline import GitHubRepairPublisher, source_contains_secret, validated_changes
 
 CLONE_PREFIX = "ケリーエージェント"
@@ -122,7 +123,8 @@ class CloneRegistry:
             clone = KerryClone(uuid.uuid4().hex, f"{CLONE_PREFIX}{self._generation}号", self._generation,
                                specialist[:50], mission[:2000], self.clock())
             self._clones[clone.clone_id] = clone
-            return asdict(clone)
+        monitoring.hub.publish("clone", f"クローンを生成しました: {clone.name}", asdict(clone), source="optimus")
+        return asdict(clone)
 
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -140,7 +142,8 @@ class CloneRegistry:
             if clone_id in self._busy:
                 raise OptimusError("実行中のクローンは削除できません。", "clone_busy", 409)
             del self._clones[clone_id]
-            return {"status": "retired", "clone_id": clone_id, "name": clone.name}
+        monitoring.hub.publish("clone", f"クローンを削除しました: {clone.name}", {"clone_id": clone_id}, source="optimus")
+        return {"status": "retired", "clone_id": clone_id, "name": clone.name}
 
     @staticmethod
     def persona_prompt(clone: KerryClone, prompt: str) -> str:
@@ -158,6 +161,8 @@ class CloneRegistry:
             if clone_id in self._busy:
                 raise OptimusError("このクローンは実行中です。", "clone_busy", 409)
             self._busy.add(clone_id)
+        monitoring.hub.publish("clone", f"クローン実行を開始しました: {clone.name}",
+                               {"clone_id": clone_id, "prompt": prompt.strip()}, source="optimus")
         try:
             if agent is None and self.agent_factory is not None:
                 agent = self.agent_factory()
@@ -169,11 +174,16 @@ class CloneRegistry:
             with self._lock:
                 clone.runs += 1
                 clone.last_status = status
+            monitoring.hub.publish("clone", f"クローン実行が終わりました: {clone.name} ({status})",
+                                   {"clone_id": clone_id, "status": status}, source="optimus",
+                                   level="info" if status == "completed" else "warning")
             return {"clone": asdict(clone), "status": status, "text": getattr(result, "text", str(result)),
                     "steps": getattr(result, "steps", 0), "tool_calls": getattr(result, "tool_calls", 0)}
         except Exception:
             with self._lock:
                 clone.last_status = "failed"
+            monitoring.hub.publish("clone", f"クローン実行が失敗しました: {clone.name}", {"clone_id": clone_id},
+                                   level="error", source="optimus")
             raise
         finally:
             with self._lock:
