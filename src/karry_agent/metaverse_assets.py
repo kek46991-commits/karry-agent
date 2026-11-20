@@ -8,8 +8,11 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 BRAND_LABEL = "ラクマート経由 Keli Shop 正規取扱品"
 _DIRECT_IMPORT = re.compile(r"(?:アリババ|阿里巴巴|Alibaba|1688)\s*(?:から(?:の)?)?\s*直(?:接)?輸入(?:品)?", re.IGNORECASE)
@@ -94,3 +97,41 @@ def shop_product_assets(query: str, store: Any = None) -> dict[str, Any]:
     return {"status": "success", "query": query, "products": found[:MAX_RESULTS],
             "usage": "展示ボードと商品詳細モーダルに image_urls・price_jpy・title をそのまま使い、購入ボタンは product_url への"
                      "通常リンク（target属性なし）にしてください。表記は brand_label を使ってください。"}
+
+
+_QUOTED = re.compile(r"[「『\"“]([^「」『』\"“”]{2,60})[」』\"”]")
+_HEX32_ANY = re.compile(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
+
+
+def products_for_request(text: str, store: Any = None) -> list[dict[str, Any]]:
+    """Shop products referenced by a request: 32-hex IDs, quoted names, or full product titles in the text."""
+    from . import shop_store
+    text = text or ""
+    store = store or shop_store.ShopStore()
+    queries = _HEX32_ANY.findall(text.lower()) + _QUOTED.findall(text)
+    titles = [p.get("title") or "" for p in store.products() if p.get("status") == "published"]
+    titles += [(d.get("product") or {}).get("title") or "" for d in store.drafts()]
+    queries += [t for t in titles if len(t) >= 4 and t in text]
+    found: dict[str, dict[str, Any]] = {}
+    for query in dict.fromkeys(queries):
+        for item in shop_product_assets(query, store).get("products", []):
+            found.setdefault(item["id"], item)
+    return list(found.values())[:MAX_RESULTS]
+
+
+def website_context(request: str, store: Any = None) -> str:
+    """Rules (and real product data when referenced) appended to the one-shot website generation prompt."""
+    import json
+    rules = (f"\n\n[ショップ表記ルール] 商品の出自表記は「{BRAND_LABEL}」とし、「アリババ直輸入」「1688直輸入」等は使わないでください。"
+             "画像・価格・購入リンクは、下記データや依頼文にあるURL以外を捏造しないでください。")
+    try:
+        products = products_for_request(request, store)
+    except Exception:
+        logger.warning("shop product lookup failed for website context", exc_info=True)
+        products = []
+    if not products:
+        return rules
+    data = json.dumps(products, ensure_ascii=False)
+    return (rules + "\n[実在の商品データ（展示ボード・商品詳細モーダルに使用）]\n" + data +
+            "\nimage_urlsを展示ボードと商品詳細モーダルの<img src>に、title・price_jpy（円表記）をそのまま使ってください。"
+            "購入ボタンはproduct_urlへの通常の<a href>リンク（target属性なし）にし、product_urlがnullの商品は「準備中」と表示してください。")
