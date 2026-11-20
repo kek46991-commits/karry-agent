@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from .self_healing import _SECRET_KEY, healing_engine
 from . import website_storage
+from .metaverse_assets import apply_branding
 
 STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 INSTANT_DIR = STATIC_ROOT / "instant"
@@ -86,6 +87,7 @@ def public_base_url() -> str:
 
 
 def _plan(html_content: str, filename: str | None) -> dict[str, Any]:
+    html_content = apply_branding(html_content)
     body = _html_bytes(html_content)
     name = _filename(filename)
     return {"html_content": html_content, "filename": name, "sha256": hashlib.sha256(body).hexdigest(),

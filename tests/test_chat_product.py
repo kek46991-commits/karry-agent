@@ -91,10 +91,13 @@ def test_chat_switch_saves_a_draft_without_calling_the_model(chat):
     assert drafts == [("マグカップ", 25.0, [b"jpeg"])] and body["trace"][0]["action"] == chat_product.ACTION
 
 
-def test_product_wording_with_a_photo_also_saves_a_draft(chat):
-    client, sid, _, drafts = chat
-    body = client.post("/api/chat", json={"prompt": "この写真を出品して", "session_id": sid, "image_ids": ["b" * 32]}, headers=AUTH).json()
-    assert body["status"] == "completed" and len(drafts) == 1
+def test_product_wording_without_the_switch_never_saves_a_draft(chat):
+    client, sid, agent, drafts = chat
+    web.app.dependency_overrides[web.get_agent] = lambda: agent
+    body = client.post("/api/chat", json={"prompt": "この写真を出品して 1688 ラクマート", "session_id": sid,
+                                          "image_ids": ["b" * 32]}, headers=AUTH).json()
+    assert drafts == [] and body["text"].startswith("Answer")
+    assert chat_product.ACTION not in [step["action"] for step in body.get("trace") or []]
 
 
 def test_ordinary_photo_chat_still_goes_to_the_agent(chat):

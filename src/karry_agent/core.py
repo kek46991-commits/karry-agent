@@ -48,6 +48,8 @@ WebページのURL解析にはfetch_and_summarize_urlを優先し、その本文
 ホームページ・Webサイト・HTML成果物を作成する場合は、完全なHTMLを生成してdeploy_instant_websiteで公開準備をしてください。write_fileだけでURLを作成・公開したと説明したり、未確認のURLを案内したりしないでください。
 画像の生成を頼まれたらgenerate_imageを使ってください。生成画像はチャットの回答に自動で表示されるため、ファイル名・URL・Markdownの画像リンクを書かないでください。
 公開確認前のURLや、ツール結果で存在を確認していないURLを、閲覧できるものとして案内しないでください。
+ショールーム・メタバース等のHTMLで既存商品を扱う場合は、get_shop_product_assetsで商品IDまたは商品名から本物の画像URL・価格・商品ページURLを取得し、展示ボードと購入ボタン付きの商品詳細モーダルにそのまま使ってください。購入ボタンはproduct_urlへの通常リンク（target属性なし）にし、価格や画像を捏造しないでください。
+HTMLの商品表記は既定で「ラクマート経由 Keli Shop 正規取扱品」とし、「アリババ直輸入」「1688直輸入」等の表記は使わないでください。
 """
 
 SYSTEM_INSTRUCTION += "\n" + GITHUB_AUTO_SYNC_SYSTEM_PROMPT
