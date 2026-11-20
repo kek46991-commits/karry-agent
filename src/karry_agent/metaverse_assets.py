@@ -104,18 +104,21 @@ _HEX32_ANY = re.compile(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
 
 
 def products_for_request(text: str, store: Any = None) -> list[dict[str, Any]]:
-    """Shop products referenced by a request: 32-hex IDs, quoted names, or full product titles in the text."""
+    """Shop products referenced by a request: 32-hex IDs, full product titles in the text, then quoted names (exact before partial)."""
     from . import shop_store
     text = text or ""
     store = store or shop_store.ShopStore()
-    queries = _HEX32_ANY.findall(text.lower()) + _QUOTED.findall(text)
-    titles = [p.get("title") or "" for p in store.products() if p.get("status") == "published"]
-    titles += [(d.get("product") or {}).get("title") or "" for d in store.drafts()]
-    queries += [t for t in titles if len(t) >= 4 and t in text]
+    views = ([_product_view(p) for p in store.products() if p.get("status") == "published"]
+             + [_draft_view(d) for d in store.drafts()])
+    ids = set(_HEX32_ANY.findall(text.lower()))
+    quoted = [q.strip().casefold() for q in _QUOTED.findall(text) if q.strip()]
+    ranked = [v for v in views if v["id"] in ids]
+    ranked += [v for v in views if len(v["title"]) >= 4 and v["title"] in text]
+    ranked += [v for v in views if v["title"].casefold() in quoted]
+    ranked += [v for v in views if any(q in v["title"].casefold() for q in quoted)]
     found: dict[str, dict[str, Any]] = {}
-    for query in dict.fromkeys(queries):
-        for item in shop_product_assets(query, store).get("products", []):
-            found.setdefault(item["id"], item)
+    for item in ranked:
+        found.setdefault(item["id"], item)
     return list(found.values())[:MAX_RESULTS]
 
 
@@ -129,6 +132,10 @@ def website_context(request: str, store: Any = None) -> str:
     except Exception:
         logger.warning("shop product lookup failed for website context", exc_info=True)
         products = []
+    missing = sorted(set(_HEX32_ANY.findall((request or "").lower())) - {p["id"] for p in products})
+    if missing:
+        rules += (f"\n[指定された商品ID {', '.join(missing)} はショップに見つかりません。架空の商品・画像・価格・購入リンクは作らず、"
+                  "その商品の枠には「商品が見つかりません」と表示してください。]")
     if not products:
         return rules
     data = json.dumps(products, ensure_ascii=False)

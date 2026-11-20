@@ -140,3 +140,27 @@ def test_one_shot_website_generation_receives_shop_context(monkeypatch):
     client, generator = fake_client(model_response(text_part(HTML)))
     AgentCore(client=client, registry=registry).run("3Dショールームのホームページを作成して")
     assert "[SHOP-CONTEXT]" in generator.call_args.kwargs["contents"][0].parts[0].text
+
+
+def test_exact_title_wins_over_newer_substring_matches(monkeypatch):
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", BASE)
+    store = FakeStore()
+    store.items = [{"id": f"{i}" * 32, "status": "published", "title": f"北欧マグカップ {i}", "images": []} for i in range(1, 6)] + store.items
+    assert metaverse_assets.products_for_request("北欧マグカップのHTMLを作って", store)[0]["id"] == "a" * 32
+    assert metaverse_assets.products_for_request("「北欧マグカップ」の3D展示", store)[0]["id"] == "a" * 32
+
+
+def test_long_titles_still_resolve(monkeypatch):
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", BASE)
+    store = FakeStore()
+    long_title = "超軽量" + "粘土セット" * 30
+    store.items[0]["title"] = long_title
+    store.draft_items[0]["product"]["title"] = "下書き" + "トレー" * 40
+    found = metaverse_assets.products_for_request(f"{long_title}と{'下書き' + 'トレー' * 40}のショールーム", store)
+    assert {p["id"] for p in found} == {"a" * 32, "b" * 32}
+
+
+def test_unknown_product_id_is_flagged_instead_of_invented(monkeypatch):
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", BASE)
+    context = metaverse_assets.website_context("ID " + "f" * 32 + " のショールーム", FakeStore())
+    assert "f" * 32 in context and "商品が見つかりません" in context and "実在の商品データ" not in context
