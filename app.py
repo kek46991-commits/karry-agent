@@ -38,6 +38,7 @@ from karry_agent.self_healing import healing_engine, redact
 from karry_agent.repair_pipeline import configure_repair_pipeline
 from karry_agent import self_correction
 from karry_agent import shop_store
+from karry_agent import metaverse_assets
 from karry_agent import instant_website
 from karry_agent import website_artifacts
 from karry_agent import website_storage
@@ -967,7 +968,8 @@ def _chat_webtoon_request(prompt: str) -> bool:
 
 
 def _chat_product_request(request: RunRequest | MessageRequest, has_images: bool) -> bool:
-    return request.product_draft or (has_images and chat_product.is_product_request(request.prompt))
+    # The UI switch is authoritative: photos without it never become product drafts.
+    return bool(request.product_draft)
 
 
 def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[dict] | None = None) -> RunResponse:
@@ -993,9 +995,17 @@ def _execute_locked(request: RunRequest, agent: AgentCore | None, images: list[d
             result = chat_video.run(_VIDEO_ROUTER.start_autopilot, session_id, request.prompt, images, request.request_id,
                                     talking=request.video_talking, duration_seconds=request.video_seconds)
         if result is None:
+            current_prompt = request.prompt
+            if images and not private_mode and metaverse_assets.is_site_request(request.prompt):
+                try:
+                    assets = metaverse_assets.asset_prompt(metaverse_assets.publish_attachment_images(images))
+                except Exception as exc:
+                    healing_engine.analyze_and_heal(exc, {'source': 'chat_asset_publish'})
+                    assets = "\n\n[添付画像の公開URL化に失敗しました。画像URLは捏造せず、その旨を回答に含めてください。]"
+                prompt, current_prompt = prompt + assets, current_prompt + assets
             if agent is None:
                 agent = app.dependency_overrides.get(get_agent, get_agent)()
-            result = _run_agent(agent, prompt, private_mode, current_prompt=request.prompt, images=images)
+            result = _run_agent(agent, prompt, private_mode, current_prompt=current_prompt, images=images)
     except ValueError as exc:
         with _STATE_LOCK:
             _RUNS[run_id]["status"] = "failed"

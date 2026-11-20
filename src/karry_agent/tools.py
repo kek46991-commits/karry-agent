@@ -540,6 +540,11 @@ def update_calendar_event(
     return {"updated": True, **_calendar_event_summary(result)}
 
 
+
+def _shop_product_assets(query: str) -> dict:
+    from .metaverse_assets import shop_product_assets
+    return shop_product_assets(query)
+
 def build_default_registry() -> ToolRegistry:
     from . import agent_core as integrated
     from .git_workspace import run_git_command as safe_git_command
@@ -606,6 +611,12 @@ def build_default_registry() -> ToolRegistry:
     registry.register("web_search", "Web を検索し、概要と URL を返す", {"type": "object", "properties": {"query": string_param, "max_results": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]}, web_search)
     registry.register("fetch_and_summarize_url", "公開URLのページを1回取得し、タイトル・本文3000文字・見出し・構造を抽出する。URLの解析・改善提案は検索や再取得を繰り返さずこの結果から回答する", {"type": "object", "properties": {"url": string_param}, "required": ["url"]}, fetch_and_summarize_url)
     registry.register("deploy_instant_website", "HTML成果物の即時URL公開を準備する。生成HTML全文・公開先・persistenceを提示し所有者が確認後に公開する。既定は管理者設定済みR2/S3への永続保存。Git push不要。設定不足時はエラー。localの明示一時モードは再起動で消える", {"type": "object", "properties": {"html_content": string_param, "filename": string_param}, "required": ["html_content"]}, prepare_instant_website)
+    registry.register(
+        "get_shop_product_assets",
+        "ショップの登録済み・下書き商品を商品ID（32桁）または商品名で検索し、本物の画像URL・価格（円）・商品ページURL（購入リンク）を返す。メタバース/ショールームHTMLの展示ボードや商品詳細モーダルに使う",
+        {"type": "object", "properties": {"query": {"type": "string", "maxLength": 100}}, "required": ["query"]},
+        _shop_product_assets,
+    )
     registry.register(
         "get_weather",
         "指定地域の現在の天気をOpen-Meteoから取得する。天気、気温、湿度、風速を尋ねられたら使う",
