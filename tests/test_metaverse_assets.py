@@ -107,3 +107,36 @@ def test_ordinary_photo_question_stays_private(chat, monkeypatch):  # noqa: F811
     web.app.dependency_overrides[web.get_agent] = lambda: agent
     body = client.post("/api/chat", json={"prompt": "これは何？", "session_id": sid, "image_ids": ["f" * 32]}, headers=AUTH).json()
     assert drafts == [] and "公開URL" not in agent.prompts[-1] and body["text"].startswith("Answer")
+
+
+def test_products_are_found_by_id_quoted_name_or_title(monkeypatch):
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", BASE)
+    store = FakeStore()
+    assert [p["id"] for p in metaverse_assets.products_for_request(f"商品ID {'a' * 32} を展示", store)] == ["a" * 32]
+    assert [p["id"] for p in metaverse_assets.products_for_request("「竹のトレー」の3D展示", store)] == ["b" * 32]
+    assert [p["id"] for p in metaverse_assets.products_for_request("北欧マグカップと竹のトレーを並べて", store)] == ["a" * 32, "b" * 32]
+    assert metaverse_assets.products_for_request("ショールームを作って", store) == []
+
+
+def test_website_context_carries_rules_and_real_product_data(monkeypatch):
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", BASE)
+    context = metaverse_assets.website_context(f"{'a' * 32} のショールーム", FakeStore())
+    assert metaverse_assets.BRAND_LABEL in context and f"{BASE}/products/{'a' * 32}" in context and "2489" in context
+    plain = metaverse_assets.website_context("ショールームを作って", FakeStore())
+    assert metaverse_assets.BRAND_LABEL in plain and "実在の商品データ" not in plain
+
+
+def test_one_shot_website_generation_receives_shop_context(monkeypatch):
+    from karry_agent.core import AgentCore
+    from tests.test_website_creation_core import (
+        HTML,
+        fake_client,
+        model_response,
+        registry_with_prepare,
+        text_part,
+    )
+    monkeypatch.setattr(metaverse_assets, "website_context", lambda request, store=None: "\n[SHOP-CONTEXT]")
+    registry, _ = registry_with_prepare()
+    client, generator = fake_client(model_response(text_part(HTML)))
+    AgentCore(client=client, registry=registry).run("3Dショールームのホームページを作成して")
+    assert "[SHOP-CONTEXT]" in generator.call_args.kwargs["contents"][0].parts[0].text
