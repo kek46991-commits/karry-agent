@@ -54,3 +54,16 @@ def test_chat_html_is_fresh_and_microphone_permission_is_explicit():
     revalidate = client.get('/static/index.html', headers={'If-None-Match': etag})
     assert revalidate.status_code == 304
     assert 'no-store' in revalidate.headers['cache-control']
+
+
+def test_runtime_overwrite_of_static_index_cannot_replace_chat_ui(tmp_path, monkeypatch):
+    import app as app_module
+
+    (tmp_path / "index.html").write_text("<title>Keli Shop MetaCamp 3D</title>", encoding="utf-8")
+    monkeypatch.setattr(app_module, "STATIC_DIR", tmp_path)
+    client = TestClient(app)
+    for url in ('/', '/static/index.html'):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert 'MetaCamp' not in response.text
+        assert '日本語 自律型 AI エージェント' in response.text

@@ -78,6 +78,17 @@ STATIC_DIR = Path(__file__).parent / "static"
 instant_website.configure_static_root(STATIC_DIR)
 CHAT_HTML_HEADERS = {"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache",
                      "Permissions-Policy": "microphone=(self)"}
+# Snapshot the chat UI at startup so runtime writes into static/ (e.g. agent-generated
+# sites) can never replace the page served at "/".
+_CHAT_UI_HTML = (STATIC_DIR / "index.html").read_bytes()
+_CHAT_UI_ETAG = '"' + hashlib.sha256(_CHAT_UI_HTML).hexdigest()[:32] + '"'
+
+
+def _chat_ui_response(request_headers) -> Response:
+    headers = {**CHAT_HTML_HEADERS, "ETag": _CHAT_UI_ETAG}
+    if _CHAT_UI_ETAG in (request_headers.get("if-none-match") or ""):
+        return Response(status_code=304, headers=headers)
+    return Response(_CHAT_UI_HTML, media_type="text/html; charset=utf-8", headers=headers)
 
 
 class ArtifactNotFound(HTTPException):
@@ -136,6 +147,8 @@ def instant_artifact(filename: str, request: Request):
 class ArtifactStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         parts = Path(os.path.normpath(path)).parts
+        if parts == ("index.html",) and scope.get("method") in {"GET", "HEAD"}:
+            return _chat_ui_response(Request(scope).headers)
         if parts and parts[0] == "instant":
             if len(parts) != 2:
                 return resource_errors.respond(scope, resource_errors.missing('artifact'), 404)
@@ -1137,10 +1150,8 @@ def google_oauth_disconnect() -> dict[str, bool]:
 
 
 @app.get("/", include_in_schema=False)
-def index():
-    from fastapi.responses import FileResponse
-
-    return FileResponse(STATIC_DIR / "index.html", headers=CHAT_HTML_HEADERS)
+def index(request: Request):
+    return _chat_ui_response(request.headers)
 
 
 @app.post("/run", response_model=RunResponse, dependencies=[Depends(require_api_auth)])
