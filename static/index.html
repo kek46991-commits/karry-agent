@@ -938,6 +938,7 @@
     const panel=$('videoEditPanel');if(!panel?.open||$('videoChatOptions').hidden)return;
     if(!ownerToken()){$('videoEditList').replaceChildren(make('p',{className:'hint',textContent:'上部でAPIトークンを接続すると使えます。'}));return;}
     try{VIDEO_EDIT.jobs=await editJson('');}catch(error){videoEditStatus(`一覧を取得できませんでした: ${error.message}`);return;}
+    if($('videoEditStatus')?.textContent.startsWith('一覧を取得できませんでした'))videoEditStatus('');
     for(const id of VIDEO_EDIT.editors.keys())if(!VIDEO_EDIT.jobs.some(j=>j.id===id))VIDEO_EDIT.editors.delete(id);
     renderVideoEdits();
     if(VIDEO_EDIT.jobs.some(j=>VIDEO_EDIT_ACTIVE.has(j.status)))VIDEO_EDIT.timer=setTimeout(loadVideoEdits,20000);
