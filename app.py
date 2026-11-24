@@ -1384,6 +1384,10 @@ def _media_session(session_id: str) -> None:
 _VIDEO_ROUTER = video_suite_api.build_router(require_tool_auth, lambda session_id: _media_session(session_id))
 app.include_router(_VIDEO_ROUTER)
 
+from karry_agent import video_edit_api
+
+app.include_router(video_edit_api.build_router(require_tool_auth))
+
 from karry_agent.webtoon import api as webtoon_api  # noqa: E402
 
 _WEBTOON_ROUTER = webtoon_api.build_router(require_tool_auth)

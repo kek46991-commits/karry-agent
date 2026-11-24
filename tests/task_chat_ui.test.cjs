@@ -893,3 +893,28 @@ test('email login stores a session token on this device, connects, and logout fo
   s.doc.getElementById('logoutButton').click();assert.equal(s.win.localStorage.getItem('karry-login'),null);assert.equal(s.doc.getElementById('apiToken').value,'');assert.notEqual(s.doc.body.dataset.connection,'online');
   s.dom.window.close();
 });
+
+test('video edit panel uploads a long video in parts and lists jobs',async()=>{
+  const job={id:'b'.repeat(32),filename:'talk.mp4',size:10,parts_total:3,part_size:4,status:'uploading',status_label:'アップロード中',segment_count:0,kept_seconds:0,target_seconds:1800};
+  const puts=[];let jobs=[];
+  const fetch=async(url,request={})=>{
+    if(url==='/api/video/edits'&&request.method==='POST'){const body=JSON.parse(request.body);assert.equal(body.target_minutes,30);assert.equal(body.size,10);jobs=[job];return json(job,201);}
+    if(url==='/api/video/edits')return json(jobs);
+    if(url.startsWith(`/api/video/edits/${job.id}/parts/`)){puts.push([Number(url.split('/').at(-1)),request.body.size,request.headers.Authorization]);return json({part:1});}
+    if(url===`/api/video/edits/${job.id}/complete`){jobs=[{...job,status:'queued_analyze',status_label:'文字起こし待ち'}];return json(jobs[0]);}
+  };
+  const s=setup({fetch,experimental:true});await new Promise(r=>setTimeout(r,5));const $=id=>s.doc.getElementById(id);
+  $('apiToken').value='owner-token';
+  const panel=$('videoEditPanel');assert.ok(panel);panel.open=true;panel.dispatchEvent(new s.win.Event('toggle'));
+  await new Promise(r=>setTimeout(r,5));
+  const file=new s.win.File(['0123456789'],'talk.mp4',{type:'video/mp4'});
+  Object.defineProperty($('videoEditFile'),'files',{value:[file]});
+  $('videoEditStart').click();
+  for(let i=0;i<50&&!/アップロード完了/.test($('videoEditStatus').textContent);i++)await new Promise(r=>setTimeout(r,5));
+  assert.deepEqual(puts,[[1,4,'Bearer owner-token'],[2,4,'Bearer owner-token'],[3,2,'Bearer owner-token']]);
+  assert.match($('videoEditStatus').textContent,/アップロード完了/);
+  await new Promise(r=>setTimeout(r,5));
+  assert.match($('videoEditList').textContent,/文字起こし待ち/);
+  assert.doesNotMatch($('videoEditList').textContent,/null|undefined|false/);
+  s.dom.window.close();
+});
