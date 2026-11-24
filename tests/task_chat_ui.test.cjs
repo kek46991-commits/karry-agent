@@ -918,3 +918,23 @@ test('video edit panel uploads a long video in parts and lists jobs',async()=>{
   assert.doesNotMatch($('videoEditList').textContent,/null|undefined|false/);
   s.dom.window.close();
 });
+
+test('a video attached in chat starts the long video editor instead of chat',async()=>{
+  const job={id:'c'.repeat(32),filename:'interview.mp4',size:6,parts_total:2,part_size:4,status:'uploading',status_label:'アップロード中',segment_count:0,kept_seconds:0,target_seconds:1200};
+  let jobs=[],minutes=null;const puts=[];
+  const s=setup({sessions:[['a',record('a','A')]],experimental:true,fetch:async(url,request={})=>{
+    if(url==='/api/video/edits'&&request.method==='POST'){minutes=JSON.parse(request.body).target_minutes;jobs=[job];return json(job,201);}
+    if(url==='/api/video/edits')return json(jobs);
+    if(url.startsWith(`/api/video/edits/${job.id}/parts/`)){puts.push(request.body.size);return json({part:1});}
+    if(url===`/api/video/edits/${job.id}/complete`){jobs=[{...job,status:'queued_analyze',status_label:'文字起こし待ち'}];return json(jobs[0]);}
+  }});
+  s.authenticate();await s.win.connectSessions();await new Promise(r=>setTimeout(r,5));
+  await s.win.uploadSelectedImage({target:{files:[new s.win.File(['012345'],'interview.mp4',{type:'video/mp4'})]}});
+  assert.match(s.doc.getElementById('imagePreviews').textContent,/interview\.mp4/);assert.equal(s.doc.getElementById('prompt').required,false);
+  s.doc.getElementById('prompt').value='20分にしてテロップ入れて';await s.win.sendMessage({preventDefault(){}});
+  assert.equal(minutes,20);assert.deepEqual(puts,[4,2]);
+  assert.equal(s.calls.filter(c=>c.url==='/api/chat'||c.url==='/api/upload_image').length,0);
+  assert.equal(s.doc.getElementById('videoEditPanel').open,true);
+  assert.match(s.doc.getElementById('messages').textContent,/20分に編集します[\s\S]*アップロード完了/);
+  assert.equal(s.doc.getElementById('imagePreviews').textContent,'');await new Promise(r=>setTimeout(r,20));s.dom.window.close();
+});

@@ -58,7 +58,7 @@
         <div class="task-heading"><div class="task-heading-row"><h2 id="currentTask">タスクを選択してください</h2><button id="clearHistory" class="clear-history" type="button" title="このタスクの会話履歴を消去" aria-label="会話履歴をクリア" disabled>🗑 履歴をクリア</button></div><div class="latest" id="latestBox" hidden>最新の公開成果物：<a id="latestUrl" target="_blank" rel="noopener noreferrer">ページを開く</a></div></div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty" id="empty">タスクごとに会話を分けて進められます。<br>Thought → Action → Observation は実行モニターに表示されます。</div></div>
         <div id="chatTools" class="composer-tools"><label class="secret-controls" for="secretToggle"><input id="secretToggle" type="checkbox" role="switch" aria-describedby="secretSetupHint secretNotice" disabled><span>🔒 シークレットモード</span><span id="secretModeStatus" class="mode-status">OFF・通常保存</span></label><p id="secretSetupHint" class="hint">上部でAPIトークンを接続し、タスクを選ぶと切り替えられます。</p><p id="secretNotice" class="secret-notice" role="status" aria-live="polite" hidden>シークレット：この会話は保存しません。画像添付・公開・書き込み機能は使えません。</p></div>
-        <div class="attachments"><label for="imageFile">画像を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="画像を読み込ませる" multiple disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です（サイト・メタバース作成の依頼では素材用の公開URLにします）。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品として登録（原価を書いて SAFE なら自動掲載）</label><div id="productDraftHint" class="hint">オンで写真（最大5枚）とラクマート / 1688 の URL を送るだけで、Gemini が商品名・カテゴリーを付けて写真を整え、「原価 25元」のように原価を書くと、その原価で販売価格と粗利益を計算し、法的審査が SAFE ならショップに掲載します。原価を書かないときは掲載せず、下書きに保存します（管理画面で原価を入れてください）。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
+        <div class="attachments"><label for="imageFile">画像・動画を添付</label> <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-label="画像・動画を読み込ませる" multiple disabled><div id="imageStatus" class="hint" aria-live="polite">JPG / PNG / WEBP / GIF。入力4 MiB・次の送信は5枚まで（まとめて選べます）。画像は非公開です（サイト・メタバース作成の依頼では素材用の公開URLにします）。</div><div id="imagePreviews" class="image-previews"></div><label class="product-draft-toggle"><input id="productDraft" type="checkbox"> 🛍 商品として登録（原価を書いて SAFE なら自動掲載）</label><div id="productDraftHint" class="hint">オンで写真（最大5枚）とラクマート / 1688 の URL を送るだけで、Gemini が商品名・カテゴリーを付けて写真を整え、「原価 25元」のように原価を書くと、その原価で販売価格と粗利益を計算し、法的審査が SAFE ならショップに掲載します。原価を書かないときは掲載せず、下書きに保存します（管理画面で原価を入れてください）。</div><div id="manualModeHint" class="hint manual-mode" role="status" hidden>📝 手動入力モード: 次の送信は画像を使わず、文字だけで送ります。<button id="manualModeOff" type="button">画像解析に戻す</button></div></div>
         <form id="chatForm"><textarea id="prompt" maxlength="20000" placeholder="選択したタスクへの指示を入力…" required disabled></textarea><button id="mic" class="icon-button" type="button" title="音声入力" aria-label="音声入力" disabled>🎙</button><button id="send" type="submit" disabled>送信</button></form>
         <div class="voice-options"><input id="autoSpeak" type="checkbox"><label for="autoSpeak">返答を自動で読み上げる</label><span class="speech-settings" id="speechSettings"><label for="voiceSelect">声</label><select id="voiceSelect"><option value="">自動（男性の低い声を優先）</option></select><label for="speechRate">速さ</label><input id="speechRate" type="range" min="1" max="2" step="0.1" value="1.5"><span id="speechRateValue">1.5倍</span></span><button id="stopSpeech" class="stop-speech" type="button" hidden>⏹ 読み上げを止める</button><span id="voiceHint" class="voice-hint" hidden></span><span id="voiceStatus">音声機能を確認中…</span></div>
         <details id="micHelp" class="mic-help"><summary>マイクの許可方法・利用できない場合</summary><ol><li>APIトークンを接続してタスクを選び、マイクボタンを押します。許可確認が出たら「許可」を選んでください。</li><li>以前に拒否した場合は、ブラウザのURLバー付近のサイト設定から、このサイトの「マイク」を許可して再読み込みします。必要なら端末設定でもブラウザのマイク利用を許可してください。</li><li>アプリ内・埋め込み画面は音声機能が制限される場合があります。下のリンクを共有メニュー等から通常のブラウザで開いてください。音声認識が未対応の場合は手入力を利用できます。</li></ol><a id="openBrowser" href="https://karry-agent-1.onrender.com/?v=mic-secret-20261019" target="_blank" rel="noopener noreferrer">本番チャットを通常ブラウザで開く</a><br><button id="micRetry" type="button">許可を変更した後で再試行</button><p class="ui-version">UI: mic-secret-20261019</p></details>
@@ -74,7 +74,7 @@
   let sessions=[], sessionId=null, connected=false, busy=false, viewVersion=0, pendingMessage=null;
   const inFlight=new Set();
   function currentSending(){return !!sessionId&&inFlight.has(sessionId);}
-  let selectedImages=[], imageVersion=0;
+  let selectedImages=[], imageVersion=0, attachedVideo=null;
   const MAX_IMAGES=5;
   let isSecret=false;
   const secretConversations=new Map();
@@ -426,7 +426,12 @@
     return data.image_url;
   }
   function renderAttachments(){
-    $('imagePreviews').replaceChildren();$('prompt').required=selectedImages.length===0;
+    $('imagePreviews').replaceChildren();$('prompt').required=selectedImages.length===0&&!attachedVideo;
+    if(attachedVideo){
+      const card=document.createElement('div');card.className='image-card';const label=document.createElement('span');label.textContent=`🎞 ${attachedVideo.name}（${(attachedVideo.size/1024/1024).toFixed(0)} MB）`;
+      const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','動画の添付を外す');remove.disabled=busy||currentSending();remove.onclick=()=>{attachedVideo=null;renderAttachments();};
+      card.append(label,remove);$('imagePreviews').appendChild(card);
+    }
     const owner=sessionId,version=imageVersion;
     for(const meta of selectedImages){
       const card=document.createElement('div');card.className='image-card';const img=document.createElement('img');img.alt=meta.filename;
@@ -448,9 +453,18 @@
       privateImageUrl(id,owner).then(url=>{if(version===imageVersion&&owner===sessionId&&img.isConnected)img.src=url;}).catch(()=>{if(version!==imageVersion||!img.isConnected)return;const note=document.createElement('span');note.className='hint';note.textContent='生成画像を表示できませんでした。タスクを読み込み直してください。';img.replaceWith(note);});
     }
   }
+  function isVideoFile(file){return /^video\//.test(file.type)||/\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(file.name||'');}
   async function uploadSelectedImage(event){
-    const files=[...(event.target.files||[])];if(!files.length||busy||currentSending()||!connected||!sessionId)return;
+    let files=[...(event.target.files||[])];if(!files.length||busy||currentSending()||!connected||!sessionId)return;
     if(isSecret){$('imageFile').value='';$('imageStatus').textContent='シークレット会話では画像添付を使えません。テキストのみで会話します。';return;}
+    const video=files.find(isVideoFile);
+    if(video){
+      files=files.filter(file=>!isVideoFile(file));
+      if($('videoChatOptions').hidden)$('imageStatus').textContent='長い動画の編集は、この環境では使えません。';
+      else if(video.size>5*1024**3)$('imageStatus').textContent='動画は5 GBまでです。';
+      else{attachedVideo=video;renderAttachments();$('imageStatus').textContent='🎞 動画を添付しました。「30分にしてテロップ入れて」のように送ると、カットとテロップ入れを始めます（送るまでアップロードしません）。';}
+      if(!files.length){$('imageFile').value='';return;}
+    }
     if(files.some(file=>file.size>4*1024*1024||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type))){$('imageStatus').textContent='JPG/PNG/WEBP/GIFの4 MiB以内の画像を選んでください。';$('imageFile').value='';return;}
     const room=MAX_IMAGES-selectedImages.length,chosen=files.slice(0,Math.max(0,room)),skipped=files.length-chosen.length;
     const owner=sessionId;setBusy(true);let added=0,warning='';
@@ -584,8 +598,19 @@
     const link=document.createElement('a');link.href=`/products/${item.id}`;link.className='image-link';link.textContent='ショップで見る';card.append(document.createElement('br'),link);
   }
   function isCurrentSend(owner,mode,secretId,version){return (mode?version===viewVersion:!busy)&&sessionId===owner&&isSecret===mode&&(!mode||secretStateFor(owner)?.secretSessionId===secretId);}
+  async function sendChatVideo(){
+    if(busy||!connected||!sessionId||VIDEO_EDIT.uploading)return;
+    const file=attachedVideo,prompt=$('prompt').value.trim()||'この動画を30分に編集して、テロップを入れて';
+    const match=prompt.match(/(\d{1,3})\s*分/),minutes=match?Math.min(180,Math.max(1,Number(match[1]))):30;
+    attachedVideo=null;renderAttachments();$('prompt').value='';addMessage('user',`🎞 ${file.name}\n${prompt}`);
+    const note=addMessage('agent',`「${file.name}」を${minutes}分に編集します。カットとテロップの確認・書き出しは「🎞 長い動画を編集」で行えます。`),line=document.createElement('div');line.className='hint';note.appendChild(line);
+    const panel=$('videoEditPanel');if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest'});}
+    await loadVideoEdits();
+    await uploadVideoEdit(file,minutes,text=>{videoEditStatus(text);line.textContent=text;});
+  }
   async function sendMessage(event){
     event.preventDefault();const mode=isSecret;
+    if(attachedVideo&&!mode){await sendChatVideo();return;}
     const productDraft=!mode&&!manualInput&&$('productDraft').checked&&selectedImages.length>0;
     const prompt=$('prompt').value.trim()||(mode?'':productDraft?'商品写真を登録して':selectedImages.length?'添付画像を確認してください。':'');
     if(!prompt||busy||!connected||!sessionId||inFlight.has(sessionId))return;
@@ -833,10 +858,9 @@
   function clock(seconds){const s=Math.max(0,Math.round(Number(seconds)||0)),h=Math.floor(s/3600),m=Math.floor(s/60)%60,x=String(s%60).padStart(2,'0');return h?`${h}:${String(m).padStart(2,'0')}:${x}`:`${m}:${x}`;}
   function minutesLabel(seconds){return `${(Number(seconds||0)/60).toFixed(1)}分`;}
   function videoEditStatus(text){const node=$('videoEditStatus');if(node)node.textContent=text;}
-  async function uploadVideoEdit(){
-    const file=$('videoEditFile')?.files?.[0];if(!file||VIDEO_EDIT.uploading)return;
-    if(!ownerToken()){videoEditStatus('先に上部でAPIトークンを接続してください。');return;}
-    const minutes=Number.parseInt($('videoEditMinutes').value,10)||30;
+  async function uploadVideoEdit(file=$('videoEditFile')?.files?.[0],minutes=Number.parseInt($('videoEditMinutes').value,10)||30,report=videoEditStatus){
+    if(!file||VIDEO_EDIT.uploading)return;
+    if(!ownerToken()){report('先に上部でAPIトークンを接続してください。');return;}
     VIDEO_EDIT.uploading=true;$('videoEditStart').disabled=true;
     try{
       let job=VIDEO_EDIT.jobs.find(j=>j.status==='uploading'&&j.filename===file.name&&j.size===file.size),done=new Set();
@@ -851,14 +875,14 @@
           if(response?.ok)break;
           if(response&&response.status<500&&response.status!==429){let data=null;try{data=await response.json();}catch(_){}throw new Error(response.status===401?'APIトークンを確認してください':typeof data?.detail==='string'?data.detail:`HTTP ${response.status}`);}
           if(attempt>=5)throw new Error('通信が不安定です。同じファイルを選び直すと続きから送信します。');
-          videoEditStatus(`通信エラー。再送します…（${n}/${total}）`);await new Promise(r=>setTimeout(r,3000*(attempt+1)));
+          report(`通信エラー。再送します…（${n}/${total}）`);await new Promise(r=>setTimeout(r,3000*(attempt+1)));
         }
-        sent++;videoEditStatus(`アップロード中… ${Math.floor(sent*100/total)}%（${sent}/${total}）。この画面を開いたままにしてください。`);
+        sent++;report(`アップロード中… ${Math.floor(sent*100/total)}%（${sent}/${total}）。この画面を開いたままにしてください。`);
       }
       await editJson(`/${job.id}/complete`,{method:'POST'});
-      videoEditStatus('アップロード完了。文字起こしと編集プランを作っています（完成したらここに表示します）。');
+      report('アップロード完了。文字起こしと編集プランを作っています（完成したらここに表示します）。');
       $('videoEditFile').value='';
-    }catch(error){videoEditStatus(`アップロードできませんでした: ${error.message}`);}
+    }catch(error){report(`アップロードできませんでした: ${error.message}`);}
     finally{VIDEO_EDIT.uploading=false;$('videoEditStart').disabled=false;loadVideoEdits();}
   }
   function videoEditMeta(job){
@@ -944,7 +968,7 @@
     if(VIDEO_EDIT.jobs.some(j=>VIDEO_EDIT_ACTIVE.has(j.status)))VIDEO_EDIT.timer=setTimeout(loadVideoEdits,20000);
   }
   $('videoEditPanel')?.addEventListener('toggle',loadVideoEdits);
-  $('videoEditStart')?.addEventListener('click',uploadVideoEdit);
+  $('videoEditStart')?.addEventListener('click',()=>uploadVideoEdit());
 </script>
 </body>
 </html>
