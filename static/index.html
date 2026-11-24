@@ -927,10 +927,10 @@
         job.status==='review'&&button('🎬 書き出す','render'),
         job.status==='done'&&button('▶ 再生','play'),job.status==='done'&&button('⬇ ダウンロード','download'),
         job.status==='failed'&&button('↻ 再試行','retry'),button('🗑 削除','delete'));
-      card.append(make('div',{className:'video-project-title'},lampFor(lamp),job.title||job.filename),make('div',{className:'video-project-meta',textContent:videoEditMeta(job)}),
+      card.append(...[make('div',{className:'video-project-title'},lampFor(lamp),job.title||job.filename),make('div',{className:'video-project-meta',textContent:videoEditMeta(job)}),
         job.error?make('div',{className:'hint',textContent:`⚠ ${job.error}`}):null,
         job.status==='uploading'?make('div',{className:'hint',textContent:'アップロードが途中です。同じファイルを選んで「アップロードして編集」を押すと続きから送ります。'}):null,
-        actions,VIDEO_EDIT.editors.get(job.id)||null);
+        actions,VIDEO_EDIT.editors.get(job.id)].filter(Boolean));
       return card;}));
   }
   async function loadVideoEdits(){

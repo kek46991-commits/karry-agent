@@ -915,5 +915,6 @@ test('video edit panel uploads a long video in parts and lists jobs',async()=>{
   assert.match($('videoEditStatus').textContent,/アップロード完了/);
   await new Promise(r=>setTimeout(r,5));
   assert.match($('videoEditList').textContent,/文字起こし待ち/);
+  assert.doesNotMatch($('videoEditList').textContent,/null|undefined|false/);
   s.dom.window.close();
 });
