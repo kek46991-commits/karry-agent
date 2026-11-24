@@ -212,3 +212,122 @@ def test_pr_creation_requires_review_confirmation_before_gh_invocation(repo):
                              body="Test PR", confirm_reviewed_diff=False)
     assert result["status"] == "error"
     assert "confirm_reviewed_diff" in result["error"]
+
+
+def _fake_gh(monkeypatch, *, auth_ok=True):
+    calls = []
+    real_run = git_workspace._run
+
+    def run(program, args, *, timeout=30):
+        if program != "gh":
+            return real_run(program, args, timeout=timeout)
+        calls.append(args)
+        code = 0 if auth_ok or args[:2] != ["auth", "status"] else 1
+        return subprocess.CompletedProcess(["gh", *args], code, "https://github.com/o/r/pull/1\n" if code == 0 else "", "")
+
+    monkeypatch.setattr(git_workspace, "_run", run)
+    return calls
+
+
+def _pushed_feature(path, branch="feature/pr-ready"):
+    assert run_git_command("create_branch", branch_name=branch)["status"] == "success"
+    (path / "feature.txt").write_text("feature\n", encoding="utf-8")
+    run_git_command("stage", paths=["feature.txt"])
+    run_git_command("commit", paths=["feature.txt"], message="add feature", confirm_reviewed_diff=True)
+    assert run_git_command("push", branch_name=branch, confirm_reviewed_diff=True)["status"] == "success"
+    return branch
+
+
+def create_pr(branch, **overrides):
+    return run_git_command("create_pr", **{"branch_name": branch, "title": "Add feature", "body": "Tested.",
+                                           "confirm_reviewed_diff": True, **overrides})
+
+
+def test_pr_is_created_from_the_pushed_feature_branch_against_main(repo, monkeypatch):
+    path, _ = repo
+    branch = _pushed_feature(path)
+    calls = _fake_gh(monkeypatch)
+    result = create_pr(branch, title="  Add feature  ")
+    assert result["status"] == "success" and "pull/1" in result["stdout"]
+    assert calls[-1] == ["pr", "create", "--base", "main", "--head", branch, "--title", "Add feature", "--body", "Tested."]
+
+
+@pytest.mark.parametrize("overrides,error", [
+    ({"branch_name": "feature/other"}, "current dedicated branch"),
+    ({"title": "   "}, "title"),
+    ({"title": "x" * 121}, "title"),
+    ({"body": ""}, "body"),
+    ({"body": "x" * 10_001}, "body"),
+])
+def test_pr_creation_rejects_wrong_branch_or_missing_metadata_without_gh(repo, monkeypatch, overrides, error):
+    path, _ = repo
+    branch = _pushed_feature(path)
+    calls = _fake_gh(monkeypatch)
+    result = create_pr(branch, **overrides)
+    assert result["status"] == "error" and error in result["error"]
+    assert calls == []
+
+
+def test_pr_creation_requires_clean_tree_pushed_branch_and_gh_auth(repo, monkeypatch):
+    path, _ = repo
+    calls = _fake_gh(monkeypatch)
+    run_git_command("create_branch", branch_name="feature/not-pushed")
+    assert "push the reviewed feature branch" in create_pr("feature/not-pushed")["error"]
+    (path / "dirty.txt").write_text("uncommitted\n", encoding="utf-8")
+    assert "working tree must be clean" in create_pr("feature/not-pushed")["error"]
+    assert calls == []
+    (path / "dirty.txt").unlink()
+    git("checkout", "-q", "main", cwd=path)
+    branch = _pushed_feature(path, "feature/auth-check")
+    calls = _fake_gh(monkeypatch, auth_ok=False)
+    result = create_pr(branch)
+    assert result["status"] == "error" and "authentication unavailable" in result["error"]
+    assert calls == [["auth", "status"]]
+
+
+def test_pr_creation_is_blocked_on_main(repo, monkeypatch):
+    calls = _fake_gh(monkeypatch)
+    assert create_pr("main")["status"] == "error"
+    assert calls == []
+
+
+def test_push_refuses_a_remote_branch_it_does_not_track(repo):
+    path, _ = repo
+    run_git_command("create_branch", branch_name="feature/shared")
+    (path / "a.txt").write_text("a\n", encoding="utf-8")
+    run_git_command("stage", paths=["a.txt"])
+    run_git_command("commit", paths=["a.txt"], message="a", confirm_reviewed_diff=True)
+    git("push", "-q", "origin", "feature/shared", cwd=path)  # published by someone else, no upstream here
+    result = run_git_command("push", branch_name="feature/shared", confirm_reviewed_diff=True)
+    assert result["status"] == "error" and "not this branch's configured upstream" in result["error"]
+
+
+def test_push_does_not_recreate_a_deleted_upstream(repo):
+    path, origin = repo
+    branch = _pushed_feature(path, "feature/deleted-upstream")
+    git("branch", "-D", branch, cwd=origin)
+    result = run_git_command("push", branch_name=branch, confirm_reviewed_diff=True)
+    assert result["status"] == "error" and "upstream disappeared" in result["error"]
+    assert branch not in git("branch", "--list", cwd=origin).stdout
+
+
+def test_push_requires_a_clean_tree(repo):
+    path, _ = repo
+    branch = _pushed_feature(path, "feature/dirty-push")
+    (path / "feature.txt").write_text("changed\n", encoding="utf-8")
+    result = run_git_command("push", branch_name=branch, confirm_reviewed_diff=True)
+    assert result["status"] == "error" and "clean" in result["error"]
+
+
+@pytest.mark.parametrize("failure,error", [
+    (subprocess.TimeoutExpired(["git"], 30), "timed out"),
+    (FileNotFoundError("git is not installed"), "git is not installed"),
+    (PermissionError("denied"), "PermissionError"),
+])
+def test_process_failures_are_reported_not_raised(repo, monkeypatch, failure, error):
+    def broken(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(git_workspace, "_git", broken)
+    result = run_git_command("status")
+    assert result["status"] == "error" and error in result["error"]

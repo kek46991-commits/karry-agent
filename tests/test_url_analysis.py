@@ -387,3 +387,45 @@ def test_page_generation_stops_and_asks_user_when_reference_url_is_missing():
     outcome = agent.run("https://example.com/missing を参考にLPを作ってください")
     assert outcome.status == "needs_user_action" and outcome.text == urls.UNREACHABLE_MESSAGE
     assert fetch.call_count == 1 and generator.call_count == 1
+
+
+DNS_WORKER = urls.Path(urls.__file__).with_name("_url_dns.py")
+
+
+def test_dns_worker_prints_unique_addresses_as_json():
+    process = urls.subprocess.run([urls.sys.executable, "-I", str(DNS_WORKER), "localhost", "80"],
+                                  capture_output=True, text=True, timeout=10, check=False)
+    assert process.returncode == 0
+    addresses = json.loads(process.stdout)
+    assert addresses and len(addresses) == len(set(addresses))
+    assert set(addresses) <= {"127.0.0.1", "::1"}
+
+
+def test_dns_worker_fails_closed_on_bad_input():
+    process = urls.subprocess.run([urls.sys.executable, "-I", str(DNS_WORKER), "localhost", "not-a-port"],
+                                  capture_output=True, text=True, timeout=10, check=False)
+    assert process.returncode == 1 and process.stdout == ""
+
+
+def test_real_resolution_of_a_loopback_name_is_blocked():
+    # End to end through the isolated worker: a hostname that resolves to loopback must never be fetched.
+    with pytest.raises(urls.URLFetchError) as exc:
+        urls._resolve_public("localhost", 80, 10)
+    assert exc.value.code == "blocked_address"
+
+
+def test_dns_slot_is_released_after_failures(monkeypatch):
+    monkeypatch.setattr(urls.subprocess, "run", Mock(return_value=SimpleNamespace(returncode=1, stdout="")))
+    for _ in range(6):  # more than the 4 DNS slots
+        with pytest.raises(urls.URLFetchError, match="名前解決に失敗"):
+            urls._resolve_public("example.com", 80, 1)
+
+
+@pytest.mark.parametrize("address", ["100.64.0.1", "0.0.0.0", "fc00::1", "fe80::1", "::ffff:10.0.0.1", "198.18.0.1"])
+def test_non_global_ranges_are_not_public(address):
+    assert urls._public_ip(address) is False
+
+
+@pytest.mark.parametrize("address", ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"])
+def test_global_addresses_are_public(address):
+    assert urls._public_ip(address) is True
