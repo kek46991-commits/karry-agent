@@ -1,6 +1,11 @@
+import re
 import secrets
 
 from starlette.responses import JSONResponse
+
+# Long interview video edits: 8 MiB upload parts and worker audio chunks (karry_agent.video_edit.PART_SIZE).
+EDIT_PART_BYTES = 8 * 1024 * 1024
+_EDIT_UPLOAD = re.compile(r"/api/video/edits/(?:[a-f0-9]{32}/parts/\d+|worker/[a-f0-9]{32}/transcribe)")
 
 
 def auth_error(settings, authorization):
@@ -36,7 +41,12 @@ class VideoGuardMiddleware:
                 return await response(scope, receive, send)
         if scope.get("method") not in {"POST", "PATCH", "PUT"}:
             return await self.app(scope, receive, send)
-        maximum = self.settings.max_upload_bytes + 65536 if path == "/api/video/projects" else 65536
+        if path == "/api/video/projects":
+            maximum = self.settings.max_upload_bytes + 65536
+        elif _EDIT_UPLOAD.fullmatch(path):
+            maximum = EDIT_PART_BYTES + 65536
+        else:
+            maximum = 65536
         try:
             length = int(headers.get(b"content-length", b"0"))
         except ValueError:

@@ -1,0 +1,46 @@
+name: Video edit worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Video edit job id (empty = any pending job)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "*/15 * * * *"
+
+concurrency:
+  group: video-edit
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KARRY_API_TOKEN: ${{ secrets.KARRY_API_TOKEN }}
+      KARRY_URL: ${{ vars.KARRY_URL || 'https://karry-agent-1.onrender.com' }}
+      JOB_ID: ${{ inputs.job_id }}
+    steps:
+      - name: Check for pending jobs
+        id: pending
+        run: |
+          if [ -n "$JOB_ID" ]; then echo "count=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          count=$(curl --fail --silent --show-error --retry 3 --retry-delay 10 --max-time 60 \
+            -H "Authorization: Bearer $KARRY_API_TOKEN" "$KARRY_URL/api/video/edits/worker/pending" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["pending"])')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.pending.outputs.count != '0'
+      - name: Install ffmpeg and Japanese fonts
+        if: steps.pending.outputs.count != '0'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-noto-cjk
+      - name: Process video edits
+        if: steps.pending.outputs.count != '0'
+        run: python3 scripts/video_edit_worker.py

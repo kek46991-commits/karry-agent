@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def _target(path):
-    return path == "/api/video/project-config" or any(path == root or path.startswith(root + "/") for root in ("/api/video/projects", "/api/video/project-jobs", "/api/video/scripts")) or path in {"/api/video/generate/preview", "/api/video/generate/render"}
+    return path == "/api/video/project-config" or any(path == root or path.startswith(root + "/") for root in ("/api/video/projects", "/api/video/project-jobs", "/api/video/scripts", "/api/video/edits")) or path in {"/api/video/generate/preview", "/api/video/generate/render"}
 
 
 class KarryVideoGuard(VideoGuardMiddleware):
